@@ -35,8 +35,8 @@ Capture → ProposalService → AIProposal → UserDecision
 ## 当前状态
 
 - 已完成：五页 Web Demo、核心闭环、显式 Pipeline、确定性 Mock Proposal、可撤销决策事件、月历排期与派生回顾。
-- 已验证：类型检查、lint、20 个单测与一条完整 Playwright 核心流程 E2E。
-- 待完成：本次变更的静态导出与 GitHub Actions / Pages 运行验证。
+- 已验证：类型检查、lint、20 个单测、完整 Playwright 核心流程 E2E，以及普通与 Pages base path 两种静态导出。
+- 自动化：`lsc` 的 GitHub Actions 已执行 CI 与 GitHub Pages 部署；在线 Demo 见 [lsclin.github.io/Reflow](https://lsclin.github.io/Reflow/)。
 
 详细的里程碑与验收清单见 [docs/implementation-plan.md](docs/implementation-plan.md)。
 
@@ -158,6 +158,8 @@ python -m http.server 4173 -d dist
 ```
 
 然后访问 `http://localhost:4173`。首次运行 Playwright 时，如本机尚无浏览器运行时，执行 `npx playwright install chromium`。
+
+推送到 `lsc` 会自动运行类型检查、lint、Jest、核心 E2E 和静态导出；随后以 `GITHUB_PAGES=true` 导出并部署到 Pages。fork 的 `github-pages` 环境已允许 `lsc` 发布；合并到上游后，应把部署触发分支切换为 `main`。
 
 ## 数据、隐私与重置
 

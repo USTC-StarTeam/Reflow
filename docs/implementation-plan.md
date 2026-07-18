@@ -55,7 +55,7 @@ Capture → ProposalService → AIProposal → UserDecision
 - [x] **M2 模型、Reducer、Selector 与持久化**：v2 领域模型、Capture Pipeline、确定性 Mock、决策事件、派生统计、AsyncStorage v1 迁移与重置。
 - [x] **M3 完整核心闭环**：从捕捉到 Proposal、可撤销用户决定、任务/知识产物、执行日志、回顾更新与刷新恢复。
 - [x] **M4 增强**：月历、选择日期、空档建议、等待他人、稍后处理、编辑后接受和撤销。
-- [ ] **M5 验证与发布准备**：优先单测、单条核心 E2E、静态导出、GitHub Pages/Actions、README。
+- [x] **M5 验证与发布准备**：20 个单测、单条核心 E2E、两种静态导出、GitHub Actions / Pages 与 README；fork 的 `lsc` 已成功发布。
 
 ## 安全边界
 
