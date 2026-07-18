@@ -44,9 +44,9 @@ export function createSeedData(baseDate = new Date()): DomainData {
       },
     ],
     captures: [
-      { id: 'capture-contract', rawText: '合同条款今晚前审阅，注意付款周期', source: '邮件', createdAt: atTime(today, 11, 20).toISOString(), parseStatus: 'organized' },
-      { id: 'capture-health', rawText: '买药和预约体检', source: '语音', createdAt: atTime(today, 11, 42).toISOString(), parseStatus: 'organized' },
-      { id: 'capture-duplicate-quote', rawText: '客户报价今天必须确认', source: '邮件', createdAt: atTime(today, 12, 5).toISOString(), parseStatus: 'organized' },
+      { id: 'capture-contract', rawText: '合同条款今晚前审阅，注意付款周期', source: 'email', createdAt: atTime(today, 11, 20).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-health', rawText: '买药和预约体检', source: 'voice', createdAt: atTime(today, 11, 42).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-duplicate-quote', rawText: '客户报价今天必须确认', source: 'email', createdAt: atTime(today, 12, 5).toISOString(), pipelineState: 'proposed' },
     ],
     proposals: [
       {
@@ -65,6 +65,7 @@ export function createSeedData(baseDate = new Date()): DomainData {
         kind: 'merge', status: 'pending', nextAction: '合并来源并保留邮件记录', duplicateTaskId: 'task-client-quote',
       },
     ],
+    decisions: [],
     timeEntries: [
       {
         id: 'time-inbox-cleanup', taskId: 'task-inbox-cleanup', startedAt: atTime(today, 9, 10).toISOString(),
@@ -81,8 +82,8 @@ export function createSeedData(baseDate = new Date()): DomainData {
       { id: 'log-interrupt-demo', taskId: 'task-reflow-demo', createdAt: atTime(today, 11, 15).toISOString(), text: '突发：客户询问报价口径', kind: 'interrupt' },
     ],
     knowledgeCards: [
-      { id: 'knowledge-quote', title: '报价沟通检查单', summary: '回复客户前先核对预算口径、付款周期和有效期。', source: '历史任务与邮件' },
-      { id: 'knowledge-focus', title: '个人执行模式', summary: '沟通跟进通常比预估多花约 20 分钟，排程时需要留缓冲。', source: '过去 7 天复盘' },
+      { id: 'knowledge-quote', title: '报价沟通检查单', summary: '回复客户前先核对预算口径、付款周期和有效期。', source: '历史任务与邮件', createdAt: atTime(yesterday, 18).toISOString() },
+      { id: 'knowledge-focus', title: '个人执行模式', summary: '沟通跟进通常比预估多花约 20 分钟，排程时需要留缓冲。', source: '过去 7 天复盘', createdAt: atTime(today, 8).toISOString() },
     ],
   };
 }

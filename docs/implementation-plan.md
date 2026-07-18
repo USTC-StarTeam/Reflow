@@ -31,12 +31,29 @@
 - 领域动作使用 `startTask`、`pauseTask`、`completeTask`、`moveTask`、`recordTime`、`recordProgress`、`recordInterruption`、`scheduleTask`、`deleteTask`。
 - Mock Proposal 对相同文本生成相同结果，不使用随机数，不声称是真实 AI。
 
+## 显式 Pipeline 边界
+
+第一版固定采用以下非 Agent Pipeline：
+
+```text
+Capture → ProposalService → AIProposal → UserDecision
+→ Task / Knowledge Outcome → Execution Logs → Deterministic Review
+```
+
+- `InboxCapture` 有 `captured`、`proposing`、`proposed`、`proposalFailed`、`resolved` 状态；失败包含安全错误信息、错误码与可重试标记。
+- Capture Factory 统一接收输入渠道。当前 Web 文本映射为 `webText`，类型已预留 voice、email、feishu、calendar、shareExtension、mobileShortcut。
+- `ProposalService` 只接收 `ProposalRequest` 并返回 `ProposalResult`。Provider 不得读取或写入 Store、Reducer、持久化层或正式任务。
+- `UserDecision` 是持久化领域事件。只有 Reducer 中的领域 Action 能产生任务、合并/拆分结果、知识卡片或忽略结果；最近一次安全可逆决策可以撤销。
+- 执行日志只由 `startTask`、`pauseTask`、`completeTask`、`moveTask`、`recordTime`、`recordProgress`、`recordInterruption`、`scheduleTask`、`deleteTask` 等显式动作写入。
+- `ReviewFacts` 只由任务、耗时和进展日志派生。未来的解释服务只能读取这些已计算事实，不能生成或覆盖指标。
+- 不实现 ReAct、工具自主选择、多 Agent、长期自主运行或通用 Agent Runtime。
+
 ## 里程碑
 
 - [x] **M0 仓库与 Expo 初始化**：`lsc` 分支、SDK 57、TypeScript、Router、依赖、脚本和本清单。
 - [x] **M1 五页高保真静态 UI**：移动优先应用外壳、统一设计系统、五页与基础弹层。
-- [x] **M2 模型、Reducer、Selector 与持久化**：领域模型、确定性 Mock、派生统计、AsyncStorage 数据版本与重置。
-- [x] **M3 完整核心闭环**：从捕捉到回顾更新，包含单一当前任务、耗时和进展记录。
+- [x] **M2 模型、Reducer、Selector 与持久化**：v2 领域模型、Capture Pipeline、确定性 Mock、决策事件、派生统计、AsyncStorage v1 迁移与重置。
+- [x] **M3 完整核心闭环**：从捕捉到 Proposal、可撤销用户决定、任务/知识产物、执行日志、回顾更新与刷新恢复。
 - [x] **M4 增强**：月历、选择日期、空档建议、等待他人、稍后处理、编辑后接受和撤销。
 - [ ] **M5 验证与发布准备**：优先单测、单条核心 E2E、静态导出、GitHub Pages/Actions、README。
 

@@ -1,14 +1,25 @@
-export const DEMO_DATA_VERSION = 1 as const;
+export const DEMO_DATA_VERSION = 2 as const;
 
 export type TaskStatus = 'notStarted' | 'inProgress' | 'completed';
 export type TaskCategory = 'work' | 'communication' | 'learning' | 'life' | 'health' | 'unknown';
 export type WorkflowBucket = 'inbox' | 'today' | 'waiting' | 'someday' | 'archived';
 export type CaptureOutcome = 'task' | 'knowledge' | 'ignored';
+export type ProposalOutcome = Exclude<CaptureOutcome, 'ignored'>;
 export type ProposalKind = 'create' | 'merge' | 'split';
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
 export type ProgressKind = 'start' | 'pause' | 'progress' | 'interrupt' | 'complete';
 export type ReviewPeriod = 'daily' | 'weekly' | 'monthly';
 export type CalendarViewMode = 'day' | 'week' | 'month';
+
+export type CaptureSource = 'webText' | 'voice' | 'email' | 'feishu' | 'calendar' | 'shareExtension' | 'mobileShortcut';
+export type CapturePipelineState = 'captured' | 'proposing' | 'proposed' | 'proposalFailed' | 'resolved';
+export type PipelineFailureCode = 'empty_capture' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'decision_not_reversible';
+
+export interface PipelineFailure {
+  code: PipelineFailureCode;
+  message: string;
+  retryable: boolean;
+}
 
 export interface TaskItem {
   id: string;
@@ -29,15 +40,16 @@ export interface TaskItem {
 export interface InboxCapture {
   id: string;
   rawText: string;
-  source: '手动输入' | '邮件' | '飞书' | '语音';
+  source: CaptureSource;
   createdAt: string;
-  parseStatus: 'organizing' | 'organized' | 'resolved';
+  pipelineState: CapturePipelineState;
+  failure?: PipelineFailure;
 }
 
 export interface AIProposal {
   id: string;
   captureId: string;
-  outcome: CaptureOutcome;
+  outcome: ProposalOutcome;
   title: string;
   category: TaskCategory;
   estimatedMinutes: number;
@@ -46,8 +58,41 @@ export interface AIProposal {
   kind: ProposalKind;
   status: ProposalStatus;
   nextAction: string;
+  knowledgeSummary?: string;
   duplicateTaskId?: string;
   splitTitles?: string[];
+}
+
+export interface ProposalEdit {
+  title: string;
+  category: TaskCategory;
+  estimatedMinutes: number;
+  nextAction: string;
+  knowledgeSummary?: string;
+}
+
+export type UserDecisionInput =
+  | { kind: 'accept'; proposalId: string; edited: ProposalEdit; bucket?: WorkflowBucket }
+  | { kind: 'ignore'; proposalId: string };
+
+export type DecisionEffect =
+  | { type: 'createdTasks'; tasks: TaskItem[] }
+  | { type: 'mergedTask'; previousTask: TaskItem; appliedTask: TaskItem }
+  | { type: 'createdKnowledge'; cards: KnowledgeCard[] }
+  | { type: 'ignored' };
+
+export interface UserDecision {
+  id: string;
+  captureId: string;
+  proposalId: string;
+  kind: UserDecisionInput['kind'];
+  outcome: CaptureOutcome;
+  bucket?: WorkflowBucket;
+  edited?: ProposalEdit;
+  appliedAt: string;
+  status: 'applied' | 'reverted';
+  revertedAt?: string;
+  effect: DecisionEffect;
 }
 
 export interface TimeEntry {
@@ -71,6 +116,7 @@ export interface KnowledgeCard {
   title: string;
   summary: string;
   source: string;
+  createdAt: string;
 }
 
 export interface DomainData {
@@ -78,25 +124,46 @@ export interface DomainData {
   tasks: TaskItem[];
   captures: InboxCapture[];
   proposals: AIProposal[];
+  decisions: UserDecision[];
   timeEntries: TimeEntry[];
   progressLogs: ProgressLog[];
   knowledgeCards: KnowledgeCard[];
 }
 
-export interface ReviewSummary {
+export interface ReviewFacts {
   period: ReviewPeriod;
-  total: number;
-  completed: number;
-  completionRate: number;
+  startAt: string;
+  endAt: string;
+  taskCount: number;
+  completedCount: number;
   actualMinutes: number;
   interruptions: number;
   categoryMinutes: { category: TaskCategory; minutes: number }[];
+}
+
+export interface ReviewSummary extends ReviewFacts {
+  total: number;
+  completed: number;
+  completionRate: number;
   headline: string;
   suggestion: string;
 }
 
+export interface ReviewExplanationService {
+  explain(facts: Readonly<ReviewFacts>): Promise<{ narrative: string }>;
+}
+
+export interface ProposalRequest {
+  capture: Readonly<InboxCapture>;
+  existingTasks: readonly TaskItem[];
+}
+
+export type ProposalResult =
+  | { status: 'success'; proposals: AIProposal[] }
+  | { status: 'failure'; failure: PipelineFailure };
+
 export interface ProposalService {
-  propose(capture: InboxCapture, tasks?: TaskItem[]): Promise<AIProposal[]>;
+  propose(request: ProposalRequest): Promise<ProposalResult>;
 }
 
 export const categoryLabels: Record<TaskCategory, string> = {
@@ -120,4 +187,14 @@ export const bucketLabels: Record<WorkflowBucket, string> = {
   waiting: '等待他人',
   someday: '稍后处理',
   archived: '归档',
+};
+
+export const captureSourceLabels: Record<CaptureSource, string> = {
+  webText: 'Web 文本',
+  voice: '语音',
+  email: '邮件',
+  feishu: '飞书',
+  calendar: '日历',
+  shareExtension: '分享扩展',
+  mobileShortcut: '移动端快捷入口',
 };

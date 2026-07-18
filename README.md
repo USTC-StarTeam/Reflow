@@ -11,11 +11,32 @@ Reflow 是一个移动优先的个人执行管理 Demo。它的目标不是再�
 
 > 当前是验证产品形态与交互的本地 Demo：不接真实 AI、后端、账号、云同步或第三方服务。
 
+## 显式 Pipeline 架构（非 Agent）
+
+Reflow 第一版采用固定、可测试的 Pipeline，而不是通用 Agent：
+
+```text
+Capture → ProposalService → AIProposal → UserDecision
+→ Task / Knowledge Outcome → Execution Logs → Deterministic Review
+```
+
+| 节点 | 输入 | 输出 | 失败与写入边界 |
+| --- | --- | --- | --- |
+| Capture Factory | Web 文本与来源元数据 | `InboxCapture` | 空文本返回结构化校验失败；当前实现 `webText`，模型已预留语音、邮件、飞书、日历、分享扩展和移动端快捷入口。 |
+| ProposalService | `ProposalRequest` | `ProposalResult`（Proposal 集合或 `ProposalFailure`） | 失败可重试；Service 只能读取请求，不能访问 Store、Reducer、AsyncStorage 或任务数据写入接口。 |
+| UserDecision | 待确认 Proposal 与用户编辑 | 持久化 `UserDecision` | 只有领域 Reducer 能创建、合并、拆分任务或创建知识卡片；忽略只拒绝 Proposal。 |
+| Execution Logs | 明确领域动作 | 任务状态、`TimeEntry`、`ProgressLog` | 缺失任务、非法耗时、非法排期会返回结构化失败且不写入事实数据。 |
+| Deterministic Review | 任务与执行事实 | `ReviewFacts` / `ReviewSummary` | 指标由程序计算；未来模型最多解释已计算事实，不能计算或覆盖关键指标。 |
+
+`MockProposalService` 是可注入的默认 Provider。未来接入 OpenAI 或 Claude 时，只需要实现同一个 `ProposalService` 接口；UI、Store 和执行领域动作不需要改写。
+
+这意味着首版**不实现** ReAct 循环、自主工具选择、多 Agent、长期自主运行或通用 Agent Runtime。重点是让每个步骤可靠、可追踪、可撤销。
+
 ## 当前状态
 
-- 已完成：五页 Web Demo、核心闭环、确定性 Mock Proposal、领域数据持久化、月历排期、派生回顾和单元测试。
-- 已验证：类型检查、lint、11 个单测和 Web 静态导出均通过。
-- 待完成：核心流程 Playwright E2E、GitHub Actions、GitHub Pages 自动部署和更完整的视觉验收。
+- 已完成：五页 Web Demo、核心闭环、显式 Pipeline、确定性 Mock Proposal、可撤销决策事件、月历排期与派生回顾。
+- 已验证：类型检查、lint、20 个单测与一条完整 Playwright 核心流程 E2E。
+- 待完成：本次变更的静态导出与 GitHub Actions / Pages 运行验证。
 
 详细的里程碑与验收清单见 [docs/implementation-plan.md](docs/implementation-plan.md)。
 
@@ -42,7 +63,7 @@ Reflow 明确区分“事项属于什么”和“事项现在在哪里”，避�
 | `WorkflowBucket` | 收件箱、今天、等待他人、稍后处理、归档。 |
 | `CaptureOutcome` | 任务、知识沉淀、忽略。 |
 
-主要事实对象是 `InboxCapture`、`AIProposal`、`TaskItem`、`TimeEntry` 和 `ProgressLog`。回顾结果不是持久化事实，而是根据这些对象实时派生。
+主要事实对象是 `InboxCapture`、`AIProposal`、`UserDecision`、`TaskItem`、`KnowledgeCard`、`TimeEntry` 和 `ProgressLog`。`UserDecision` 会保存用户编辑内容、工作流去向、最终产物与可逆效果；刷新后最近一次未撤销决策仍可追踪和撤销。回顾结果不是持久化事实，而是根据任务和执行日志实时派生。
 
 领域层使用明确动作：`startTask`、`pauseTask`、`completeTask`、`moveTask`、`recordTime`、`recordProgress`、`recordInterruption`、`scheduleTask` 和 `deleteTask`。同一时刻最多只能有一个进行中任务。
 
@@ -53,7 +74,7 @@ Reflow 明确区分“事项属于什么”和“事项现在在哪里”，避�
 - **应用框架**：Expo SDK 57、React 19、React Native 0.86、TypeScript。
 - **路由与 Web**：Expo Router + React Native Web；静态导出由 Metro 完成。
 - **状态管理**：React Context + Reducer，跨页面共享领域状态。
-- **持久化**：`@react-native-async-storage/async-storage`，浏览器键为 `reflow.demo.v1`。
+- **持久化**：`@react-native-async-storage/async-storage`，浏览器键保持为 `reflow.demo.v1`，领域数据版本为 v2，并自动迁移 v1 数据。
 - **排序**：Web 优先使用 `@dnd-kit`；非 Web 端保留上移/下移 fallback。
 - **测试**：Jest + jest-expo；Playwright 已配置为后续核心流程 E2E 的入口。
 
@@ -62,7 +83,7 @@ Reflow 明确区分“事项属于什么”和“事项现在在哪里”，避�
 ```text
 src/
   app/       Expo Router 路由与应用根布局
-  core/      类型、种子数据、Mock Proposal、Reducer、Selector、持久化与 Store
+  core/      Capture Factory、Pipeline、类型、Mock Proposal、Reducer、Selector、持久化与 Store
   features/  各页面及跨端共享 UI 组件
 docs/        产品执行清单与后续里程碑
 ```
@@ -113,8 +134,11 @@ npm run typecheck
 # ESLint
 npm run lint
 
-# 当前单元测试：Reducer、Mock Proposal、统计与持久化
+# 单元测试：Capture Factory、Pipeline、Mock Proposal、Reducer、统计与持久化
 npm test
+
+# 一条端到端核心闭环（会自动启动或复用 Web 开发服务器）
+npm run test:e2e
 
 # 静态 Web 导出，产物位于 dist/
 npm run export:web
@@ -133,12 +157,12 @@ PowerShell 中可用下列命令预览导出产物：
 python -m http.server 4173 -d dist
 ```
 
-然后访问 `http://localhost:4173`。当前 `test:e2e` 脚本已预留，但核心 E2E 用例仍属于 M5 收尾工作。
+然后访问 `http://localhost:4173`。首次运行 Playwright 时，如本机尚无浏览器运行时，执行 `npx playwright install chromium`。
 
 ## 数据、隐私与重置
 
 - Demo 数据只保存在当前浏览器，不会上传到服务器。
-- 持久化内容仅包含领域数据：任务、捕捉、Proposal、耗时、进展和知识卡片。
+- 持久化内容仅包含领域数据：任务、捕捉及其 Pipeline 状态、Proposal、决策事件、耗时、进展和知识卡片。
 - 弹窗开关、loading、toast、当前 Tab 等瞬时 UI 状态不会保存。
 - 数据版本或内容损坏时会自动回退到种子数据。
 - 可从左上角品牌入口使用“重置 Demo 数据”恢复初始演示状态。

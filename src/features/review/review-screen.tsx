@@ -34,7 +34,7 @@ export function ReviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  metrics: { flexDirection: 'row', gap: 8 }, metricCard: { flex: 1, alignItems: 'center', paddingHorizontal: 6, shadowOpacity: 0 }, metricLabel: { color: colors.muted, fontSize: 9, fontWeight: '800', textAlign: 'center' },
+  metrics: { flexDirection: 'row', gap: 8 }, metricCard: { flex: 1, alignItems: 'center', paddingHorizontal: 6, boxShadow: 'none' }, metricLabel: { color: colors.muted, fontSize: 9, fontWeight: '800', textAlign: 'center' },
   reviewHeadline: { color: colors.ink, fontSize: 14, lineHeight: 21, fontWeight: '800' }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   barRow: { gap: 5, marginBottom: 7 }, barLabel: { flexDirection: 'row', justifyContent: 'space-between' }, barName: { color: colors.ink, fontSize: 11, fontWeight: '800' }, barValue: { color: colors.muted, fontSize: 10, fontWeight: '700' }, barTrack: { height: 8, borderRadius: radius.pill, backgroundColor: colors.purpleSoft, overflow: 'hidden' }, barFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.purple },
 });

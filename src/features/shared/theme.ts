@@ -20,9 +20,5 @@ export const colors = {
 
 export const radius = { small: 10, medium: 14, large: 20, pill: 999 };
 export const shadow = {
-  shadowColor: colors.shadow,
-  shadowOpacity: 1,
-  shadowRadius: 18,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 3,
+  boxShadow: `0px 8px 18px ${colors.shadow}`,
 };

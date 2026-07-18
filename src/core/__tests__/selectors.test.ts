@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveReview, selectCurrentTask, selectTaskMinutes } from '../selectors';
+import { deriveReview, deriveReviewFacts, selectCurrentTask, selectTaskMinutes } from '../selectors';
 
 describe('selectors', () => {
   it('derives time and review from fact records', () => {
@@ -13,6 +13,13 @@ describe('selectors', () => {
     expect(review.actualMinutes).toBe(60);
     expect(review.interruptions).toBe(1);
     expect(review.total).toBeGreaterThan(0);
+  });
+
+  it('exposes deterministic facts separately from the display summary', () => {
+    const now = new Date('2026-07-17T12:00:00');
+    const facts = deriveReviewFacts(createSeedData(now), 'daily', now);
+    expect(facts).toMatchObject({ taskCount: expect.any(Number), completedCount: expect.any(Number), actualMinutes: 60, interruptions: 1 });
+    expect(facts).not.toHaveProperty('headline');
   });
 
   it('reflects start and completion changes without saved review snapshots', () => {

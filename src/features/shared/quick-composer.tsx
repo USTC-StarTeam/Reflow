@@ -8,11 +8,18 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
   const { capture, capturing } = useReflowStore();
   const [value, setValue] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit() {
-    if (!value.trim() || capturing) return;
-    await capture(value);
+    if (capturing) return;
+    const result = await capture(value);
+    if (result.status === 'failure') {
+      setError(result.failure.message);
+      setSubmitted(false);
+      return;
+    }
     setValue('');
+    setError(null);
     setSubmitted(true);
     onSubmitted?.();
   }
@@ -25,7 +32,7 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
         autoFocus={autoFocus}
         multiline
         value={value}
-        onChangeText={(text) => { setValue(text); setSubmitted(false); }}
+        onChangeText={(text) => { setValue(text); setSubmitted(false); setError(null); }}
         placeholder="准备做什么？"
         placeholderTextColor="#B6BECA"
         style={styles.input}
@@ -44,6 +51,7 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
         </Pressable>
       </View>
       {submitted ? <Text style={styles.success}>已交给 Mock AI 整理，请到收件箱确认。</Text> : null}
+      {error ? <Text testID="quick-capture-error" style={styles.error}>{error}</Text> : null}
     </View>
   );
 }
@@ -60,4 +68,5 @@ const styles = StyleSheet.create({
   sendText: { color: '#9AA3B0', fontSize: 14, fontWeight: '900' },
   sendTextActive: { color: '#FFFFFF' },
   success: { color: colors.green, fontSize: 11, lineHeight: 16, fontWeight: '700' },
+  error: { color: colors.danger, fontSize: 11, lineHeight: 16, fontWeight: '700' },
 });
