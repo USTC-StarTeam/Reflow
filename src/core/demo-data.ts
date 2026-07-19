@@ -47,7 +47,7 @@ export function createSeedData(baseDate = new Date()): DomainData {
       { id: 'capture-contract', rawText: '合同条款今晚前审阅，注意付款周期', source: 'email', createdAt: atTime(today, 11, 20).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-health', rawText: '买药和预约体检', source: 'voice', createdAt: atTime(today, 11, 42).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-duplicate-quote', rawText: '客户报价今天必须确认', source: 'email', createdAt: atTime(today, 12, 5).toISOString(), pipelineState: 'proposed' },
-      { id: 'capture-waiting', rawText: '等师兄回复比赛方向', source: 'webText', createdAt: atTime(today, 12, 20).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-waiting', rawText: '等供应商确认送货时间', source: 'webText', createdAt: atTime(today, 12, 20).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-someday', rawText: '下周再整理旅行报销材料', source: 'webText', createdAt: atTime(today, 12, 30).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-knowledge', rawText: '沉淀报价沟通原则：先确认预算口径', source: 'webText', createdAt: atTime(today, 12, 40).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-unknown', rawText: '记得那件事情', source: 'webText', createdAt: atTime(today, 12, 50).toISOString(), pipelineState: 'proposed' },
@@ -69,10 +69,10 @@ export function createSeedData(baseDate = new Date()): DomainData {
         kind: 'merge', status: 'pending', nextAction: '合并来源并保留邮件记录', suggestedBucket: 'today', duplicateTaskId: 'task-client-quote',
       },
       {
-        id: 'proposal-waiting', captureId: 'capture-waiting', outcome: 'task', title: '等待师兄确认比赛方向',
-        category: 'communication', estimatedMinutes: 10, confidence: 0.92, reason: '下一步取决于师兄回复或处理，当前不需要你继续行动。',
-        kind: 'create', status: 'pending', nextAction: `等待师兄回复，${dateKey(addDays(today, 3))} 跟进`, suggestedBucket: 'waiting',
-        waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: dateKey(addDays(today, 3)) },
+        id: 'proposal-waiting', captureId: 'capture-waiting', outcome: 'task', title: '等待供应商确认送货时间',
+        category: 'communication', estimatedMinutes: 10, confidence: 0.92, reason: '下一步取决于供应商确认，当前不需要你继续行动。',
+        kind: 'create', status: 'pending', nextAction: `等待供应商确认，${dateKey(addDays(today, 3))} 跟进`, suggestedBucket: 'waiting',
+        waitingDetails: { waitingFor: '供应商', waitingOn: '确认送货时间', followUpDate: dateKey(addDays(today, 3)) },
       },
       {
         id: 'proposal-someday', captureId: 'capture-someday', outcome: 'task', title: '整理旅行报销材料',

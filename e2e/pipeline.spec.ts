@@ -58,11 +58,11 @@ test('收件箱清晰展示等待建议、九种归类和可撤销的等待决�
   const waitingProposal = page.getByTestId('proposal-proposal-waiting');
   await expect(page.getByText('待你确认')).toBeVisible();
   await expect(page.getByText('最近处理')).toBeVisible();
-  await expect(waitingProposal).toContainText('等师兄回复比赛方向');
+  await expect(waitingProposal).toContainText('等供应商确认送货时间');
   await expect(waitingProposal).toContainText('AI 归类结果');
   await expect(waitingProposal).toContainText('目前无需你行动，等对方回复或处理后再继续。');
-  await expect(waitingProposal).toContainText('师兄');
-  await expect(waitingProposal).toContainText('确认比赛方向');
+  await expect(waitingProposal).toContainText('供应商');
+  await expect(waitingProposal).toContainText('确认送货时间');
 
   await waitingProposal.getByRole('button', { name: '设置跟进时间' }).click();
   await page.getByTestId('follow-up-date-proposal-waiting').fill('2026-07-24');

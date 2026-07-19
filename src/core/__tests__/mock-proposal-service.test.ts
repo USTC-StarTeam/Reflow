@@ -38,7 +38,7 @@ describe('MockProposalService', () => {
 
   it('extracts waiting context and later handling without treating active replies as waiting', async () => {
     const service = new MockProposalService(0);
-    const waiting = { ...capture, id: 'capture-waiting', rawText: '等师兄回复比赛方向' };
+    const waiting = { ...capture, id: 'capture-waiting', rawText: '等供应商确认送货时间' };
     const someday = { ...capture, id: 'capture-someday', rawText: '下周再整理旅行报销材料' };
     const activeReply = { ...capture, id: 'capture-reply', rawText: '下午回复客户报价' };
     const [waitingResult, somedayResult, replyResult] = await Promise.all([
@@ -48,7 +48,7 @@ describe('MockProposalService', () => {
     ]);
     if (waitingResult.status === 'success') expect(waitingResult.proposals[0]).toMatchObject({
       suggestedBucket: 'waiting',
-      waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: '2026-07-20' },
+      waitingDetails: { waitingFor: '供应商', waitingOn: '确认送货时间', followUpDate: '2026-07-20' },
     });
     if (somedayResult.status === 'success') expect(somedayResult.proposals[0]).toMatchObject({ suggestedBucket: 'someday' });
     if (replyResult.status === 'success') expect(replyResult.proposals[0]).toMatchObject({ category: 'communication', suggestedBucket: 'today' });

@@ -39,8 +39,8 @@ describe('domain reducer', () => {
     expect(ignored).toMatchObject({ status: 'success' });
     expect(ignored.data.decisions[0].outcome).toBe('ignored');
 
-    const waiting = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-waiting', at: now, decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待师兄确认比赛方向', category: 'communication', estimatedMinutes: 10, nextAction: '等待回复', visibleClassification: 'waiting', waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: '2026-07-20' } } } });
-    expect(waiting.data.tasks.find((task) => task.title === '等待师兄确认比赛方向')).toMatchObject({ bucket: 'waiting', waitingDetails: { waitingFor: '师兄', followUpDate: '2026-07-20' } });
+    const waiting = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-waiting', at: now, decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待供应商确认送货时间', category: 'communication', estimatedMinutes: 10, nextAction: '等待确认', visibleClassification: 'waiting', waitingDetails: { waitingFor: '供应商', waitingOn: '确认送货时间', followUpDate: '2026-07-20' } } } });
+    expect(waiting.data.tasks.find((task) => task.title === '等待供应商确认送货时间')).toMatchObject({ bucket: 'waiting', waitingDetails: { waitingFor: '供应商', followUpDate: '2026-07-20' } });
 
     const merged = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-merge', at: now, decision: { kind: 'accept', proposalId: 'proposal-duplicate-quote', bucket: 'someday', edited: { title: '确认客户报价', category: 'communication', estimatedMinutes: 20, nextAction: '回复客户' } } });
     expect(merged.data.tasks.find((task) => task.id === 'task-client-quote')?.bucket).toBe('someday');
@@ -50,7 +50,7 @@ describe('domain reducer', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
     const result = reduceDomain(seed, {
       type: 'submitUserDecision', decisionId: 'decision-custom-follow-up', at: now,
-      decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待师兄确认比赛方向', category: 'communication', estimatedMinutes: 10, nextAction: '7 月 24 日跟进', visibleClassification: 'waiting', waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: '2026-07-24' } } },
+      decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待供应商确认送货时间', category: 'communication', estimatedMinutes: 10, nextAction: '7 月 24 日跟进', visibleClassification: 'waiting', waitingDetails: { waitingFor: '供应商', waitingOn: '确认送货时间', followUpDate: '2026-07-24' } } },
     });
     expect(result).toMatchObject({ status: 'success' });
     if (result.status !== 'success') throw new Error('expected waiting decision');
@@ -80,7 +80,7 @@ describe('domain reducer', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
     const result = reduceDomain(seed, {
       type: 'submitUserDecision', decisionId: 'decision-invalid-follow-up', at: now,
-      decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待师兄确认比赛方向', category: 'communication', estimatedMinutes: 10, nextAction: '等待回复', visibleClassification: 'waiting', waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: 'not-a-date' } } },
+      decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待供应商确认送货时间', category: 'communication', estimatedMinutes: 10, nextAction: '等待确认', visibleClassification: 'waiting', waitingDetails: { waitingFor: '供应商', waitingOn: '确认送货时间', followUpDate: 'not-a-date' } } },
     });
     expect(result).toMatchObject({ status: 'failure', failure: { code: 'invalid_follow_up' }, data: seed });
   });

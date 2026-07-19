@@ -23,9 +23,9 @@ function extractWaitingDetails(text: string, createdAt: string): WaitingDetails 
     };
   }
 
-  if (/\b(?:等|等待)\b/.test(text) || /(?:对方|师兄|老师|客户).*(?:回复|确认|反馈)/.test(text)) {
+  if (/\b(?:等|等待)\b/.test(text) || /(?:对方|同事|老师|客户|供应商|物业).*(?:回复|确认|反馈)/.test(text)) {
     return {
-      waitingFor: text.match(/(师兄|师姐|老师|客户|对方|同事|朋友)/)?.[1] ?? '对方',
+      waitingFor: text.match(/(同事|老师|客户|供应商|物业|对方|朋友)/)?.[1] ?? '对方',
       waitingOn: '等待对方回复或确认',
       followUpDate: dateKey(addDays(new Date(createdAt), 3)),
     };
