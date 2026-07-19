@@ -1,6 +1,6 @@
 import { addDays, dateKey, startOfDay, startOfWeek } from './date-utils';
 import { resolveProposalVisibleClassification } from './classification';
-import { categoryLabels, type DomainData, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory } from './types';
+import { categoryLabels, type CalendarTaskEntry, type DomainData, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory } from './types';
 
 export function selectTaskMinutes(data: DomainData, taskId: string): number {
   return data.timeEntries.filter((entry) => entry.taskId === taskId).reduce((sum, entry) => sum + entry.minutes, 0);
@@ -36,10 +36,45 @@ export function selectLatestUndoableDecision(data: DomainData) {
   ].sort((left, right) => right.appliedAt.localeCompare(left.appliedAt))[0];
 }
 
-export function selectTasksForDate(data: DomainData, selected: string) {
-  return data.tasks
-    .filter((task) => task.plannedStartAt && dateKey(task.plannedStartAt) === selected)
-    .sort((a, b) => (a.plannedStartAt ?? '').localeCompare(b.plannedStartAt ?? ''));
+export function selectCalendarEntriesForDate(data: DomainData, selected: string, today = new Date()): CalendarTaskEntry[] {
+  const todayKey = dateKey(today);
+  return data.tasks.flatMap((task): CalendarTaskEntry[] => {
+    const plannedOnDate = Boolean(task.plannedStartAt && dateKey(task.plannedStartAt) === selected);
+    const completedOnDate = Boolean(task.completedAt && dateKey(task.completedAt) === selected);
+    const unscheduledToday = selected === todayKey
+      && task.bucket === 'today'
+      && task.status !== 'completed'
+      && !task.plannedStartAt;
+    if (!plannedOnDate && !completedOnDate && !unscheduledToday) return [];
+
+    const kind = plannedOnDate && completedOnDate
+      ? 'plannedCompleted'
+      : completedOnDate
+        ? 'completed'
+        : plannedOnDate
+          ? 'planned'
+          : 'unscheduled';
+    return [{
+      task,
+      date: selected,
+      kind,
+      plannedStartAt: task.plannedStartAt,
+      plannedEndAt: task.plannedEndAt,
+      completedAt: task.completedAt,
+    }];
+  }).sort((left, right) => {
+    const leftTime = left.kind === 'planned' || left.kind === 'plannedCompleted'
+      ? left.plannedStartAt ?? ''
+      : left.kind === 'completed'
+        ? left.completedAt ?? ''
+        : `z-${String(left.task.sortIndex).padStart(6, '0')}`;
+    const rightTime = right.kind === 'planned' || right.kind === 'plannedCompleted'
+      ? right.plannedStartAt ?? ''
+      : right.kind === 'completed'
+        ? right.completedAt ?? ''
+        : `z-${String(right.task.sortIndex).padStart(6, '0')}`;
+    return leftTime.localeCompare(rightTime);
+  });
 }
 
 function periodStart(period: ReviewPeriod, now: Date): Date {

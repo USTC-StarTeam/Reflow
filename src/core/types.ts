@@ -12,6 +12,7 @@ export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
 export type ProgressKind = 'start' | 'pause' | 'progress' | 'interrupt' | 'complete';
 export type ReviewPeriod = 'daily' | 'weekly' | 'monthly';
 export type CalendarViewMode = 'day' | 'week' | 'month';
+export type CalendarTaskEntryKind = 'planned' | 'unscheduled' | 'completed' | 'plannedCompleted';
 
 export type CaptureSource = 'webText' | 'voice' | 'email' | 'feishu' | 'calendar' | 'shareExtension' | 'mobileShortcut';
 export type CapturePipelineState = 'captured' | 'proposing' | 'proposed' | 'proposalFailed' | 'resolved';
@@ -38,6 +39,15 @@ export interface TaskItem {
   plannedStartAt?: string;
   plannedEndAt?: string;
   waitingDetails?: WaitingDetails;
+}
+
+export interface CalendarTaskEntry {
+  task: TaskItem;
+  date: string;
+  kind: CalendarTaskEntryKind;
+  plannedStartAt?: string;
+  plannedEndAt?: string;
+  completedAt?: string;
 }
 
 export interface WaitingDetails {

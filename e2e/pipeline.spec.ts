@@ -31,6 +31,10 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await expect(proposal).toHaveCount(1);
   await proposal.getByRole('button', { name: '确认并加入今天' }).click();
 
+  await page.getByTestId('nav-日历').click();
+  const calendarEntry = page.locator('[data-testid^="calendar-entry-"]', { hasText: taskText });
+  await expect(calendarEntry).toContainText('未排期');
+
   await page.getByTestId('nav-今天').click();
   const todayTask = page.locator('[data-testid^="task-"]', { hasText: taskText });
   await todayTask.getByRole('button', { name: `开始 ${taskText}` }).click();
@@ -41,6 +45,11 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await page.getByTestId('record-progress').click();
   await page.getByTestId('record-time').click();
   await page.getByTestId('complete-task').click();
+
+  await page.getByTestId('nav-日历').click();
+  await expect(calendarEntry).toContainText('实际完成');
+  await page.reload();
+  await expect(calendarEntry).toContainText('实际完成');
 
   await page.getByTestId('nav-回顾').click();
   await expect(page.getByTestId('review-summary')).toContainText('记录');
@@ -86,4 +95,18 @@ test('收件箱清晰展示等待建议、九种归类和可撤销的等待决�
   await expect(page.getByTestId('undo-decision')).toBeVisible();
   await page.getByTestId('undo-decision').click();
   await expect(page.getByTestId('proposal-proposal-waiting')).toBeVisible();
+});
+
+test('已排期任务完成后在同一天合并展示计划与实际完成', async ({ page }) => {
+  await page.goto('/active');
+  await resetDemo(page);
+
+  await expect(page.getByTestId('current-task-card')).toContainText('完成 Reflow Demo 页面结构');
+  await page.getByTestId('complete-task').click();
+  await page.getByTestId('nav-日历').click();
+
+  const calendarEntry = page.getByTestId('calendar-entry-task-reflow-demo');
+  await expect(calendarEntry).toContainText('计划 10:00–11:30');
+  await expect(calendarEntry).toContainText('实际完成');
+  await expect(calendarEntry.getByText('已完成')).toBeVisible();
 });

@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { addDays, addMinutes, atTime, dateKey, formatShortDate, formatTime, startOfWeek } from '@/core/date-utils';
-import { selectTasksForDate } from '@/core/selectors';
+import { selectCalendarEntriesForDate } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
-import { categoryLabels, type CalendarViewMode } from '@/core/types';
+import { categoryLabels, type CalendarTaskEntry, type CalendarViewMode } from '@/core/types';
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, SegmentedControl, textStyles } from '../shared/ui';
 
@@ -15,6 +15,32 @@ function monthCells(anchor: Date): Date[] {
   return Array.from({ length: 42 }, (_, index) => addDays(first, index - first.getDay()));
 }
 
+function entryMeta(entry: CalendarTaskEntry): string {
+  const category = categoryLabels[entry.task.category];
+  const plannedRange = `${formatTime(entry.plannedStartAt)}${entry.plannedEndAt ? `–${formatTime(entry.plannedEndAt)}` : ''}`;
+  if (entry.kind === 'plannedCompleted') return `计划 ${plannedRange} · ${formatTime(entry.completedAt)} 实际完成 · ${category}`;
+  if (entry.kind === 'completed') {
+    const originalPlan = entry.plannedStartAt
+      ? ` · 原计划 ${formatShortDate(entry.plannedStartAt)} ${plannedRange}`
+      : '';
+    return `${formatTime(entry.completedAt)} 实际完成${originalPlan} · ${category}`;
+  }
+  if (entry.kind === 'unscheduled') return `未排期 · 今天清单 · ${category}`;
+  const completedElsewhere = entry.task.completedAt
+    ? ` · 实际完成 ${formatShortDate(entry.task.completedAt)} ${formatTime(entry.task.completedAt)}`
+    : '';
+  return `${entry.task.status === 'completed' ? '原计划' : '计划'} ${plannedRange}${completedElsewhere} · ${category}`;
+}
+
+function entryChip(entry: CalendarTaskEntry): { label: string; tone: 'primary' | 'green' | 'orange' } {
+  if (entry.kind === 'completed') return { label: '实际完成', tone: 'green' };
+  if (entry.kind === 'plannedCompleted') return { label: '已完成', tone: 'green' };
+  if (entry.kind === 'unscheduled') return { label: '未排期', tone: 'orange' };
+  if (entry.task.status === 'completed') return { label: '原计划', tone: 'primary' };
+  if (entry.task.status === 'inProgress') return { label: '进行中', tone: 'green' };
+  return { label: '未开始', tone: 'primary' };
+}
+
 export function CalendarScreen() {
   const { data, scheduleTask } = useReflowStore();
   const today = useMemo(() => new Date(), []);
@@ -23,7 +49,7 @@ export function CalendarScreen() {
   const selectedDate = new Date(`${selected}T00:00:00`);
   const cells = monthCells(selectedDate);
   const week = Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(selectedDate), index));
-  const scheduled = selectTasksForDate(data, selected);
+  const entries = selectCalendarEntriesForDate(data, selected, today);
   const candidate = data.tasks.find((task) => task.status !== 'completed' && (!task.plannedStartAt || dateKey(task.plannedStartAt) !== selected));
 
   function acceptSuggestion() {
@@ -34,20 +60,20 @@ export function CalendarScreen() {
 
   return (
     <Page testID="screen-calendar">
-      <PageHeader title={`${selectedDate.getFullYear()}年${selectedDate.getMonth() + 1}月`} subtitle="计划、空档和 AI 建议" right={<SegmentedControl values={[{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]} selected={mode} onChange={setMode} />} />
+      <PageHeader title={`${selectedDate.getFullYear()}年${selectedDate.getMonth() + 1}月`} subtitle="计划、未排期与实际完成" right={<SegmentedControl values={[{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]} selected={mode} onChange={setMode} />} />
       {mode === 'month' ? (
         <Card style={styles.calendarCard}>
           <View style={styles.weekdays}>{weekdays.map((day) => <Text key={day} style={styles.weekday}>{day}</Text>)}</View>
-          <View style={styles.grid}>{cells.map((date) => { const key = dateKey(date); const isSelected = key === selected; const isToday = key === dateKey(today); const dim = date.getMonth() !== selectedDate.getMonth(); const count = selectTasksForDate(data, key).length; return <Pressable key={key} accessibilityLabel={`${formatShortDate(date)}，${count}项任务`} onPress={() => setSelected(key)} style={[styles.day, isSelected && styles.daySelected, isToday && !isSelected && styles.dayToday]}><Text style={[styles.dayText, dim && styles.dayDim, isSelected && styles.dayTextSelected]}>{date.getDate()}</Text>{count ? <View style={[styles.eventDot, isSelected && styles.eventDotSelected]} /> : null}</Pressable>; })}</View>
+          <View style={styles.grid}>{cells.map((date) => { const key = dateKey(date); const isSelected = key === selected; const isToday = key === dateKey(today); const dim = date.getMonth() !== selectedDate.getMonth(); const count = selectCalendarEntriesForDate(data, key, today).length; return <Pressable key={key} accessibilityLabel={`${formatShortDate(date)}，${count}项任务`} onPress={() => setSelected(key)} style={[styles.day, isSelected && styles.daySelected, isToday && !isSelected && styles.dayToday]}><Text style={[styles.dayText, dim && styles.dayDim, isSelected && styles.dayTextSelected]}>{date.getDate()}</Text>{count ? <View style={[styles.eventDot, isSelected && styles.eventDotSelected]} /> : null}</Pressable>; })}</View>
         </Card>
       ) : mode === 'week' ? (
         <Card><View style={styles.weekStrip}>{week.map((date) => { const key = dateKey(date); const active = key === selected; return <Pressable key={key} onPress={() => setSelected(key)} style={[styles.weekDay, active && styles.weekDayActive]}><Text style={[styles.weekDayLabel, active && styles.dayTextSelected]}>{weekdays[date.getDay()]}</Text><Text style={[styles.weekDayNumber, active && styles.dayTextSelected]}>{date.getDate()}</Text></Pressable>; })}</View><Text style={textStyles.meta}>周视图首版使用日期条，不构建复杂时间网格。</Text></Card>
       ) : (
-        <Card><View style={styles.dayFocus}><ActionButton label="前一天" onPress={() => setSelected(dateKey(addDays(selectedDate, -1)))} /><View><Text style={styles.dayFocusTitle}>{formatShortDate(selectedDate)}</Text><Text style={styles.dayFocusMeta}>{scheduled.length} 项已计划任务</Text></View><ActionButton label="后一天" onPress={() => setSelected(dateKey(addDays(selectedDate, 1)))} /></View></Card>
+        <Card><View style={styles.dayFocus}><ActionButton label="前一天" onPress={() => setSelected(dateKey(addDays(selectedDate, -1)))} /><View><Text style={styles.dayFocusTitle}>{formatShortDate(selectedDate)}</Text><Text style={styles.dayFocusMeta}>{entries.length} 项事项</Text></View><ActionButton label="后一天" onPress={() => setSelected(dateKey(addDays(selectedDate, 1)))} /></View></Card>
       )}
 
-      <SectionHeader title={`选中 · ${formatShortDate(selectedDate)}`} meta={`${scheduled.length} 项`} />
-      {scheduled.length ? scheduled.map((task) => <Card key={task.id}><View style={styles.taskTop}><View style={styles.taskCopy}><Text style={textStyles.cardTitle}>{task.title}</Text><Text style={textStyles.meta}>{formatTime(task.plannedStartAt)}–{formatTime(task.plannedEndAt)} · {categoryLabels[task.category]}</Text></View><Chip label={task.status === 'completed' ? '已完成' : task.status === 'inProgress' ? '进行中' : '未开始'} tone={task.status === 'inProgress' ? 'green' : 'primary'} /></View></Card>) : <EmptyState title="这一天还没有任务" detail="可以接受下方空档建议，或通过全局“+”捕捉新事项。" />}
+      <SectionHeader title={`选中 · ${formatShortDate(selectedDate)}`} meta={`${entries.length} 项`} />
+      {entries.length ? entries.map((entry) => { const chip = entryChip(entry); return <Card key={entry.task.id} testID={`calendar-entry-${entry.task.id}`}><View style={styles.taskTop}><View style={styles.taskCopy}><Text style={textStyles.cardTitle}>{entry.task.title}</Text><Text style={textStyles.meta}>{entryMeta(entry)}</Text></View><Chip label={chip.label} tone={chip.tone} /></View></Card>; }) : <EmptyState title="这一天还没有事项" detail="今天清单中的未排期任务、计划安排和实际完成记录会显示在这里。" />}
 
       <SectionHeader title="空档建议" />
       <Card accent="ai" testID="calendar-suggestion">
