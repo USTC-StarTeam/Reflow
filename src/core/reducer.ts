@@ -1,5 +1,6 @@
 import { addMinutes, runtimeId } from './date-utils';
-import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type UserDecision, type UserDecisionInput, type WorkflowBucket } from './types';
+import { categoryForVisibleClassification, defaultSuggestedBucket, resolveProposalVisibleClassification } from './classification';
+import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type UserDecision, type UserDecisionInput, type WaitingDetails, type WorkflowBucket } from './types';
 
 export type EditedProposal = ProposalEdit;
 
@@ -59,6 +60,22 @@ function isTaskBucket(bucket: WorkflowBucket | undefined): bucket is WorkflowBuc
   return Boolean(bucket && taskBuckets.includes(bucket));
 }
 
+function isValidFollowUpDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return !Number.isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function normalizeWaitingDetails(details: WaitingDetails | undefined): WaitingDetails | undefined {
+  if (!details) return undefined;
+  return {
+    waitingFor: details.waitingFor.trim(),
+    waitingOn: details.waitingOn.trim(),
+    followUpDate: details.followUpDate.trim(),
+  };
+}
+
 function taskSource(capture: InboxCapture): string {
   return captureSourceLabels[capture.source];
 }
@@ -73,16 +90,19 @@ function buildTaskOutcome(input: {
   capture: InboxCapture;
   edit: ProposalEdit;
   bucket: WorkflowBucket;
+  waitingDetails?: WaitingDetails;
   decisionId: string;
   at: string;
 }): { tasks: TaskItem[]; effect: UserDecision['effect'] } | PipelineFailure {
-  const { data, proposal, capture, edit, bucket, decisionId, at } = input;
+  const { data, proposal, capture, edit, bucket, waitingDetails, decisionId, at } = input;
   if (proposal.kind === 'merge') {
     const previousTask = proposal.duplicateTaskId ? findTask(data, proposal.duplicateTaskId) : undefined;
     if (!previousTask) return { code: 'task_not_found', message: '要合并的任务已不存在。', retryable: false };
     const appliedTask: TaskItem = {
       ...previousTask,
+      category: edit.category,
       bucket,
+      waitingDetails: bucket === 'waiting' ? waitingDetails : undefined,
       sourceSummary: `${previousTask.sourceSummary} + ${taskSource(capture)}`,
     };
     return {
@@ -106,6 +126,7 @@ function buildTaskOutcome(input: {
     sourceSummary: taskSource(capture),
     sortIndex: maxSort + index + 1,
     createdAt: at,
+    waitingDetails: bucket === 'waiting' ? waitingDetails : undefined,
   }));
   return { tasks: [...data.tasks, ...createdTasks], effect: { type: 'createdTasks', tasks: createdTasks } };
 }
@@ -218,16 +239,24 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       }
 
       const { edited, bucket } = action.decision;
-      if (proposal.outcome === 'knowledge') {
+      const visibleClassification = resolveProposalVisibleClassification(proposal, edited);
+      const waitingDetails = normalizeWaitingDetails(edited.waitingDetails ?? proposal.waitingDetails);
+      const normalizedEdit: ProposalEdit = {
+        ...edited,
+        category: categoryForVisibleClassification(visibleClassification, edited.category),
+        visibleClassification,
+        waitingDetails: visibleClassification === 'waiting' ? waitingDetails : undefined,
+      };
+      if (visibleClassification === 'knowledge') {
         const card = {
           id: `knowledge-${action.decisionId}`,
-          title: edited.title,
-          summary: edited.knowledgeSummary?.trim() || proposal.knowledgeSummary || edited.nextAction,
+          title: normalizedEdit.title,
+          summary: normalizedEdit.knowledgeSummary?.trim() || proposal.knowledgeSummary || normalizedEdit.nextAction,
           source: taskSource(capture),
           createdAt: action.at,
         };
         const decision = decisionBase({
-          decisionId: action.decisionId, captureId: capture.id, proposalId: proposal.id, kind: 'accept', outcome: 'knowledge', at: action.at, edited, effect: { type: 'createdKnowledge', cards: [card] },
+          decisionId: action.decisionId, captureId: capture.id, proposalId: proposal.id, kind: 'accept', outcome: 'knowledge', at: action.at, edited: normalizedEdit, effect: { type: 'createdKnowledge', cards: [card] },
         });
         return success({
           ...data,
@@ -237,11 +266,19 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
           decisions: [...data.decisions, decision],
         }, action.type, decision);
       }
-      if (!isTaskBucket(bucket)) return failure(data, 'invalid_decision', '任务建议需要选择今天、等待他人或稍后处理。');
-      const outcome = buildTaskOutcome({ data, proposal, capture, edit: edited, bucket, decisionId: action.decisionId, at: action.at });
+      const resolvedBucket = visibleClassification === 'waiting'
+        ? 'waiting'
+        : visibleClassification === 'someday'
+          ? bucket ?? 'someday'
+          : bucket ?? defaultSuggestedBucket(visibleClassification);
+      if (!isTaskBucket(resolvedBucket)) return failure(data, 'invalid_decision', '任务建议需要选择今天、等待他人或稍后处理。');
+      if (resolvedBucket === 'waiting' && (!waitingDetails?.waitingFor || !waitingDetails.waitingOn || !isValidFollowUpDate(waitingDetails.followUpDate))) {
+        return failure(data, 'invalid_follow_up', '请填写有效的等待对象、等待内容和跟进日期。');
+      }
+      const outcome = buildTaskOutcome({ data, proposal, capture, edit: normalizedEdit, bucket: resolvedBucket, waitingDetails, decisionId: action.decisionId, at: action.at });
       if ('code' in outcome) return failure(data, outcome.code, outcome.message, outcome.retryable);
       const decision = decisionBase({
-        decisionId: action.decisionId, captureId: capture.id, proposalId: proposal.id, kind: 'accept', outcome: 'task', bucket, edited, at: action.at, effect: outcome.effect,
+        decisionId: action.decisionId, captureId: capture.id, proposalId: proposal.id, kind: 'accept', outcome: 'task', bucket: resolvedBucket, edited: normalizedEdit, at: action.at, effect: outcome.effect,
       });
       return success({
         ...data,
@@ -341,12 +378,14 @@ export function domainReducer(data: DomainData, action: DomainAction): DomainDat
   return reduceDomain(data, action).data;
 }
 
-export function editProposal(proposal: AIProposal, title: string, category: TaskCategory, estimatedMinutes: number, nextAction: string, knowledgeSummary?: string): EditedProposal {
+export function editProposal(proposal: AIProposal, title: string, category: TaskCategory, estimatedMinutes: number, nextAction: string, knowledgeSummary?: string, options?: Pick<ProposalEdit, 'visibleClassification' | 'waitingDetails'>): EditedProposal {
   return {
     title: title.trim() || proposal.title,
     category,
     estimatedMinutes: Math.max(0, estimatedMinutes),
     nextAction: nextAction.trim() || proposal.nextAction,
+    visibleClassification: options?.visibleClassification,
+    waitingDetails: options?.waitingDetails,
     knowledgeSummary: knowledgeSummary?.trim() || proposal.knowledgeSummary,
   };
 }

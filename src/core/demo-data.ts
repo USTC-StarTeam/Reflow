@@ -1,4 +1,4 @@
-import { addDays, addMinutes, atTime } from './date-utils';
+import { addDays, addMinutes, atTime, dateKey } from './date-utils';
 import { DEMO_DATA_VERSION, type DomainData } from './types';
 
 export function createSeedData(baseDate = new Date()): DomainData {
@@ -47,22 +47,47 @@ export function createSeedData(baseDate = new Date()): DomainData {
       { id: 'capture-contract', rawText: '合同条款今晚前审阅，注意付款周期', source: 'email', createdAt: atTime(today, 11, 20).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-health', rawText: '买药和预约体检', source: 'voice', createdAt: atTime(today, 11, 42).toISOString(), pipelineState: 'proposed' },
       { id: 'capture-duplicate-quote', rawText: '客户报价今天必须确认', source: 'email', createdAt: atTime(today, 12, 5).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-waiting', rawText: '等师兄回复比赛方向', source: 'webText', createdAt: atTime(today, 12, 20).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-someday', rawText: '下周再整理旅行报销材料', source: 'webText', createdAt: atTime(today, 12, 30).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-knowledge', rawText: '沉淀报价沟通原则：先确认预算口径', source: 'webText', createdAt: atTime(today, 12, 40).toISOString(), pipelineState: 'proposed' },
+      { id: 'capture-unknown', rawText: '记得那件事情', source: 'webText', createdAt: atTime(today, 12, 50).toISOString(), pipelineState: 'proposed' },
     ],
     proposals: [
       {
         id: 'proposal-contract', captureId: 'capture-contract', outcome: 'task', title: '审阅合同付款条款', category: 'work',
         estimatedMinutes: 45, confidence: 0.91, reason: '识别到明确截止时间与审阅行动。', kind: 'create', status: 'pending',
-        nextAction: '先标出付款周期风险点',
+        nextAction: '先标出付款周期风险点', suggestedBucket: 'today',
       },
       {
         id: 'proposal-health', captureId: 'capture-health', outcome: 'task', title: '买药并预约体检', category: 'health',
         estimatedMinutes: 30, confidence: 0.86, reason: '一句话包含两个可独立完成的健康事项。', kind: 'split', status: 'pending',
-        nextAction: '拆成买药、预约体检两件事', splitTitles: ['购买常用药', '预约年度体检'],
+        nextAction: '拆成买药、预约体检两件事', suggestedBucket: 'today', splitTitles: ['购买常用药', '预约年度体检'],
       },
       {
         id: 'proposal-duplicate-quote', captureId: 'capture-duplicate-quote', outcome: 'task', title: '确认客户报价',
         category: 'communication', estimatedMinutes: 20, confidence: 0.94, reason: '与今天已有的客户报价任务高度相似。',
-        kind: 'merge', status: 'pending', nextAction: '合并来源并保留邮件记录', duplicateTaskId: 'task-client-quote',
+        kind: 'merge', status: 'pending', nextAction: '合并来源并保留邮件记录', suggestedBucket: 'today', duplicateTaskId: 'task-client-quote',
+      },
+      {
+        id: 'proposal-waiting', captureId: 'capture-waiting', outcome: 'task', title: '等待师兄确认比赛方向',
+        category: 'communication', estimatedMinutes: 10, confidence: 0.92, reason: '下一步取决于师兄回复或处理，当前不需要你继续行动。',
+        kind: 'create', status: 'pending', nextAction: `等待师兄回复，${dateKey(addDays(today, 3))} 跟进`, suggestedBucket: 'waiting',
+        waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: dateKey(addDays(today, 3)) },
+      },
+      {
+        id: 'proposal-someday', captureId: 'capture-someday', outcome: 'task', title: '整理旅行报销材料',
+        category: 'life', estimatedMinutes: 25, confidence: 0.86, reason: '输入表达了暂不安排的意图，建议先保存到稍后列表。',
+        kind: 'create', status: 'pending', nextAction: '保留到稍后列表，合适时再安排', suggestedBucket: 'someday',
+      },
+      {
+        id: 'proposal-knowledge', captureId: 'capture-knowledge', outcome: 'knowledge', title: '报价沟通原则',
+        category: 'learning', estimatedMinutes: 0, confidence: 0.9, reason: '识别到适合长期复用的经验或结论，建议沉淀为知识卡片。',
+        kind: 'create', status: 'pending', nextAction: '确认摘要后保存到知识卡片', knowledgeSummary: '回复客户前先确认预算口径。',
+      },
+      {
+        id: 'proposal-unknown', captureId: 'capture-unknown', outcome: 'task', title: '记得那件事情',
+        category: 'unknown', estimatedMinutes: 25, confidence: 0.58, reason: '信息较少，先补充要做什么、何时做或和谁有关。',
+        kind: 'create', status: 'pending', nextAction: '补充具体行动和背景后再决定去向', suggestedBucket: 'today',
       },
     ],
     decisions: [],

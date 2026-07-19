@@ -36,6 +36,24 @@ describe('MockProposalService', () => {
     if (knowledgeResult.status === 'success') expect(knowledgeResult.proposals[0]).toMatchObject({ outcome: 'knowledge', category: 'learning' });
   });
 
+  it('extracts waiting context and later handling without treating active replies as waiting', async () => {
+    const service = new MockProposalService(0);
+    const waiting = { ...capture, id: 'capture-waiting', rawText: '等师兄回复比赛方向' };
+    const someday = { ...capture, id: 'capture-someday', rawText: '下周再整理旅行报销材料' };
+    const activeReply = { ...capture, id: 'capture-reply', rawText: '下午回复客户报价' };
+    const [waitingResult, somedayResult, replyResult] = await Promise.all([
+      service.propose({ capture: waiting, existingTasks: [] }),
+      service.propose({ capture: someday, existingTasks: [] }),
+      service.propose({ capture: activeReply, existingTasks: [] }),
+    ]);
+    if (waitingResult.status === 'success') expect(waitingResult.proposals[0]).toMatchObject({
+      suggestedBucket: 'waiting',
+      waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: '2026-07-20' },
+    });
+    if (somedayResult.status === 'success') expect(somedayResult.proposals[0]).toMatchObject({ suggestedBucket: 'someday' });
+    if (replyResult.status === 'success') expect(replyResult.proposals[0]).toMatchObject({ category: 'communication', suggestedBucket: 'today' });
+  });
+
   it('returns an explicit service failure when configured', async () => {
     const service = new MockProposalService({ delayMs: 0, failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });
     await expect(service.propose({ capture, existingTasks: [] })).resolves.toEqual({ status: 'failure', failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });

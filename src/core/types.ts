@@ -1,9 +1,11 @@
-export const DEMO_DATA_VERSION = 2 as const;
+export const DEMO_DATA_VERSION = 3 as const;
 
 export type TaskStatus = 'notStarted' | 'inProgress' | 'completed';
 export type TaskCategory = 'work' | 'communication' | 'learning' | 'life' | 'health' | 'unknown';
 export type WorkflowBucket = 'inbox' | 'today' | 'waiting' | 'someday' | 'archived';
 export type CaptureOutcome = 'task' | 'knowledge' | 'ignored';
+export type SuggestedBucket = Extract<WorkflowBucket, 'today' | 'waiting' | 'someday'>;
+export type VisibleClassification = TaskCategory | 'waiting' | 'someday' | 'knowledge';
 export type ProposalOutcome = Exclude<CaptureOutcome, 'ignored'>;
 export type ProposalKind = 'create' | 'merge' | 'split';
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
@@ -13,7 +15,7 @@ export type CalendarViewMode = 'day' | 'week' | 'month';
 
 export type CaptureSource = 'webText' | 'voice' | 'email' | 'feishu' | 'calendar' | 'shareExtension' | 'mobileShortcut';
 export type CapturePipelineState = 'captured' | 'proposing' | 'proposed' | 'proposalFailed' | 'resolved';
-export type PipelineFailureCode = 'empty_capture' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'decision_not_reversible';
+export type PipelineFailureCode = 'empty_capture' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'invalid_follow_up' | 'decision_not_reversible';
 
 export interface PipelineFailure {
   code: PipelineFailureCode;
@@ -35,6 +37,13 @@ export interface TaskItem {
   completedAt?: string;
   plannedStartAt?: string;
   plannedEndAt?: string;
+  waitingDetails?: WaitingDetails;
+}
+
+export interface WaitingDetails {
+  waitingFor: string;
+  waitingOn: string;
+  followUpDate: string;
 }
 
 export interface InboxCapture {
@@ -58,6 +67,8 @@ export interface AIProposal {
   kind: ProposalKind;
   status: ProposalStatus;
   nextAction: string;
+  suggestedBucket?: SuggestedBucket;
+  waitingDetails?: WaitingDetails;
   knowledgeSummary?: string;
   duplicateTaskId?: string;
   splitTitles?: string[];
@@ -68,6 +79,8 @@ export interface ProposalEdit {
   category: TaskCategory;
   estimatedMinutes: number;
   nextAction: string;
+  visibleClassification?: VisibleClassification;
+  waitingDetails?: WaitingDetails;
   knowledgeSummary?: string;
 }
 
@@ -173,6 +186,13 @@ export const categoryLabels: Record<TaskCategory, string> = {
   life: '生活事务',
   health: '健康',
   unknown: '未识别',
+};
+
+export const visibleClassificationLabels: Record<VisibleClassification, string> = {
+  ...categoryLabels,
+  waiting: '等待他人',
+  someday: '稍后处理',
+  knowledge: '知识沉淀',
 };
 
 export const statusLabels: Record<TaskStatus, string> = {

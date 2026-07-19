@@ -39,11 +39,50 @@ describe('domain reducer', () => {
     expect(ignored).toMatchObject({ status: 'success' });
     expect(ignored.data.decisions[0].outcome).toBe('ignored');
 
-    const waiting = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-waiting', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'waiting', edited: taskEdit } });
-    expect(waiting.data.tasks.find((task) => task.title === taskEdit.title)?.bucket).toBe('waiting');
+    const waiting = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-waiting', at: now, decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待师兄确认比赛方向', category: 'communication', estimatedMinutes: 10, nextAction: '等待回复', visibleClassification: 'waiting', waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: '2026-07-20' } } } });
+    expect(waiting.data.tasks.find((task) => task.title === '等待师兄确认比赛方向')).toMatchObject({ bucket: 'waiting', waitingDetails: { waitingFor: '师兄', followUpDate: '2026-07-20' } });
 
     const merged = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-merge', at: now, decision: { kind: 'accept', proposalId: 'proposal-duplicate-quote', bucket: 'someday', edited: { title: '确认客户报价', category: 'communication', estimatedMinutes: 20, nextAction: '回复客户' } } });
     expect(merged.data.tasks.find((task) => task.id === 'task-client-quote')?.bucket).toBe('someday');
+  });
+
+  it('persists a custom waiting follow-up date in the decision and restores the proposal on undo', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00'));
+    const result = reduceDomain(seed, {
+      type: 'submitUserDecision', decisionId: 'decision-custom-follow-up', at: now,
+      decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待师兄确认比赛方向', category: 'communication', estimatedMinutes: 10, nextAction: '7 月 24 日跟进', visibleClassification: 'waiting', waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: '2026-07-24' } } },
+    });
+    expect(result).toMatchObject({ status: 'success' });
+    if (result.status !== 'success') throw new Error('expected waiting decision');
+    expect(result.data.decisions[0].edited?.waitingDetails?.followUpDate).toBe('2026-07-24');
+    const undone = reduceDomain(result.data, { type: 'undoUserDecision', decisionId: 'decision-custom-follow-up', at: '2026-07-17T08:05:00.000Z' });
+    expect(undone).toMatchObject({ status: 'success' });
+    expect(undone.data.proposals.find((proposal) => proposal.id === 'proposal-waiting')?.status).toBe('pending');
+  });
+
+  it('uses the selected visible classification to create knowledge or convert it back into a task', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00'));
+    const asKnowledge = reduceDomain(seed, {
+      type: 'submitUserDecision', decisionId: 'decision-as-knowledge', at: now,
+      decision: { kind: 'accept', proposalId: 'proposal-contract', edited: { ...taskEdit, visibleClassification: 'knowledge', knowledgeSummary: '合同付款条款风险' } },
+    });
+    expect(asKnowledge.data.knowledgeCards.some((card) => card.title === taskEdit.title)).toBe(true);
+
+    const asTask = reduceDomain(seed, {
+      type: 'submitUserDecision', decisionId: 'decision-as-task', at: now,
+      decision: { kind: 'accept', proposalId: 'proposal-knowledge', bucket: 'today', edited: { title: '整理报价原则', category: 'learning', estimatedMinutes: 20, nextAction: '形成行动清单', visibleClassification: 'learning' } },
+    });
+    expect(asTask.data.tasks.find((task) => task.title === '整理报价原则')).toMatchObject({ category: 'learning', bucket: 'today' });
+    expect(asTask.data.decisions[0]).toMatchObject({ outcome: 'task', edited: { visibleClassification: 'learning' } });
+  });
+
+  it('rejects an invalid waiting date without writing any domain data', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00'));
+    const result = reduceDomain(seed, {
+      type: 'submitUserDecision', decisionId: 'decision-invalid-follow-up', at: now,
+      decision: { kind: 'accept', proposalId: 'proposal-waiting', bucket: 'waiting', edited: { title: '等待师兄确认比赛方向', category: 'communication', estimatedMinutes: 10, nextAction: '等待回复', visibleClassification: 'waiting', waitingDetails: { waitingFor: '师兄', waitingOn: '确认比赛方向', followUpDate: 'not-a-date' } } },
+    });
+    expect(result).toMatchObject({ status: 'failure', failure: { code: 'invalid_follow_up' }, data: seed });
   });
 
   it('returns explicit failures for invalid actions and unsafe undo', () => {

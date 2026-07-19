@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveReview, deriveReviewFacts, selectCurrentTask, selectTaskMinutes } from '../selectors';
+import { deriveReview, deriveReviewFacts, selectCurrentTask, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes } from '../selectors';
 
 describe('selectors', () => {
   it('derives time and review from fact records', () => {
@@ -37,5 +37,33 @@ describe('selectors', () => {
     const seed = createSeedData(now);
     const review = deriveReview(seed, 'daily', now);
     expect(review.total).toBe(seed.tasks.filter((task) => task.plannedStartAt?.startsWith('2026-07-17')).length);
+  });
+
+  it('maps the separated domain dimensions into the nine user-visible classifications', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00'));
+    const contentClassifications = ['work', 'communication', 'learning', 'life', 'health', 'unknown'] as const;
+    contentClassifications.forEach((category) => {
+      const proposal = { ...seed.proposals[0], id: `proposal-${category}`, category, outcome: 'task' as const, suggestedBucket: 'today' as const };
+      const data = { ...seed, proposals: [...seed.proposals, proposal] };
+      expect(selectProposalVisibleClassification(data, proposal.id)).toBe(category);
+    });
+    expect(selectProposalVisibleClassification(seed, 'proposal-waiting')).toBe('waiting');
+    expect(selectProposalVisibleClassification(seed, 'proposal-someday')).toBe('someday');
+    expect(selectProposalVisibleClassification(seed, 'proposal-knowledge')).toBe('knowledge');
+  });
+
+  it('limits recent decisions to five newest records', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00'));
+    const decisions = Array.from({ length: 6 }, (_, index) => ({
+      id: `decision-${index}`,
+      captureId: 'capture-contract',
+      proposalId: 'proposal-contract',
+      kind: 'ignore' as const,
+      outcome: 'ignored' as const,
+      appliedAt: `2026-07-17T0${index}:00:00.000Z`,
+      status: 'applied' as const,
+      effect: { type: 'ignored' as const },
+    }));
+    expect(selectRecentDecisions({ ...seed, decisions })).toHaveLength(5);
   });
 });

@@ -1,4 +1,5 @@
 import { addDays, dateKey, startOfDay, startOfWeek } from './date-utils';
+import { resolveProposalVisibleClassification } from './classification';
 import { categoryLabels, type DomainData, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory } from './types';
 
 export function selectTaskMinutes(data: DomainData, taskId: string): number {
@@ -11,6 +12,18 @@ export function selectCurrentTask(data: DomainData) {
 
 export function selectPendingProposals(data: DomainData) {
   return data.proposals.filter((proposal) => proposal.status === 'pending');
+}
+
+export function selectProposalVisibleClassification(data: DomainData, proposalId: string) {
+  const proposal = data.proposals.find((item) => item.id === proposalId);
+  if (!proposal) return undefined;
+  return resolveProposalVisibleClassification(proposal);
+}
+
+export function selectRecentDecisions(data: DomainData, limit = 5) {
+  return [...data.decisions]
+    .sort((left, right) => right.appliedAt.localeCompare(left.appliedAt))
+    .slice(0, limit);
 }
 
 export function selectFailedCaptures(data: DomainData) {
