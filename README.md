@@ -11,6 +11,9 @@ Reflow 是一个移动优先的个人执行管理 Demo。它的目标不是再�
 
 > 当前是验证产品形态与交互的本地 Demo：不接真实 AI、后端、账号、云同步或第三方服务。
 
+- 在线 Demo：[https://lsclin.github.io/Reflow/](https://lsclin.github.io/Reflow/)
+- 当前开发分支：[lsclin/Reflow · lsc](https://github.com/lsclin/Reflow/tree/lsc)
+
 ## 显式 Pipeline 架构（非 Agent）
 
 Reflow 第一版采用固定、可测试的 Pipeline，而不是通用 Agent：
@@ -34,20 +37,21 @@ Capture → ProposalService → AIProposal → UserDecision
 
 ## 当前状态
 
-- 已完成：五页 Web Demo、核心闭环、显式 Pipeline、确定性 Mock Proposal、可撤销决策事件、月历排期与派生回顾。
-- 已验证：类型检查、lint、20 个单测、完整 Playwright 核心流程 E2E，以及普通与 Pages base path 两种静态导出。
-- 自动化：`lsc` 的 GitHub Actions 已执行 CI 与 GitHub Pages 部署；在线 Demo 见 [lsclin.github.io/Reflow](https://lsclin.github.io/Reflow/)。
+- 已完成：五页 Web Demo、完整核心闭环、显式 Pipeline、确定性 Mock Proposal、九种用户可见分类、可撤销决策事件、执行日志、计划与实际日历、派生回顾和本地持久化。
+- 已验证：TypeScript、ESLint、31 个单元测试、3 条 Playwright E2E，以及普通与 GitHub Pages base path 两种静态导出。
+- 自动化：`lsc` 每次 push 都会运行 CI 并部署 GitHub Pages；最新日历同步版本已经成功发布。
+- 当前定位：第一版可演示 MVP 的必须项已经完成；拖拽、简化日/周视图、知识产物和额外 E2E 等增强能力已部分完成。当前重点是验证产品闭环与信息架构，不代表已经具备正式产品的云端与外部集成能力。
 
-详细的里程碑与验收清单见 [docs/implementation-plan.md](docs/implementation-plan.md)。
+最初的里程碑与验收清单见 [docs/implementation-plan.md](docs/implementation-plan.md)。
 
 ## 页面与体验
 
 | 路由 | 页面 | 用途 |
 | --- | --- | --- |
-| `/` | 今天 | 快速捕捉、查看今日重点、开始/完成任务与调整顺序。 |
-| `/inbox` | 收件箱 | 查看并编辑 Proposal，选择加入今天、等待他人、稍后处理或忽略；支持撤销最近一次决定。 |
+| `/` | 今天 | 快速捕捉、查看今天清单、开始/暂停任务与调整顺序。 |
+| `/inbox` | 收件箱 | 在“待你确认 / 最近处理”中理解并编辑 Proposal，选择任务去向或知识产物，并撤销最近一次安全可逆决定。 |
 | `/active` | 进行中 | 管理唯一的当前执行任务，记录进展、耗时、打断、暂停或完成。 |
-| `/calendar` | 日历 | 以月视图为主，选择日期查看任务，并接受空档建议完成排期。 |
+| `/calendar` | 日历 | 统一展示计划事项、今天清单中的未排期事项和实际完成记录；支持月视图、简化日/周视图、日期选择与空档建议。 |
 | `/review` | 回顾 | 按日、周、月从实际任务与日志派生完成数、耗时、打断和分类分布。 |
 
 桌面浏览器中应用内容会居中为单栏；手机浏览器中会铺满屏幕。左上角品牌入口包含“重置 Demo 数据”。
@@ -63,20 +67,24 @@ Reflow 明确区分“事项属于什么”和“事项现在在哪里”，避�
 | `WorkflowBucket` | 收件箱、今天、等待他人、稍后处理、归档。 |
 | `CaptureOutcome` | 任务、知识沉淀、忽略。 |
 
+用户界面不会暴露这些内部维度，而是统一呈现九种“AI 归类结果”：工作推进、沟通跟进、学习研究、生活事务、健康、等待他人、稍后处理、知识沉淀、未识别。等待他人、稍后处理和知识沉淀在底层仍分别映射到工作流去向或产物类型。
+
 主要事实对象是 `InboxCapture`、`AIProposal`、`UserDecision`、`TaskItem`、`KnowledgeCard`、`TimeEntry` 和 `ProgressLog`。`UserDecision` 会保存用户编辑内容、工作流去向、最终产物与可逆效果；刷新后最近一次未撤销决策仍可追踪和撤销。回顾结果不是持久化事实，而是根据任务和执行日志实时派生。
 
 领域层使用明确动作：`startTask`、`pauseTask`、`completeTask`、`moveTask`、`recordTime`、`recordProgress`、`recordInterruption`、`scheduleTask` 和 `deleteTask`。同一时刻最多只能有一个进行中任务。
 
 `MockProposalService` 使用固定关键词、拆分规则和重复事项识别生成建议；相同输入会获得相同结果，不使用随机数，也不声称是实际 AI。
 
+日历内容同样只做确定性派生：有计划时间的任务出现在计划日；没有计划时间但仍在“今天”的未完成任务显示为“未排期”；完成任务按 `completedAt` 出现在实际完成日。计划日和完成日不一致时两天都会保留记录，同一天则按任务去重。
+
 ## 技术方案
 
 - **应用框架**：Expo SDK 57、React 19、React Native 0.86、TypeScript。
 - **路由与 Web**：Expo Router + React Native Web；静态导出由 Metro 完成。
 - **状态管理**：React Context + Reducer，跨页面共享领域状态。
-- **持久化**：`@react-native-async-storage/async-storage`，浏览器键保持为 `reflow.demo.v1`，领域数据版本为 v2，并自动迁移 v1 数据。
+- **持久化**：`@react-native-async-storage/async-storage`，浏览器键保持为 `reflow.demo.v1`，领域数据版本为 v3，并自动迁移 v1/v2 数据。
 - **排序**：Web 优先使用 `@dnd-kit`；非 Web 端保留上移/下移 fallback。
-- **测试**：Jest + jest-expo；Playwright 已配置为后续核心流程 E2E 的入口。
+- **测试**：Jest + jest-expo 覆盖 Pipeline、Reducer、Mock Proposal、Selector、迁移与持久化；Playwright 覆盖核心闭环、收件箱和日历同步。
 
 项目目录：
 
@@ -117,13 +125,14 @@ npm run ios
 ## 建议的手动验收流程
 
 1. 打开左上角品牌入口，点击“重置 Demo 数据”。
-2. 在“今天”输入一个新事项，例如“整理季度复盘材料”。
-3. 进入“收件箱”，编辑 Proposal 后点击“加入今天”。
-4. 返回“今天”并开始该任务。
-5. 在“进行中”记录一句进展、补记 15 分钟，然后完成任务。
-6. 打开“回顾”，确认完成数和实际耗时已更新。
-7. 刷新页面，确认数据仍保留。
-8. 在“日历”选择日期并接受空档建议，确认任务计划时间已更新。
+2. 在“今天”输入一个新事项，例如“推进季度复盘材料”。
+3. 进入“收件箱”，确认 AI 整理结果和归类理由，再点击“确认并加入今天”。
+4. 打开“日历”，确认新任务以“未排期”出现在今天。
+5. 返回“今天”并开始该任务。
+6. 在“进行中”记录一句进展、补记 15 分钟，然后完成任务。
+7. 再次打开“日历”，确认任务变为“实际完成”；若计划日和完成日不同，两个日期应分别保留记录。
+8. 打开“回顾”，确认完成数和实际耗时已更新。
+9. 刷新页面，确认任务、决策、日历记录和回顾结果仍然保留。
 
 ## 检查、测试与导出
 
@@ -134,10 +143,10 @@ npm run typecheck
 # ESLint
 npm run lint
 
-# 单元测试：Capture Factory、Pipeline、Mock Proposal、Reducer、统计与持久化
+# 31 个单元测试：Capture Factory、Pipeline、Mock Proposal、Reducer、Selector、统计与持久化
 npm test
 
-# 一条端到端核心闭环（会自动启动或复用 Web 开发服务器）
+# 3 条端到端流程：核心闭环、收件箱与日历同步
 npm run test:e2e
 
 # 静态 Web 导出，产物位于 dist/
@@ -177,4 +186,4 @@ python -m http.server 4173 -d dist
 
 ## 首版范围外
 
-首版暂不包括登录、云同步、真实 AI、邮件/飞书接入、系统日历、通知、语音识别、多人协作和原生安装包发布。这些能力应在核心闭环稳定后逐步接入。
+首版暂不包括登录、云同步、真实 AI、邮件/飞书接入、系统日历、通知、语音识别、周期任务、复杂排程冲突、多人协作和原生安装包发布。日/周视图目前是简化日期视图，不包含完整时间网格。这些能力应在核心闭环稳定后逐步接入。
