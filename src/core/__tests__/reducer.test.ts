@@ -3,7 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import { createSeedData } from '../demo-data';
 import { domainReducer, reduceDomain } from '../reducer';
 
-const now = '2026-07-17T08:00:00.000Z';
+const now = '2026-07-17T08:00:00.000+08:00';
 const taskEdit = { title: '审阅新版合同', category: 'work' as const, estimatedMinutes: 35, nextAction: '标记风险条款' };
 
 describe('domain reducer', () => {
@@ -17,7 +17,8 @@ describe('domain reducer', () => {
     expect(transition.data.decisions[0]).toMatchObject({ id: 'decision-contract', outcome: 'task', status: 'applied' });
     const undone = reduceDomain(transition.data, { type: 'undoUserDecision', decisionId: 'decision-contract', at: '2026-07-17T08:05:00.000Z' });
     expect(undone).toMatchObject({ status: 'success' });
-    expect(undone.data.tasks).toHaveLength(beforeTaskCount);
+    expect(undone.data.tasks.filter((task) => !task.deletedAt)).toHaveLength(beforeTaskCount);
+    expect(undone.data.taskPlanEvents.some((event) => event.source === 'decisionUndo' && event.kind === 'cancelled')).toBe(true);
     expect(undone.data.proposals.find((item) => item.id === 'proposal-contract')?.status).toBe('pending');
     expect(undone.data.decisions[0].status).toBe('reverted');
   });
@@ -89,7 +90,7 @@ describe('domain reducer', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
     expect(reduceDomain(seed, { type: 'recordTime', taskId: 'missing', minutes: 15, at: now })).toMatchObject({ status: 'failure', failure: { code: 'task_not_found' } });
     expect(reduceDomain(seed, { type: 'recordTime', taskId: 'task-reflow-demo', minutes: 0, at: now })).toMatchObject({ status: 'failure', failure: { code: 'invalid_time' } });
-    expect(reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-reflow-demo', startAt: now, endAt: now })).toMatchObject({ status: 'failure', failure: { code: 'invalid_schedule' } });
+    expect(reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-reflow-demo', startAt: now, endAt: now, at: now })).toMatchObject({ status: 'failure', failure: { code: 'invalid_schedule' } });
 
     const accepted = domainReducer(seed, { type: 'submitUserDecision', decisionId: 'decision-exec', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', edited: taskEdit } });
     const createdTask = accepted.tasks.find((task) => task.title === taskEdit.title);
@@ -106,5 +107,69 @@ describe('domain reducer', () => {
     data = domainReducer(data, { type: 'completeTask', taskId: 'task-client-quote', at: now });
     expect(data.progressLogs.some((log) => log.kind === 'interrupt')).toBe(true);
     expect(data.tasks.find((task) => task.id === 'task-client-quote')?.status).toBe('completed');
+  });
+
+  it('moves a scheduled task to another date as unscheduled and appends immutable history', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const previousEvents = seed.taskPlanEvents;
+    const result = reduceDomain(seed, { type: 'planTaskForDate', taskId: 'task-client-quote', date: '2026-07-18', at: now });
+    expect(result).toMatchObject({ status: 'success' });
+    expect(result.data.tasks.find((task) => task.id === 'task-client-quote')).toMatchObject({ plannedDate: '2026-07-18', plannedStartAt: undefined, plannedEndAt: undefined });
+    expect(result.data.taskPlanEvents.slice(0, previousEvents.length)).toEqual(previousEvents);
+    expect(result.data.taskPlanEvents.at(-1)).toMatchObject({ kind: 'rescheduled', before: { plannedDate: '2026-07-17' }, after: { plannedDate: '2026-07-18', plannedStartAt: undefined } });
+  });
+
+  it('enforces same-day schedules and half-open conflicts with explicit override', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const crossDay = reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-client-quote', startAt: '2026-07-17T23:30:00+08:00', endAt: '2026-07-18T00:15:00+08:00', at: now });
+    expect(crossDay).toMatchObject({ status: 'failure', failure: { code: 'invalid_schedule' }, data: seed });
+
+    const touching = reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-client-quote', startAt: '2026-07-17T11:30:00+08:00', endAt: '2026-07-17T12:00:00+08:00', at: now });
+    expect(touching.status).toBe('success');
+
+    const conflict = reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-client-quote', startAt: '2026-07-17T10:30:00+08:00', endAt: '2026-07-17T11:00:00+08:00', at: now });
+    expect(conflict).toMatchObject({ status: 'failure', failure: { code: 'schedule_conflict' }, data: seed });
+    const overridden = reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-client-quote', startAt: '2026-07-17T10:30:00+08:00', endAt: '2026-07-17T11:00:00+08:00', allowConflict: true, at: now });
+    expect(overridden).toMatchObject({ status: 'success' });
+  });
+
+  it('accepts a schedule outside the default visible range', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const result = reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-client-quote', startAt: '2026-07-17T02:00:00+08:00', endAt: '2026-07-17T02:30:00+08:00', at: now });
+    expect(result).toMatchObject({ status: 'success' });
+  });
+
+  it('excludes the task itself from conflicts and treats an unchanged date plan as a no-op', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const sameSchedule = reduceDomain(seed, {
+      type: 'scheduleTask', taskId: 'task-client-quote',
+      startAt: '2026-07-17T16:00:00+08:00', endAt: '2026-07-17T16:30:00+08:00', at: now,
+    });
+    expect(sameSchedule.status).toBe('success');
+    const sameDate = reduceDomain(seed, { type: 'planTaskForDate', taskId: 'task-client-quote', date: '2026-07-17', at: now });
+    expect(sameDate).toMatchObject({ status: 'success', data: seed });
+  });
+
+  it('appends events for unscheduling and both defer destinations', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const unscheduled = domainReducer(seed, { type: 'unscheduleTask', taskId: 'task-client-quote', at: now });
+    expect(unscheduled.tasks.find((task) => task.id === 'task-client-quote')).toMatchObject({ plannedDate: '2026-07-17', plannedStartAt: undefined, plannedEndAt: undefined });
+    expect(unscheduled.taskPlanEvents.at(-1)).toMatchObject({ kind: 'unscheduled', before: { plannedDate: '2026-07-17' }, after: { plannedDate: '2026-07-17' } });
+
+    const deferred = domainReducer(seed, { type: 'deferTask', taskId: 'task-client-quote', destination: { date: '2026-07-18' }, at: now });
+    expect(deferred.taskPlanEvents.at(-1)).toMatchObject({ kind: 'deferred', after: { plannedDate: '2026-07-18', plannedStartAt: undefined } });
+
+    const someday = domainReducer(seed, { type: 'deferTask', taskId: 'task-client-quote', destination: { bucket: 'someday' }, at: now });
+    expect(someday.tasks.find((task) => task.id === 'task-client-quote')).toMatchObject({ bucket: 'someday', plannedDate: undefined });
+    expect(someday.taskPlanEvents.at(-1)).toMatchObject({ kind: 'movedToSomeday', after: { plannedDate: undefined } });
+  });
+
+  it('deletes tasks logically and preserves their execution and plan history', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const result = domainReducer(seed, { type: 'deleteTask', taskId: 'task-reflow-demo', at: now });
+    expect(result.tasks.find((task) => task.id === 'task-reflow-demo')?.deletedAt).toBe(now);
+    expect(result.timeEntries.some((entry) => entry.taskId === 'task-reflow-demo')).toBe(true);
+    expect(result.progressLogs.some((log) => log.taskId === 'task-reflow-demo')).toBe(true);
+    expect(result.taskPlanEvents.at(-1)).toMatchObject({ kind: 'cancelled', taskId: 'task-reflow-demo', source: 'user' });
   });
 });

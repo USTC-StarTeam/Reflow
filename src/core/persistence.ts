@@ -1,109 +1,252 @@
 import { createSeedData } from './demo-data';
+import { dateKey, durationMilliseconds, isLocalDate, isZonedDateTime, localDateOf } from './date-utils';
 import { resolveProposalVisibleClassification } from './classification';
-import { DEMO_DATA_VERSION, type CapturePipelineState, type CaptureSource, type DomainData, type VisibleClassification } from './types';
+import { validateSchedule } from './planning';
+import { DEMO_DATA_VERSION, type CapturePipelineState, type CaptureSource, type DomainData, type LocalDate, type TaskItem, type TaskPlanEvent, type VisibleClassification } from './types';
 
 export const PERSISTENCE_KEY = 'reflow.demo.v1';
+export const RECOVERY_KEY = 'reflow.demo.v4.recovery';
+export const BACKUP_FORMAT = 'reflow.backup';
+export const BACKUP_VERSION = 1 as const;
 
-type LegacyV1Data = Omit<DomainData, 'version' | 'captures' | 'decisions' | 'knowledgeCards'> & {
-  version: 1;
-  captures: { id: string; rawText: string; source: string; createdAt: string; parseStatus: 'organizing' | 'organized' | 'resolved' }[];
-  knowledgeCards: { id: string; title: string; summary: string; source: string; createdAt?: string }[];
-};
-
-type LegacyV2Data = Omit<DomainData, 'version'> & { version: 2 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object';
+export interface BackupEnvelope {
+  format: typeof BACKUP_FORMAT;
+  backupVersion: typeof BACKUP_VERSION;
+  exportedAt: string;
+  data: DomainData;
 }
 
-function hasCollections(data: Record<string, unknown>): boolean {
+export type BackupParseResult =
+  | { status: 'success'; data: DomainData; counts: { tasks: number; decisions: number; timeEntries: number; progressLogs: number; taskPlanEvents: number; knowledgeCards: number } }
+  | { status: 'failure'; message: string };
+
+type RecordValue = Record<string, unknown>;
+const taskStatuses = new Set(['notStarted', 'inProgress', 'completed']);
+const taskCategories = new Set(['work', 'communication', 'learning', 'life', 'health', 'unknown']);
+const workflowBuckets = new Set(['inbox', 'today', 'waiting', 'someday', 'archived']);
+const captureSources = new Set(['webText', 'voice', 'email', 'feishu', 'calendar', 'shareExtension', 'mobileShortcut']);
+const captureStates = new Set(['captured', 'proposing', 'proposed', 'proposalFailed', 'resolved']);
+const proposalStatuses = new Set(['pending', 'accepted', 'rejected']);
+const proposalOutcomes = new Set(['task', 'knowledge']);
+const proposalKinds = new Set(['create', 'merge', 'split']);
+const progressKinds = new Set(['start', 'pause', 'progress', 'interrupt', 'complete']);
+const planEventKinds = new Set(['planned', 'scheduled', 'rescheduled', 'deferred', 'unscheduled', 'movedToSomeday', 'cancelled']);
+const planEventSources = new Set(['user', 'proposalDecision', 'migration', 'decisionUndo']);
+
+function isRecord(value: unknown): value is RecordValue {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasCollections(data: RecordValue): boolean {
   return ['tasks', 'captures', 'proposals', 'timeEntries', 'progressLogs', 'knowledgeCards'].every((key) => Array.isArray(data[key]));
 }
 
-export function isDomainData(value: unknown): value is DomainData {
+function idsAreUnique(collection: unknown[]): boolean {
+  const ids = collection.map((item) => isRecord(item) ? item.id : undefined);
+  return ids.every((id) => typeof id === 'string' && id.length > 0) && new Set(ids).size === ids.length;
+}
+
+function validPlanSnapshot(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  return value.version === DEMO_DATA_VERSION && hasCollections(value) && Array.isArray(value.decisions);
+  const plannedDate = value.plannedDate;
+  const startAt = value.plannedStartAt;
+  const endAt = value.plannedEndAt;
+  if (value.bucket !== undefined && (typeof value.bucket !== 'string' || !workflowBuckets.has(value.bucket))) return false;
+  if (plannedDate !== undefined && !isLocalDate(plannedDate)) return false;
+  if ((startAt === undefined) !== (endAt === undefined)) return false;
+  if (startAt !== undefined && endAt !== undefined) {
+    if (typeof startAt !== 'string' || typeof endAt !== 'string') return false;
+    const schedule = validateSchedule(startAt, endAt);
+    if (!schedule.valid || plannedDate !== schedule.plannedDate) return false;
+  }
+  return true;
 }
 
-function isLegacyV1Data(value: unknown): value is LegacyV1Data {
-  return isRecord(value) && value.version === 1 && hasCollections(value);
+function validTask(value: unknown): value is TaskItem {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== 'string' || typeof value.title !== 'string' || typeof value.createdAt !== 'string' || !isZonedDateTime(value.createdAt)) return false;
+  if (typeof value.estimatedMinutes !== 'number' || value.estimatedMinutes < 0 || typeof value.sortIndex !== 'number') return false;
+  if (typeof value.status !== 'string' || !taskStatuses.has(value.status) || typeof value.category !== 'string' || !taskCategories.has(value.category) || typeof value.bucket !== 'string' || !workflowBuckets.has(value.bucket)) return false;
+  if (typeof value.nextAction !== 'string' || typeof value.sourceSummary !== 'string') return false;
+  if (value.completedAt !== undefined && !isZonedDateTime(value.completedAt)) return false;
+  if (value.deletedAt !== undefined && !isZonedDateTime(value.deletedAt)) return false;
+  return validPlanSnapshot(value);
 }
 
-function isLegacyV2Data(value: unknown): value is LegacyV2Data {
-  return isRecord(value) && value.version === 2 && hasCollections(value) && Array.isArray(value.decisions);
+function validateCurrentDomainData(value: unknown): value is DomainData {
+  if (!isRecord(value) || value.version !== DEMO_DATA_VERSION || !hasCollections(value) || !Array.isArray(value.decisions) || !Array.isArray(value.taskPlanEvents)) return false;
+  const collections = [value.tasks, value.captures, value.proposals, value.decisions, value.timeEntries, value.progressLogs, value.taskPlanEvents, value.knowledgeCards] as unknown[][];
+  if (collections.some((collection) => !idsAreUnique(collection))) return false;
+  if (!(value.tasks as unknown[]).every(validTask)) return false;
+
+  const taskIds = new Set((value.tasks as RecordValue[]).map((task) => task.id as string));
+  const captureIds = new Set((value.captures as RecordValue[]).map((capture) => capture.id as string));
+  const proposalIds = new Set((value.proposals as RecordValue[]).map((proposal) => proposal.id as string));
+
+  if (!(value.captures as unknown[]).every((capture) => isRecord(capture) && typeof capture.rawText === 'string' && isZonedDateTime(capture.createdAt) && typeof capture.source === 'string' && captureSources.has(capture.source) && typeof capture.pipelineState === 'string' && captureStates.has(capture.pipelineState))) return false;
+  if (!(value.proposals as unknown[]).every((proposal) => isRecord(proposal) && typeof proposal.captureId === 'string' && captureIds.has(proposal.captureId) && typeof proposal.status === 'string' && proposalStatuses.has(proposal.status) && typeof proposal.outcome === 'string' && proposalOutcomes.has(proposal.outcome) && typeof proposal.kind === 'string' && proposalKinds.has(proposal.kind))) return false;
+  if (!(value.decisions as unknown[]).every((decision) => isRecord(decision) && typeof decision.captureId === 'string' && captureIds.has(decision.captureId) && typeof decision.proposalId === 'string' && proposalIds.has(decision.proposalId) && isZonedDateTime(decision.appliedAt) && (decision.revertedAt === undefined || isZonedDateTime(decision.revertedAt)) && isRecord(decision.effect))) return false;
+  if (!(value.timeEntries as unknown[]).every((entry) => {
+    if (!isRecord(entry) || typeof entry.taskId !== 'string' || !taskIds.has(entry.taskId) || !isZonedDateTime(entry.startedAt) || !isZonedDateTime(entry.endedAt)) return false;
+    const duration = durationMilliseconds(entry.startedAt, entry.endedAt);
+    return duration > 0 && typeof entry.minutes === 'number' && entry.minutes > 0;
+  })) return false;
+  if (!(value.progressLogs as unknown[]).every((log) => isRecord(log) && typeof log.taskId === 'string' && taskIds.has(log.taskId) && isZonedDateTime(log.createdAt) && typeof log.kind === 'string' && progressKinds.has(log.kind) && typeof log.text === 'string')) return false;
+  const planEventIds = new Set((value.taskPlanEvents as RecordValue[]).map((event) => event.id as string));
+  if (!(value.taskPlanEvents as unknown[]).every((event) => isRecord(event)
+    && typeof event.taskId === 'string'
+    && taskIds.has(event.taskId)
+    && isZonedDateTime(event.occurredAt)
+    && typeof event.kind === 'string'
+    && planEventKinds.has(event.kind)
+    && typeof event.source === 'string'
+    && planEventSources.has(event.source)
+    && validPlanSnapshot(event.before)
+    && validPlanSnapshot(event.after)
+    && (event.compensatesEventIds === undefined || (Array.isArray(event.compensatesEventIds) && event.compensatesEventIds.every((id) => typeof id === 'string' && planEventIds.has(id)))))) return false;
+  if (!(value.knowledgeCards as unknown[]).every((card) => isRecord(card) && typeof card.title === 'string' && typeof card.summary === 'string' && typeof card.source === 'string' && isZonedDateTime(card.createdAt))) return false;
+  return true;
 }
 
-function migrateSource(source: string): CaptureSource {
-  if (source === '语音') return 'voice';
-  if (source === '邮件') return 'email';
-  if (source === '飞书') return 'feishu';
-  if (source === '日历') return 'calendar';
-  if (source === '分享扩展') return 'shareExtension';
-  if (source === '移动端快捷入口') return 'mobileShortcut';
+export function isDomainData(value: unknown): value is DomainData {
+  return validateCurrentDomainData(value);
+}
+
+function migrateSource(source: unknown): CaptureSource {
+  if (source === '语音' || source === 'voice') return 'voice';
+  if (source === '邮件' || source === 'email') return 'email';
+  if (source === '飞书' || source === 'feishu') return 'feishu';
+  if (source === '日历' || source === 'calendar') return 'calendar';
+  if (source === '分享扩展' || source === 'shareExtension') return 'shareExtension';
+  if (source === '移动端快捷入口' || source === 'mobileShortcut') return 'mobileShortcut';
   return 'webText';
 }
 
-function migratePipelineState(status: LegacyV1Data['captures'][number]['parseStatus']): CapturePipelineState {
-  if (status === 'organizing') return 'proposing';
-  if (status === 'organized') return 'proposed';
+function migratePipelineState(status: unknown): CapturePipelineState {
+  if (status === 'organizing' || status === 'proposing') return 'proposing';
+  if (status === 'organized' || status === 'proposed') return 'proposed';
+  if (status === 'proposalFailed') return 'proposalFailed';
+  if (status === 'captured') return 'captured';
   return 'resolved';
 }
 
-export function migrateV1Data(data: LegacyV1Data): LegacyV2Data {
-  const fallbackCreatedAt = data.captures[0]?.createdAt ?? '1970-01-01T00:00:00.000Z';
-  return {
-    ...data,
-    version: 2,
-    captures: data.captures.map((capture) => ({
+function migrateToV3(value: RecordValue): RecordValue | undefined {
+  if (!hasCollections(value)) return undefined;
+  const copy = JSON.parse(JSON.stringify(value)) as RecordValue;
+  const captures = copy.captures as RecordValue[];
+  if (value.version === 1) {
+    copy.captures = captures.map((capture) => ({
       id: capture.id,
       rawText: capture.rawText,
       source: migrateSource(capture.source),
       createdAt: capture.createdAt,
       pipelineState: migratePipelineState(capture.parseStatus),
-    })),
-    decisions: [],
-    knowledgeCards: data.knowledgeCards.map((card) => ({ ...card, createdAt: card.createdAt ?? fallbackCreatedAt })),
-  };
+    }));
+    copy.decisions = [];
+    const fallbackCreatedAt = captures[0]?.createdAt ?? '1970-01-01T00:00:00.000Z';
+    copy.knowledgeCards = (copy.knowledgeCards as RecordValue[]).map((card) => ({ ...card, createdAt: card.createdAt ?? fallbackCreatedAt }));
+    copy.version = 2;
+  }
+  if (copy.version === 2) {
+    const proposals = copy.proposals as RecordValue[];
+    copy.proposals = proposals.map((proposal) => ({ ...proposal, suggestedBucket: proposal.suggestedBucket ?? (proposal.outcome === 'task' ? 'today' : undefined) }));
+    const decisions = (copy.decisions as RecordValue[] | undefined) ?? [];
+    copy.decisions = decisions.map((decision) => {
+      const edit = isRecord(decision.edited) ? decision.edited : undefined;
+      if (!edit || edit.visibleClassification) return decision;
+      const proposal = proposals.find((item) => item.id === decision.proposalId);
+      let visibleClassification: VisibleClassification | undefined;
+      if (decision.outcome === 'knowledge') visibleClassification = 'knowledge';
+      else if (decision.bucket === 'waiting') visibleClassification = 'waiting';
+      else if (decision.bucket === 'someday') visibleClassification = 'someday';
+      else if (proposal) visibleClassification = resolveProposalVisibleClassification(proposal as never);
+      return { ...decision, edited: { ...edit, visibleClassification } };
+    });
+    copy.version = 3;
+  }
+  return copy.version === 3 ? copy : undefined;
 }
 
-function inferDecisionClassification(data: LegacyV2Data, decision: LegacyV2Data['decisions'][number]): VisibleClassification | undefined {
-  if (decision.edited?.visibleClassification) return decision.edited.visibleClassification;
-  if (decision.outcome === 'knowledge') return 'knowledge';
-  if (decision.bucket === 'waiting') return 'waiting';
-  if (decision.bucket === 'someday') return 'someday';
-  const proposal = data.proposals.find((item) => item.id === decision.proposalId);
-  return proposal ? resolveProposalVisibleClassification(proposal) : undefined;
+function migrateV3ToV4(value: RecordValue, now: Date): DomainData | undefined {
+  const tasks = (value.tasks as RecordValue[]).map((task): RecordValue => {
+    const plannedStartAt = typeof task.plannedStartAt === 'string' ? task.plannedStartAt : undefined;
+    const plannedDate: LocalDate | undefined = plannedStartAt
+      ? localDateOf(plannedStartAt)
+      : task.status !== 'completed' && task.bucket === 'today'
+        ? dateKey(now)
+        : undefined;
+    return { ...task, plannedDate };
+  });
+  const taskPlanEvents: TaskPlanEvent[] = tasks.flatMap((task) => {
+    if (!task.plannedDate || typeof task.id !== 'string' || typeof task.createdAt !== 'string') return [];
+    return [{
+      id: `plan-migration-${task.id}`,
+      taskId: task.id,
+      kind: task.plannedStartAt ? 'scheduled' : 'planned',
+      occurredAt: task.createdAt,
+      before: { bucket: task.bucket as TaskItem['bucket'] },
+      after: { bucket: task.bucket as TaskItem['bucket'], plannedDate: task.plannedDate as LocalDate, plannedStartAt: task.plannedStartAt as string | undefined, plannedEndAt: task.plannedEndAt as string | undefined },
+      source: 'migration',
+    }];
+  });
+  const candidate = { ...value, version: DEMO_DATA_VERSION, tasks, taskPlanEvents };
+  return validateCurrentDomainData(candidate) ? candidate : undefined;
 }
 
-export function migrateV2Data(data: LegacyV2Data): DomainData {
-  return {
-    ...data,
-    version: DEMO_DATA_VERSION,
-    proposals: data.proposals.map((proposal) => ({
-      ...proposal,
-      suggestedBucket: proposal.suggestedBucket ?? (proposal.outcome === 'task' ? 'today' : undefined),
-    })),
-    decisions: data.decisions.map((decision) => {
-      const visibleClassification = inferDecisionClassification(data, decision);
-      return {
-        ...decision,
-        edited: decision.edited
-          ? { ...decision.edited, visibleClassification }
-          : decision.edited,
-      };
-    }),
-  };
+export function migrateStoredData(value: unknown, now = new Date()): DomainData | undefined {
+  if (validateCurrentDomainData(value)) return value;
+  if (!isRecord(value) || ![1, 2, 3].includes(value.version as number)) return undefined;
+  const v3 = migrateToV3(value);
+  return v3 ? migrateV3ToV4(v3, now) : undefined;
 }
 
-export function parseStoredData(raw: string | null, fallback = createSeedData()): DomainData {
+export function parseStoredData(raw: string | null, fallback = createSeedData(), now = new Date()): DomainData {
   if (!raw) return fallback;
   try {
-    const value = JSON.parse(raw) as unknown;
-    if (isDomainData(value)) return value;
-    if (isLegacyV2Data(value)) return migrateV2Data(value);
-    if (isLegacyV1Data(value)) return migrateV2Data(migrateV1Data(value));
-    return fallback;
+    return migrateStoredData(JSON.parse(raw) as unknown, now) ?? fallback;
   } catch {
     return fallback;
+  }
+}
+
+export function parseStoredDataWithRecovery(primary: string | null, recovery: string | null, fallback = createSeedData(), now = new Date()): DomainData {
+  if (primary) {
+    try {
+      const parsed = migrateStoredData(JSON.parse(primary) as unknown, now);
+      if (parsed) return parsed;
+    } catch {
+      // Try the independently validated recovery copy.
+    }
+  }
+  return parseStoredData(recovery, fallback, now);
+}
+
+export function serializeBackup(data: DomainData, exportedAt = new Date()): string {
+  const envelope: BackupEnvelope = { format: BACKUP_FORMAT, backupVersion: BACKUP_VERSION, exportedAt: exportedAt.toISOString(), data };
+  return JSON.stringify(envelope, null, 2);
+}
+
+export function parseBackup(raw: string, now = new Date()): BackupParseResult {
+  try {
+    const envelope = JSON.parse(raw) as unknown;
+    if (!isRecord(envelope) || envelope.format !== BACKUP_FORMAT || envelope.backupVersion !== BACKUP_VERSION || !isZonedDateTime(envelope.exportedAt)) {
+      return { status: 'failure', message: '备份格式或版本不受支持。' };
+    }
+    const data = migrateStoredData(envelope.data, now);
+    if (!data) return { status: 'failure', message: '备份数据结构、引用或时间字段校验失败。' };
+    return {
+      status: 'success',
+      data,
+      counts: {
+        tasks: data.tasks.filter((task) => !task.deletedAt).length,
+        decisions: data.decisions.length,
+        timeEntries: data.timeEntries.length,
+        progressLogs: data.progressLogs.length,
+        taskPlanEvents: data.taskPlanEvents.length,
+        knowledgeCards: data.knowledgeCards.length,
+      },
+    };
+  } catch {
+    return { status: 'failure', message: '无法解析备份文件。' };
   }
 }

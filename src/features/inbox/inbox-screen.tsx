@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { isTaskCategory, resolveProposalVisibleClassification } from '@/core/classification';
-import { addDays, dateKey, formatShortDate } from '@/core/date-utils';
+import { addLocalDays, dateKey, formatShortDate, isLocalDate, localDateOf } from '@/core/date-utils';
 import { editProposal } from '@/core/reducer';
 import { selectFailedCaptures, selectLatestUndoableDecision, selectPendingProposals, selectRecentDecisions } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
@@ -13,10 +13,7 @@ import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, 
 const visibleClassifications: VisibleClassification[] = ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown'];
 
 function isValidDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  return !Number.isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  return isLocalDate(value);
 }
 
 function suggestedDestination(classification: VisibleClassification): string {
@@ -28,11 +25,11 @@ function suggestedDestination(classification: VisibleClassification): string {
 }
 
 function defaultWaitingDetails(proposal: AIProposal, captureCreatedAt?: string): WaitingDetails {
-  const sourceDate = captureCreatedAt ? new Date(captureCreatedAt) : new Date();
+  const sourceDate = captureCreatedAt ? localDateOf(captureCreatedAt) : dateKey(new Date());
   return proposal.waitingDetails ?? {
     waitingFor: '对方',
     waitingOn: proposal.nextAction || proposal.title,
-    followUpDate: dateKey(addDays(sourceDate, 3)),
+    followUpDate: addLocalDays(sourceDate, 3),
   };
 }
 
@@ -70,11 +67,11 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   const [nextAction, setNextAction] = useState(proposal.nextAction);
   const [knowledgeSummary, setKnowledgeSummary] = useState(proposal.knowledgeSummary ?? '');
   const [waitingDetails, setWaitingDetails] = useState<WaitingDetails>(defaultWaitingDetails(proposal, capture?.createdAt));
-  const followUpSourceDate = capture?.createdAt ? new Date(capture.createdAt) : new Date();
+  const followUpSourceDate = capture?.createdAt ? localDateOf(capture.createdAt) : dateKey(new Date());
   const waitingDatePresets = [
-    { label: '明天', value: dateKey(addDays(followUpSourceDate, 1)) },
-    { label: '3 天后', value: dateKey(addDays(followUpSourceDate, 3)) },
-    { label: '一周后', value: dateKey(addDays(followUpSourceDate, 7)) },
+    { label: '明天', value: addLocalDays(followUpSourceDate, 1) },
+    { label: '3 天后', value: addLocalDays(followUpSourceDate, 3) },
+    { label: '一周后', value: addLocalDays(followUpSourceDate, 7) },
   ];
 
   const isKnowledge = classification === 'knowledge';
@@ -96,7 +93,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   }
 
   function acceptTask(bucket: WorkflowBucket, classificationOverride?: VisibleClassification) {
-    submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket });
+    submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket, plannedDate: bucket === 'today' ? dateKey(new Date()) : undefined });
   }
 
   function acceptKnowledge() {

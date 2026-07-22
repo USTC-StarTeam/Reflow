@@ -110,3 +110,61 @@ test('已排期任务完成后在同一天合并展示计划与实际完成', as
   await expect(calendarEntry).toContainText('实际完成');
   await expect(calendarEntry.getByText('已完成')).toBeVisible();
 });
+
+test('点击排期先阻止冲突，用户明确确认后才写入并刷新保留', async ({ page }) => {
+  const text = '推进时间规划验收说明';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(text);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: text });
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await page.getByTestId('nav-今天').click();
+  const task = page.locator('[data-testid^="task-"]', { hasText: text });
+  await task.getByRole('button', { name: '安排时间' }).click();
+  await page.getByTestId('schedule-time').fill('10:30');
+  await page.getByTestId('schedule-duration').fill('30');
+  await page.getByTestId('confirm-schedule').click();
+  await expect(page.getByTestId('schedule-conflict')).toContainText('完成 Reflow Demo 页面结构');
+  await page.getByTestId('confirm-schedule-conflict').click();
+
+  await page.getByTestId('nav-日历').click();
+  const entry = page.locator('[data-testid^="calendar-entry-"]', { hasText: text });
+  await expect(entry).toContainText('10:30');
+  await page.reload();
+  await expect(entry).toContainText('10:30');
+});
+
+test('本地备份通过验证预览后可以恢复', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByRole('button', { name: '打开设置' }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('export-backup').click();
+  const download = await downloadPromise;
+  const backupPath = await download.path();
+  if (!backupPath) throw new Error('expected a downloaded backup');
+
+  await page.getByRole('button', { name: '关闭' }).click();
+  await page.getByRole('button', { name: '打开设置' }).click();
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByTestId('import-backup').click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(backupPath);
+  await expect(page.getByTestId('import-preview')).toContainText('条计划事件');
+  await page.getByTestId('confirm-import-backup').click();
+  await expect(page.getByText('备份已恢复，替换前的数据已保存为本地恢复副本。')).toBeVisible();
+});
+
+test('顺延后原日期回顾保留历史结果并在刷新后稳定', async ({ page }) => {
+  await page.goto('/review');
+  await resetDemo(page);
+  await page.getByTestId('nav-回顾').click();
+  const outcome = page.getByTestId('review-outcome-task-client-quote');
+  await expect(outcome).toContainText('未完成');
+  await page.getByTestId('defer-tomorrow-task-client-quote').click();
+  await expect(outcome).toContainText('顺延到');
+  await page.reload();
+  await expect(outcome).toContainText('顺延到');
+});

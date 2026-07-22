@@ -1,4 +1,7 @@
-export const DEMO_DATA_VERSION = 3 as const;
+export const DEMO_DATA_VERSION = 4 as const;
+
+export type LocalDate = string;
+export type ZonedDateTime = string;
 
 export type TaskStatus = 'notStarted' | 'inProgress' | 'completed';
 export type TaskCategory = 'work' | 'communication' | 'learning' | 'life' | 'health' | 'unknown';
@@ -13,10 +16,12 @@ export type ProgressKind = 'start' | 'pause' | 'progress' | 'interrupt' | 'compl
 export type ReviewPeriod = 'daily' | 'weekly' | 'monthly';
 export type CalendarViewMode = 'day' | 'week' | 'month';
 export type CalendarTaskEntryKind = 'planned' | 'unscheduled' | 'completed' | 'plannedCompleted';
+export type TaskPlanEventKind = 'planned' | 'scheduled' | 'rescheduled' | 'deferred' | 'unscheduled' | 'movedToSomeday' | 'cancelled';
+export type TaskPlanEventSource = 'user' | 'proposalDecision' | 'migration' | 'decisionUndo';
 
 export type CaptureSource = 'webText' | 'voice' | 'email' | 'feishu' | 'calendar' | 'shareExtension' | 'mobileShortcut';
 export type CapturePipelineState = 'captured' | 'proposing' | 'proposed' | 'proposalFailed' | 'resolved';
-export type PipelineFailureCode = 'empty_capture' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'invalid_follow_up' | 'decision_not_reversible';
+export type PipelineFailureCode = 'empty_capture' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'schedule_conflict' | 'invalid_follow_up' | 'decision_not_reversible' | 'invalid_backup';
 
 export interface PipelineFailure {
   code: PipelineFailureCode;
@@ -34,16 +39,36 @@ export interface TaskItem {
   nextAction: string;
   sourceSummary: string;
   sortIndex: number;
-  createdAt: string;
-  completedAt?: string;
-  plannedStartAt?: string;
-  plannedEndAt?: string;
+  createdAt: ZonedDateTime;
+  completedAt?: ZonedDateTime;
+  deletedAt?: ZonedDateTime;
+  plannedDate?: LocalDate;
+  plannedStartAt?: ZonedDateTime;
+  plannedEndAt?: ZonedDateTime;
   waitingDetails?: WaitingDetails;
+}
+
+export interface TaskPlanSnapshot {
+  plannedDate?: LocalDate;
+  plannedStartAt?: ZonedDateTime;
+  plannedEndAt?: ZonedDateTime;
+  bucket?: WorkflowBucket;
+}
+
+export interface TaskPlanEvent {
+  id: string;
+  taskId: string;
+  kind: TaskPlanEventKind;
+  occurredAt: ZonedDateTime;
+  before: TaskPlanSnapshot;
+  after: TaskPlanSnapshot;
+  source: TaskPlanEventSource;
+  compensatesEventIds?: string[];
 }
 
 export interface CalendarTaskEntry {
   task: TaskItem;
-  date: string;
+  date: LocalDate;
   kind: CalendarTaskEntryKind;
   plannedStartAt?: string;
   plannedEndAt?: string;
@@ -95,7 +120,7 @@ export interface ProposalEdit {
 }
 
 export type UserDecisionInput =
-  | { kind: 'accept'; proposalId: string; edited: ProposalEdit; bucket?: WorkflowBucket }
+  | { kind: 'accept'; proposalId: string; edited: ProposalEdit; bucket?: WorkflowBucket; plannedDate?: LocalDate }
   | { kind: 'ignore'; proposalId: string };
 
 export type DecisionEffect =
@@ -150,7 +175,27 @@ export interface DomainData {
   decisions: UserDecision[];
   timeEntries: TimeEntry[];
   progressLogs: ProgressLog[];
+  taskPlanEvents: TaskPlanEvent[];
   knowledgeCards: KnowledgeCard[];
+}
+
+export interface DailyTaskOutcome {
+  taskId: string;
+  outcome: 'completedAsPlanned' | 'deferred' | 'unfinished' | 'deleted';
+  deferredTo?: LocalDate | 'someday';
+}
+
+export interface DailyReviewFacts {
+  date: LocalDate;
+  plannedCount: number;
+  completedAsPlannedCount: number;
+  completedTotalCount: number;
+  extraCompletedCount: number;
+  unfinishedCount: number;
+  plannedCompletionRate: number;
+  taskOutcomes: DailyTaskOutcome[];
+  actualMinutes: number;
+  interruptions: number;
 }
 
 export interface ReviewFacts {

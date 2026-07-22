@@ -1,6 +1,7 @@
-import { addMinutes, runtimeId } from './date-utils';
+import { addMinutes, isLocalDate, localDateOf, runtimeId, toZonedISOString } from './date-utils';
 import { categoryForVisibleClassification, defaultSuggestedBucket, resolveProposalVisibleClassification } from './classification';
-import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type UserDecision, type UserDecisionInput, type WaitingDetails, type WorkflowBucket } from './types';
+import { createTaskPlanEvent, findScheduleConflicts, samePlan, taskPlanSnapshot, validateSchedule } from './planning';
+import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type LocalDate, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type TaskPlanEvent, type TaskPlanEventKind, type TaskPlanEventSource, type UserDecision, type UserDecisionInput, type WaitingDetails, type WorkflowBucket } from './types';
 
 export type EditedProposal = ProposalEdit;
 
@@ -14,13 +15,17 @@ export type DomainAction =
   | { type: 'startTask'; taskId: string; at: string }
   | { type: 'pauseTask'; taskId: string; at: string }
   | { type: 'completeTask'; taskId: string; at: string }
-  | { type: 'moveTask'; taskId: string; bucket: WorkflowBucket }
+  | { type: 'moveTask'; taskId: string; bucket: WorkflowBucket; at: string }
   | { type: 'recordTime'; taskId: string; minutes: number; at: string }
   | { type: 'recordProgress'; taskId: string; text: string; kind: ProgressKind; at: string }
   | { type: 'recordInterruption'; taskId: string; text: string; at: string }
-  | { type: 'scheduleTask'; taskId: string; startAt: string; endAt: string }
-  | { type: 'deleteTask'; taskId: string }
-  | { type: 'reorderTasks'; taskIds: string[] };
+  | { type: 'planTaskForDate'; taskId: string; date: LocalDate; at: string }
+  | { type: 'scheduleTask'; taskId: string; startAt: string; endAt: string; allowConflict?: boolean; at: string }
+  | { type: 'unscheduleTask'; taskId: string; at: string }
+  | { type: 'deferTask'; taskId: string; destination: { date: LocalDate } | { bucket: 'someday' }; at: string }
+  | { type: 'deleteTask'; taskId: string; at: string }
+  | { type: 'reorderTasks'; taskIds: string[] }
+  | { type: 'restoreBackup'; data: DomainData };
 
 export type DomainActionResult = { type: DomainAction['type']; decision?: UserDecision };
 
@@ -39,7 +44,26 @@ function success(data: DomainData, type: DomainAction['type'], decision?: UserDe
 }
 
 function findTask(data: DomainData, taskId: string): TaskItem | undefined {
-  return data.tasks.find((task) => task.id === taskId);
+  return data.tasks.find((task) => task.id === taskId && !task.deletedAt);
+}
+
+function planEvent(input: {
+  task: TaskItem;
+  next: TaskItem;
+  kind: TaskPlanEventKind;
+  at: string;
+  source?: TaskPlanEventSource;
+  compensatesEventIds?: string[];
+}): TaskPlanEvent {
+  return createTaskPlanEvent({
+    taskId: input.task.id,
+    kind: input.kind,
+    occurredAt: input.at,
+    before: taskPlanSnapshot(input.task),
+    after: taskPlanSnapshot(input.next),
+    source: input.source ?? 'user',
+    compensatesEventIds: input.compensatesEventIds,
+  });
 }
 
 function resolveCapture(data: DomainData, captureId: string): InboxCapture[] {
@@ -61,10 +85,7 @@ function isTaskBucket(bucket: WorkflowBucket | undefined): bucket is WorkflowBuc
 }
 
 function isValidFollowUpDate(value: string | undefined): value is string {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  return !Number.isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  return isLocalDate(value);
 }
 
 function normalizeWaitingDetails(details: WaitingDetails | undefined): WaitingDetails | undefined {
@@ -91,22 +112,31 @@ function buildTaskOutcome(input: {
   edit: ProposalEdit;
   bucket: WorkflowBucket;
   waitingDetails?: WaitingDetails;
+  plannedDate?: LocalDate;
   decisionId: string;
   at: string;
-}): { tasks: TaskItem[]; effect: UserDecision['effect'] } | PipelineFailure {
-  const { data, proposal, capture, edit, bucket, waitingDetails, decisionId, at } = input;
+}): { tasks: TaskItem[]; taskPlanEvents: TaskPlanEvent[]; effect: UserDecision['effect'] } | PipelineFailure {
+  const { data, proposal, capture, edit, bucket, waitingDetails, plannedDate, decisionId, at } = input;
   if (proposal.kind === 'merge') {
     const previousTask = proposal.duplicateTaskId ? findTask(data, proposal.duplicateTaskId) : undefined;
     if (!previousTask) return { code: 'task_not_found', message: '要合并的任务已不存在。', retryable: false };
+    const targetDate = plannedDate ?? (bucket === 'today' ? localDateOf(at) : undefined);
+    const keepTimes = Boolean(targetDate && previousTask.plannedDate === targetDate);
     const appliedTask: TaskItem = {
       ...previousTask,
       category: edit.category,
       bucket,
+      plannedDate: targetDate,
+      plannedStartAt: keepTimes ? previousTask.plannedStartAt : undefined,
+      plannedEndAt: keepTimes ? previousTask.plannedEndAt : undefined,
       waitingDetails: bucket === 'waiting' ? waitingDetails : undefined,
       sourceSummary: `${previousTask.sourceSummary} + ${taskSource(capture)}`,
     };
+    const changedPlan = !samePlan(taskPlanSnapshot(previousTask), taskPlanSnapshot(appliedTask));
+    const kind: TaskPlanEventKind = bucket === 'someday' ? 'movedToSomeday' : targetDate ? (previousTask.plannedDate ? 'rescheduled' : 'planned') : 'unscheduled';
     return {
       tasks: data.tasks.map((task) => task.id === previousTask.id ? appliedTask : task),
+      taskPlanEvents: changedPlan ? [planEvent({ task: previousTask, next: appliedTask, kind, at, source: 'proposalDecision' })] : [],
       effect: { type: 'mergedTask', previousTask, appliedTask },
     };
   }
@@ -126,9 +156,20 @@ function buildTaskOutcome(input: {
     sourceSummary: taskSource(capture),
     sortIndex: maxSort + index + 1,
     createdAt: at,
+    plannedDate: plannedDate ?? (bucket === 'today' ? localDateOf(at) : undefined),
     waitingDetails: bucket === 'waiting' ? waitingDetails : undefined,
   }));
-  return { tasks: [...data.tasks, ...createdTasks], effect: { type: 'createdTasks', tasks: createdTasks } };
+  const taskPlanEvents = createdTasks
+    .filter((task) => task.plannedDate)
+    .map((task) => createTaskPlanEvent({
+      taskId: task.id,
+      kind: 'planned',
+      occurredAt: at,
+      before: { bucket },
+      after: taskPlanSnapshot(task),
+      source: 'proposalDecision',
+    }));
+  return { tasks: [...data.tasks, ...createdTasks], taskPlanEvents, effect: { type: 'createdTasks', tasks: createdTasks } };
 }
 
 function decisionBase(input: { decisionId: string; captureId: string; proposalId: string; kind: UserDecision['kind']; outcome: UserDecision['outcome']; at: string; bucket?: WorkflowBucket; edited?: ProposalEdit; effect: UserDecision['effect'] }): UserDecision {
@@ -153,18 +194,31 @@ function undoDecision(data: DomainData, decision: UserDecision, at: string): Dom
 
   let tasks = data.tasks;
   let knowledgeCards = data.knowledgeCards;
+  let taskPlanEvents = data.taskPlanEvents;
   const effect = decision.effect;
   if (effect.type === 'createdTasks') {
     const changed = effect.tasks.some((task) => !sameTask(findTask(data, task.id), task))
       || effect.tasks.some((task) => data.timeEntries.some((entry) => entry.taskId === task.id) || data.progressLogs.some((log) => log.taskId === task.id));
     if (changed) return failure(data, 'decision_not_reversible', '该决策产生的任务已有后续执行记录，不能安全撤销。');
     const ids = new Set(effect.tasks.map((task) => task.id));
-    tasks = data.tasks.filter((task) => !ids.has(task.id));
+    const cancelledEvents: TaskPlanEvent[] = [];
+    tasks = data.tasks.map((task) => {
+      if (!ids.has(task.id)) return task;
+      const next: TaskItem = { ...task, bucket: 'archived', plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, deletedAt: at };
+      const compensated = data.taskPlanEvents.filter((event) => event.taskId === task.id && event.source === 'proposalDecision').map((event) => event.id);
+      cancelledEvents.push(planEvent({ task, next, kind: 'cancelled', at, source: 'decisionUndo', compensatesEventIds: compensated }));
+      return next;
+    });
+    taskPlanEvents = [...taskPlanEvents, ...cancelledEvents];
   }
   if (effect.type === 'mergedTask') {
     const current = findTask(data, effect.appliedTask.id);
     if (!sameTask(current, effect.appliedTask)) return failure(data, 'decision_not_reversible', '合并后的任务已被修改，不能安全撤销。');
     tasks = data.tasks.map((task) => task.id === effect.previousTask.id ? effect.previousTask : task);
+    if (!samePlan(taskPlanSnapshot(effect.appliedTask), taskPlanSnapshot(effect.previousTask))) {
+      const compensated = data.taskPlanEvents.filter((event) => event.taskId === effect.appliedTask.id && event.source === 'proposalDecision' && event.occurredAt === decision.appliedAt).map((event) => event.id);
+      taskPlanEvents = [...taskPlanEvents, planEvent({ task: effect.appliedTask, next: effect.previousTask, kind: 'cancelled', at, source: 'decisionUndo', compensatesEventIds: compensated })];
+    }
   }
   if (effect.type === 'createdKnowledge') {
     const changed = effect.cards.some((card) => !data.knowledgeCards.some((item) => JSON.stringify(item) === JSON.stringify(card)));
@@ -177,6 +231,7 @@ function undoDecision(data: DomainData, decision: UserDecision, at: string): Dom
     ...data,
     tasks,
     knowledgeCards,
+    taskPlanEvents,
     captures: data.captures.map((item) => item.id === capture.id ? { ...item, pipelineState: 'proposed', failure: undefined } : item),
     proposals: data.proposals.map((item) => item.id === proposal.id ? { ...item, status: 'pending' } : item),
     decisions: data.decisions.map((item) => item.id === decision.id ? { ...item, status: 'reverted', revertedAt: at } : item),
@@ -275,7 +330,8 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (resolvedBucket === 'waiting' && (!waitingDetails?.waitingFor || !waitingDetails.waitingOn || !isValidFollowUpDate(waitingDetails.followUpDate))) {
         return failure(data, 'invalid_follow_up', '请填写有效的等待对象、等待内容和跟进日期。');
       }
-      const outcome = buildTaskOutcome({ data, proposal, capture, edit: normalizedEdit, bucket: resolvedBucket, waitingDetails, decisionId: action.decisionId, at: action.at });
+      if (action.decision.plannedDate && !isLocalDate(action.decision.plannedDate)) return failure(data, 'invalid_schedule', '计划日期无效。');
+      const outcome = buildTaskOutcome({ data, proposal, capture, edit: normalizedEdit, bucket: resolvedBucket, waitingDetails, plannedDate: action.decision.plannedDate, decisionId: action.decisionId, at: action.at });
       if ('code' in outcome) return failure(data, outcome.code, outcome.message, outcome.retryable);
       const decision = decisionBase({
         decisionId: action.decisionId, captureId: capture.id, proposalId: proposal.id, kind: 'accept', outcome: 'task', bucket: resolvedBucket, edited: normalizedEdit, at: action.at, effect: outcome.effect,
@@ -283,6 +339,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       return success({
         ...data,
         tasks: outcome.tasks,
+        taskPlanEvents: [...data.taskPlanEvents, ...outcome.taskPlanEvents],
         captures: resolveCapture(data, capture.id),
         proposals: markProposal(data, proposal.id, 'accepted'),
         decisions: [...data.decisions, decision],
@@ -299,7 +356,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       return success({
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId
-          ? { ...item, status: 'inProgress', bucket: 'today' }
+          ? { ...item, status: 'inProgress' }
           : item.status === 'inProgress' ? { ...item, status: 'notStarted' } : item),
         progressLogs: appendLog(data, action.taskId, '开始执行任务', 'start', action.at),
       }, action.type);
@@ -323,8 +380,20 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       }, action.type);
     }
     case 'moveTask': {
-      if (!findTask(data, action.taskId)) return failure(data, 'task_not_found', '找不到需要移动的任务。');
-      return success({ ...data, tasks: data.tasks.map((task) => task.id === action.taskId ? { ...task, bucket: action.bucket } : task) }, action.type);
+      const task = findTask(data, action.taskId);
+      if (!task) return failure(data, 'task_not_found', '找不到需要移动的任务。');
+      const targetDate = action.bucket === 'today' ? localDateOf(action.at) : undefined;
+      const keepTimes = Boolean(targetDate && targetDate === task.plannedDate);
+      const next: TaskItem = {
+        ...task,
+        bucket: action.bucket,
+        plannedDate: targetDate,
+        plannedStartAt: keepTimes ? task.plannedStartAt : undefined,
+        plannedEndAt: keepTimes ? task.plannedEndAt : undefined,
+      };
+      if (samePlan(taskPlanSnapshot(task), taskPlanSnapshot(next))) return success(data, action.type);
+      const kind: TaskPlanEventKind = action.bucket === 'someday' ? 'movedToSomeday' : targetDate ? (task.plannedDate ? 'rescheduled' : 'planned') : 'unscheduled';
+      return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
     }
     case 'recordTime': {
       if (!findTask(data, action.taskId)) return failure(data, 'task_not_found', '找不到需要记录耗时的任务。');
@@ -334,7 +403,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       const startedAt = addMinutes(endedAt, -action.minutes);
       return success({
         ...data,
-        timeEntries: [...data.timeEntries, { id: runtimeId('time'), taskId: action.taskId, minutes: action.minutes, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString() }],
+        timeEntries: [...data.timeEntries, { id: runtimeId('time'), taskId: action.taskId, minutes: action.minutes, startedAt: toZonedISOString(startedAt), endedAt: toZonedISOString(endedAt) }],
       }, action.type);
     }
     case 'recordProgress': {
@@ -347,20 +416,53 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (!action.text.trim()) return failure(data, 'invalid_decision', '打断内容不能为空。');
       return success({ ...data, progressLogs: appendLog(data, action.taskId, action.text.trim(), 'interrupt', action.at) }, action.type);
     }
+    case 'planTaskForDate': {
+      const task = findTask(data, action.taskId);
+      if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可规划的任务。');
+      if (!isLocalDate(action.date)) return failure(data, 'invalid_schedule', '计划日期无效。');
+      if (task.plannedDate === action.date) return success(data, action.type);
+      const next: TaskItem = { ...task, bucket: 'today', plannedDate: action.date, plannedStartAt: undefined, plannedEndAt: undefined };
+      const kind: TaskPlanEventKind = task.plannedDate ? 'rescheduled' : 'planned';
+      return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
+    }
     case 'scheduleTask': {
-      if (!findTask(data, action.taskId)) return failure(data, 'task_not_found', '找不到需要排期的任务。');
-      const start = new Date(action.startAt);
-      const end = new Date(action.endAt);
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return failure(data, 'invalid_schedule', '计划结束时间必须晚于开始时间。');
-      return success({ ...data, tasks: data.tasks.map((task) => task.id === action.taskId ? { ...task, bucket: 'today', plannedStartAt: action.startAt, plannedEndAt: action.endAt } : task) }, action.type);
+      const task = findTask(data, action.taskId);
+      if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可排期的任务。');
+      const validation = validateSchedule(action.startAt, action.endAt);
+      if (!validation.valid) return failure(data, 'invalid_schedule', validation.message);
+      const conflicts = findScheduleConflicts(data.tasks, task.id, action.startAt, action.endAt);
+      if (conflicts.length && !action.allowConflict) return failure(data, 'schedule_conflict', `与“${conflicts.map((item) => item.title).join('、')}”时间冲突。`);
+      const next: TaskItem = { ...task, bucket: 'today', plannedDate: validation.plannedDate, plannedStartAt: action.startAt, plannedEndAt: action.endAt };
+      if (samePlan(taskPlanSnapshot(task), taskPlanSnapshot(next))) return success(data, action.type);
+      const kind: TaskPlanEventKind = task.plannedStartAt || task.plannedDate !== validation.plannedDate ? 'rescheduled' : 'scheduled';
+      return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
+    }
+    case 'unscheduleTask': {
+      const task = findTask(data, action.taskId);
+      if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可取消排期的任务。');
+      if (!task.plannedStartAt && !task.plannedEndAt) return success(data, action.type);
+      const next: TaskItem = { ...task, plannedStartAt: undefined, plannedEndAt: undefined };
+      return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind: 'unscheduled', at: action.at })] }, action.type);
+    }
+    case 'deferTask': {
+      const task = findTask(data, action.taskId);
+      if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可顺延的任务。');
+      if ('date' in action.destination && !isLocalDate(action.destination.date)) return failure(data, 'invalid_schedule', '顺延日期无效。');
+      const next: TaskItem = 'date' in action.destination
+        ? { ...task, bucket: 'today', plannedDate: action.destination.date, plannedStartAt: undefined, plannedEndAt: undefined }
+        : { ...task, bucket: 'someday', plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined };
+      if (samePlan(taskPlanSnapshot(task), taskPlanSnapshot(next))) return success(data, action.type);
+      const kind: TaskPlanEventKind = 'date' in action.destination ? 'deferred' : 'movedToSomeday';
+      return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
     }
     case 'deleteTask': {
-      if (!findTask(data, action.taskId)) return failure(data, 'task_not_found', '找不到需要删除的任务。');
+      const task = findTask(data, action.taskId);
+      if (!task) return failure(data, 'task_not_found', '找不到需要删除的任务。');
+      const next: TaskItem = { ...task, bucket: 'archived', plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, deletedAt: action.at };
       return success({
         ...data,
-        tasks: data.tasks.filter((task) => task.id !== action.taskId),
-        timeEntries: data.timeEntries.filter((entry) => entry.taskId !== action.taskId),
-        progressLogs: data.progressLogs.filter((log) => log.taskId !== action.taskId),
+        tasks: data.tasks.map((item) => item.id === task.id ? next : item),
+        taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind: 'cancelled', at: action.at })],
       }, action.type);
     }
     case 'reorderTasks': {
@@ -369,6 +471,8 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       const positions = new Map(action.taskIds.map((id, index) => [id, index]));
       return success({ ...data, tasks: data.tasks.map((task) => positions.has(task.id) ? { ...task, sortIndex: positions.get(task.id)! } : task) }, action.type);
     }
+    case 'restoreBackup':
+      return success(action.data, action.type);
     default:
       return failure(data, 'invalid_decision', '未知领域动作。');
   }

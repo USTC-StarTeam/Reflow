@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatTime } from '@/core/date-utils';
+import { dateKey, formatTime } from '@/core/date-utils';
 import { selectCurrentTask, selectTaskMinutes } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { categoryLabels } from '@/core/types';
@@ -15,7 +15,7 @@ export function ActiveScreen() {
   const [progress, setProgress] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const logs = [...data.progressLogs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const available = data.tasks.filter((task) => task.bucket === 'today' && task.status === 'notStarted');
+  const available = data.tasks.filter((task) => !task.deletedAt && task.plannedDate === dateKey(new Date()) && task.status === 'notStarted');
 
   function submitProgress() {
     if (!active || !progress.trim()) return;
@@ -41,7 +41,7 @@ export function ActiveScreen() {
               <ActionButton label="删除" variant="danger" onPress={() => setConfirmDelete(true)} />
             </View>
           </Card>
-          <Card accent="ai"><Text style={textStyles.cardTitle}>AI：预计还需要约 45 分钟</Text><Text style={textStyles.meta}>当前已记录 {selectTaskMinutes(data, active.id)} 分钟。可以继续执行，或暂停后安排到日历空档。</Text></Card>
+          <Card><Text style={textStyles.cardTitle}>本地进度估算</Text><Text style={textStyles.meta}>按预计时长还剩约 {Math.max(0, active.estimatedMinutes - selectTaskMinutes(data, active.id))} 分钟。该数字只来自任务预计时长和已记录耗时。</Text></Card>
         </>
       ) : (
         <Card><EmptyState title="当前没有进行中的任务" detail="从今天的任务中选择一项开始，系统会确保同时只有一个当前任务。" />{available.slice(0, 3).map((task) => <View key={task.id} style={styles.available}><View style={styles.availableCopy}><Text style={textStyles.cardTitle}>{task.title}</Text><Text style={textStyles.meta}>{categoryLabels[task.category]} · {task.estimatedMinutes} 分钟</Text></View><ActionButton label="开始" variant="primary" onPress={() => store.startTask(task.id)} /></View>)}</Card>
@@ -50,7 +50,7 @@ export function ActiveScreen() {
       <View style={styles.timeline}>{logs.map((log) => { const task = data.tasks.find((item) => item.id === log.taskId); return <View key={log.id} style={styles.log}><View style={[styles.dot, log.kind === 'interrupt' && styles.dotInterrupt, log.kind === 'complete' && styles.dotDone]} /><View style={styles.logTime}><Text style={styles.timeText}>{formatTime(log.createdAt)}</Text></View><View style={styles.logCard}><Text style={textStyles.cardTitle}>{log.text}</Text><Text style={textStyles.meta}>{task?.title ?? '已删除任务'}</Text></View></View>; })}</View>
 
       <Modal visible={confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
-        <Pressable style={styles.overlay} onPress={() => setConfirmDelete(false)}><Pressable style={styles.confirm} onPress={(event) => event.stopPropagation()}><Text style={styles.confirmTitle}>删除当前任务？</Text><Text style={textStyles.meta}>任务、耗时和进展记录都会一起删除，此操作不会自动撤销。</Text><View style={styles.actions}><ActionButton label="取消" onPress={() => setConfirmDelete(false)} /><ActionButton label="确认删除" variant="danger" onPress={() => { if (active) store.deleteTask(active.id); setConfirmDelete(false); }} /></View></Pressable></Pressable>
+        <Pressable style={styles.overlay} onPress={() => setConfirmDelete(false)}><Pressable style={styles.confirm} onPress={(event) => event.stopPropagation()}><Text style={styles.confirmTitle}>删除当前任务？</Text><Text style={textStyles.meta}>任务会从当前页面移除，但计划事件和执行事实会保留，用于历史回顾和引用完整性。</Text><View style={styles.actions}><ActionButton label="取消" onPress={() => setConfirmDelete(false)} /><ActionButton label="确认删除" variant="danger" onPress={() => { if (active) store.deleteTask(active.id); setConfirmDelete(false); }} /></View></Pressable></Pressable>
       </Modal>
     </Page>
   );

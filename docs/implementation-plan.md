@@ -56,6 +56,16 @@ Capture → ProposalService → AIProposal → UserDecision
 - [x] **M3 完整核心闭环**：从捕捉到 Proposal、可撤销用户决定、任务/知识产物、执行日志、回顾更新与刷新恢复。
 - [x] **M4 增强**：月历、选择日期、空档建议、等待他人、稍后处理、编辑后接受和撤销。
 - [x] **M5 验证与发布准备**：20 个单测、单条核心 E2E、两种静态导出、GitHub Actions / Pages 与 README；fork 的 `lsc` 已成功发布。
+- [x] **M6 本地优先时间规划 v4**：`plannedDate` 唯一日期归属、不可变 `TaskPlanEvent`、点击排期、半开区间冲突确认、日/周时间网格、顺延历史、TimeEntry 重叠统计、v1–v4 迁移、恢复副本与备份导入导出。
+
+## v4 领域约束
+
+- 当前日期归属只读取 `plannedDate`；`bucket=today` 只用于迁移兼容。
+- 所有日期判断经过统一日期工具；计划时间带时区且不得跨自然日。
+- 点击排期是必须路径，Web 拖拽排期不阻塞 MVP。
+- 所有计划变化由领域 Action 原子更新任务并追加 `TaskPlanEvent`。
+- 日回顾从计划事件、`completedAt`、TimeEntry 实际重叠区间和打断记录确定性派生。
+- 备份导入先验证版本、结构、唯一 ID、引用与时间字段；验证成功后才保存恢复副本并替换主数据。
 
 ## 安全边界
 
