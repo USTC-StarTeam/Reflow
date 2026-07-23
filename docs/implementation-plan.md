@@ -1,6 +1,6 @@
-# Reflow 第一版 Web Demo 执行清单
+# Reflow V1 Web Demo 执行清单
 
-本清单是 `lsc` 分支第一版 Demo 的验收依据。首要目标是打通可刷新保留的个人生产力核心闭环，不让增强功能拖延主流程。
+本清单是 `v1` 分支第一版 Demo 的验收依据。首要目标是打通可刷新保留的个人生产力核心闭环，不让增强功能拖延主流程。
 
 ## 完成标准
 
@@ -50,15 +50,15 @@ Capture → ProposalService → AIProposal → UserDecision
 
 ## 里程碑
 
-- [x] **M0 仓库与 Expo 初始化**：`lsc` 分支、SDK 57、TypeScript、Router、依赖、脚本和本清单。
+- [x] **M0 仓库与 Expo 初始化**：SDK 57、TypeScript、Router、依赖、脚本和本清单。
 - [x] **M1 五页高保真静态 UI**：移动优先应用外壳、统一设计系统、五页与基础弹层。
 - [x] **M2 模型、Reducer、Selector 与持久化**：v2 领域模型、Capture Pipeline、确定性 Mock、决策事件、派生统计、AsyncStorage v1 迁移与重置。
 - [x] **M3 完整核心闭环**：从捕捉到 Proposal、可撤销用户决定、任务/知识产物、执行日志、回顾更新与刷新恢复。
 - [x] **M4 增强**：月历、选择日期、空档建议、等待他人、稍后处理、编辑后接受和撤销。
 - [x] **M5 验证与发布准备**：20 个单测、单条核心 E2E、两种静态导出、GitHub Actions / Pages 与 README；fork 的 `lsc` 已成功发布。
-- [x] **M6 本地优先时间规划 v4**：`plannedDate` 唯一日期归属、不可变 `TaskPlanEvent`、点击排期、半开区间冲突确认、日/周时间网格、顺延历史、TimeEntry 重叠统计、v1–v4 迁移、恢复副本与备份导入导出。
+- [x] **M6 V1 本地优先时间规划**：`plannedDate` 唯一日期归属、不可变 `TaskPlanEvent`、点击排期、半开区间冲突确认、日/周时间网格、顺延历史、TimeEntry 重叠统计、内部 schema v1–v4 迁移、恢复副本与备份导入导出。
 
-## v4 领域约束
+## V1 时间规划约束（内部数据 schema v4）
 
 - 当前日期归属只读取 `plannedDate`；`bucket=today` 只用于迁移兼容。
 - 所有日期判断经过统一日期工具；计划时间带时区且不得跨自然日。
@@ -69,7 +69,7 @@ Capture → ProposalService → AIProposal → UserDecision
 
 ## 安全边界
 
-- 所有开发只进入 `lsc`；不 force push、不重写 `main`。
+- 所有 V1 开发只进入 `v1`；不 force push、不重写 `main`。
 - 不删除已有产品参考文件。
 - 首版不接真实 AI、账号、后端、邮件、飞书或系统日历。
 - 持久化只保存领域数据，不保存弹窗、loading、toast、当前 Tab 等 UI 状态。

@@ -4,15 +4,15 @@ Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
 
 当前版本以 Web 为主要验收平台，桌面浏览器和手机浏览器都可以直接使用。项目保留 Expo / React Native 的跨端结构，但暂未发布原生安装包。
 
-- 在线 Demo：[https://lsclin.github.io/Reflow/](https://lsclin.github.io/Reflow/)
-- 当前开发分支：[lsclin/Reflow · lsc](https://github.com/lsclin/Reflow/tree/lsc)
-- 当前版本：v4，本地时间规划 MVP
+- 在线 Demo（当前由个人 fork 发布）：[https://lsclin.github.io/Reflow/](https://lsclin.github.io/Reflow/)
+- 当前版本分支：[USTC-StarTeam/Reflow · v1](https://github.com/USTC-StarTeam/Reflow/tree/v1)
+- 当前产品版本：V1，本地时间规划 MVP
 
 > 当前没有接入真实 AI、账号、后端、云同步或第三方平台。界面中的整理建议由确定性的 `MockProposalService` 生成，用于验证产品流程和领域边界。
 
 ## 当前版本能做什么
 
-Reflow v4 已经打通下面这条可实际操作、可刷新恢复的闭环：
+Reflow V1 已经打通下面这条可实际操作、可刷新恢复的闭环：
 
 ```text
 捕捉事项 → 生成整理建议 → 用户确认 → 选择计划日期
@@ -211,7 +211,7 @@ npm run export:web
 - 日期、时区、跨日拒绝和半开区间冲突；
 - Today、Calendar 和 Review Selector；
 - 跨午夜耗时统计；
-- v1–v4 数据迁移；
+- 内部数据结构 schema v1–v4 迁移；
 - 备份结构、ID、引用和时间字段校验；
 - 捕捉、排期、执行、完成、顺延、回顾、刷新和备份恢复的 Web 流程。
 
@@ -244,10 +244,11 @@ python -m http.server 4173 -d dist
 
 然后访问 `http://localhost:4173`。
 
-`lsc` 分支的 push 会触发两条 GitHub Actions：
+`v1` 分支的 push 会触发 GitHub Actions 验证：
 
-- 类型检查、lint、单元测试、Playwright E2E 和静态导出；
-- 使用 GitHub Pages 配置重新导出并部署在线 Demo。
+- 类型检查、lint、单元测试、Playwright E2E 和静态导出。
+
+仓库保留了 GitHub Pages 部署工作流，但官方仓库目前尚未启用 Pages。上面的在线 Demo 暂时由个人 fork 的 `lsc` 分支发布。
 
 ## 数据与隐私
 
@@ -275,15 +276,15 @@ python -m http.server 4173 -d dist
 - 原生安装包发布；
 - 自主 Agent 和长期自主运行。
 
-这些功能不属于当前 v4 的完成范围。
+这些功能不属于当前 V1 的完成范围。
 
 ## 开发与协作
 
-- 当前开发分支为 `lsc`；
+- 当前版本分支为 `v1`；
 - 不 force push，不重写 `main` 历史；
 - 不删除已有产品参考文件；
 - 新功能优先保证核心流程稳定、可追踪、可撤销；
 - 提交前应运行与改动相关的检查；
-- `lsc` 推送后由 GitHub Actions 自动验证并更新 Pages Demo。
+- `v1` 推送后由 GitHub Actions 自动验证。
 
 更详细的实施里程碑和领域约束见 [docs/implementation-plan.md](docs/implementation-plan.md)。

@@ -2,9 +2,9 @@ name: Verify Reflow demo
 
 on:
   push:
-    branches: [lsc]
+    branches: [v1]
   pull_request:
-    branches: [lsc]
+    branches: [v1]
 
 permissions:
   contents: read

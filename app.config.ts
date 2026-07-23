@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Reflow',
   slug: 'reflow',
-  version: '0.1.0',
+  version: '1.0.0',
   orientation: 'portrait',
   scheme: 'reflow',
   userInterfaceStyle: 'light',
