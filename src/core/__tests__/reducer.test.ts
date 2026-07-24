@@ -23,6 +23,92 @@ describe('domain reducer', () => {
     expect(undone.data.decisions[0].status).toBe('reverted');
   });
 
+  it('keeps Cloud suggestions as drafts until required fields are completed and confirmed', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const capture = {
+      id: 'capture-cloud',
+      rawText: '下周整理项目说明',
+      source: 'webText' as const,
+      createdAt: now,
+      pipelineState: 'proposing' as const,
+    };
+    const proposal = {
+      id: 'proposal-cloud',
+      captureId: capture.id,
+      outcome: 'task' as const,
+      title: '整理项目说明',
+      category: 'work' as const,
+      estimatedMinutes: null,
+      confidence: 0.76,
+      reason: '识别为工作任务，但需要补充执行信息。',
+      kind: 'create' as const,
+      status: 'pending' as const,
+      nextAction: null,
+      suggestedBucket: 'today' as const,
+      suggestedDate: '2026-07-21' as const,
+      waitingDetails: null,
+      knowledgeSummary: null,
+      provider: 'cloud' as const,
+    };
+    const pipelineData = { ...seed, captures: [...seed.captures, capture] };
+    const received = reduceDomain(pipelineData, {
+      type: 'proposalReceived',
+      captureId: capture.id,
+      proposals: [proposal],
+    });
+    expect(received).toMatchObject({ status: 'success' });
+    expect(received.data.tasks).toHaveLength(seed.tasks.length);
+    expect(received.data.knowledgeCards).toHaveLength(seed.knowledgeCards.length);
+
+    const invalid = reduceDomain(received.data, {
+      type: 'submitUserDecision',
+      decisionId: 'decision-cloud-invalid',
+      at: now,
+      decision: {
+        kind: 'accept',
+        proposalId: proposal.id,
+        bucket: 'today',
+        plannedDate: proposal.suggestedDate,
+        edited: {
+          title: proposal.title,
+          category: proposal.category,
+          estimatedMinutes: 0,
+          nextAction: '',
+        },
+      },
+    });
+    expect(invalid).toMatchObject({
+      status: 'failure',
+      failure: { code: 'invalid_decision' },
+      data: received.data,
+    });
+
+    const accepted = reduceDomain(received.data, {
+      type: 'submitUserDecision',
+      decisionId: 'decision-cloud',
+      at: now,
+      decision: {
+        kind: 'accept',
+        proposalId: proposal.id,
+        bucket: 'today',
+        plannedDate: proposal.suggestedDate,
+        edited: {
+          title: proposal.title,
+          category: proposal.category,
+          estimatedMinutes: 45,
+          nextAction: '列出项目说明的三个章节',
+        },
+      },
+    });
+    expect(accepted).toMatchObject({ status: 'success' });
+    expect(accepted.data.tasks.find((task) => task.title === proposal.title))
+      .toMatchObject({ plannedDate: '2026-07-21', estimatedMinutes: 45 });
+    expect(accepted.data.decisions.at(-1)).toMatchObject({
+      outcome: 'task',
+      edited: { nextAction: '列出项目说明的三个章节' },
+    });
+  });
+
   it('creates a knowledge outcome without creating a task', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
     const capture = { id: 'capture-knowledge', rawText: '沉淀报价原则', source: 'webText' as const, createdAt: now, pipelineState: 'proposed' as const };

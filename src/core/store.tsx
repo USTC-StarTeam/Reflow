@@ -7,9 +7,10 @@ import { runtimeId, toZonedISOString } from './date-utils';
 import { MockProposalService } from './mock-proposal-service';
 import { parseBackup, parseStoredDataWithRecovery, PERSISTENCE_KEY, RECOVERY_KEY, serializeBackup } from './persistence';
 import { runProposalPipeline } from './proposal-pipeline';
+import { createProposalService } from './proposal-service-config';
 import { reduceDomain, type DomainAction } from './reducer';
 import { selectLatestUndoableDecision } from './selectors';
-import type { CaptureSource, DomainData, LocalDate, PipelineFailure, ProposalService, UserDecisionInput, WorkflowBucket } from './types';
+import type { CaptureSource, DomainData, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
 
 export type StoreCommandResult = { status: 'success' } | { status: 'failure'; failure: PipelineFailure };
 
@@ -30,9 +31,11 @@ export interface ReflowStoreValue {
   data: DomainData;
   hydrated: boolean;
   capturing: boolean;
+  proposalServiceKind: ProposalServiceKind;
   lastActionFailure: PipelineFailure | null;
   capture(text: string): Promise<StoreCommandResult>;
   retryCapture(captureId: string): Promise<StoreCommandResult>;
+  retryCaptureWithLocalRules(captureId: string): Promise<StoreCommandResult>;
   submitUserDecision(decision: UserDecisionInput): void;
   undoLastDecision(): void;
   startTask(taskId: string): void;
@@ -53,7 +56,8 @@ export interface ReflowStoreValue {
   resetDemo(): void;
 }
 
-const defaultProposalService = new MockProposalService();
+const defaultProposalService = createProposalService();
+const localProposalService = new MockProposalService();
 const ReflowContext = createContext<ReflowStoreValue | null>(null);
 
 function storeReducer(state: StoreState, action: StoreAction): StoreState {
@@ -134,11 +138,11 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
     const now = () => toZonedISOString(new Date());
     const perform = (action: DomainAction) => dispatch({ type: 'domain', action });
 
-    async function requestProposals(captureId: string, captureText: string, source: CaptureSource, createdAt: string, existingTasks: DomainData['tasks']): Promise<StoreCommandResult> {
+    async function requestProposals(captureId: string, captureText: string, source: CaptureSource, createdAt: string, existingTasks: DomainData['tasks'], service = proposalService): Promise<StoreCommandResult> {
       const result = await runProposalPipeline({
         capture: { id: captureId, rawText: captureText, source, createdAt, pipelineState: 'proposing' },
         existingTasks,
-        proposalService,
+        proposalService: service,
       });
       if (result.status === 'success') {
         perform({ type: 'proposalReceived', captureId, proposals: result.proposals });
@@ -152,6 +156,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       data: state.data,
       hydrated: state.hydrated,
       capturing: state.capturing,
+      proposalServiceKind: proposalService.kind ?? 'mock',
       lastActionFailure: state.lastActionFailure,
       async capture(text) {
         if (state.capturing) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '正在生成上一条建议，请稍候。', retryable: true } };
@@ -176,6 +181,20 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         dispatch({ type: 'setCapturing', value: true });
         try {
           return await requestProposals(capture.id, capture.rawText, capture.source, capture.createdAt, state.data.tasks.filter((task) => !task.deletedAt));
+        } finally {
+          dispatch({ type: 'setCapturing', value: false });
+        }
+      },
+      async retryCaptureWithLocalRules(captureId) {
+        const capture = state.data.captures.find((item) => item.id === captureId);
+        if (!capture || capture.pipelineState !== 'proposalFailed') {
+          return { status: 'failure', failure: { code: 'invalid_proposal', message: '这条捕捉当前不能使用本地规则重试。', retryable: false } };
+        }
+        if (state.capturing) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '正在生成另一条建议，请稍候。', retryable: true } };
+        perform({ type: 'proposalRequested', captureId });
+        dispatch({ type: 'setCapturing', value: true });
+        try {
+          return await requestProposals(capture.id, capture.rawText, capture.source, capture.createdAt, state.data.tasks.filter((task) => !task.deletedAt), localProposalService);
         } finally {
           dispatch({ type: 'setCapturing', value: false });
         }

@@ -32,6 +32,8 @@ const proposalKinds = new Set(['create', 'merge', 'split']);
 const progressKinds = new Set(['start', 'pause', 'progress', 'interrupt', 'complete']);
 const planEventKinds = new Set(['planned', 'scheduled', 'rescheduled', 'deferred', 'unscheduled', 'movedToSomeday', 'cancelled']);
 const planEventSources = new Set(['user', 'proposalDecision', 'migration', 'decisionUndo']);
+const proposalProviders = new Set(['mock', 'cloud']);
+const suggestedBuckets = new Set(['today', 'waiting', 'someday']);
 
 function isRecord(value: unknown): value is RecordValue {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -73,6 +75,33 @@ function validTask(value: unknown): value is TaskItem {
   return validPlanSnapshot(value);
 }
 
+function validWaitingDetailsDraft(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value).sort();
+  if (keys.join(',') !== 'followUpDate,waitingFor,waitingOn') return false;
+  if (!(value.waitingFor === null || typeof value.waitingFor === 'string')) return false;
+  if (!(value.waitingOn === null || typeof value.waitingOn === 'string')) return false;
+  return value.followUpDate === null || isLocalDate(value.followUpDate);
+}
+
+function validProposal(value: unknown, captureIds: Set<string>): boolean {
+  if (!isRecord(value) || typeof value.captureId !== 'string' || !captureIds.has(value.captureId)) return false;
+  if (typeof value.title !== 'string' || typeof value.category !== 'string' || !taskCategories.has(value.category)) return false;
+  if (typeof value.status !== 'string' || !proposalStatuses.has(value.status) || typeof value.outcome !== 'string' || !proposalOutcomes.has(value.outcome) || typeof value.kind !== 'string' || !proposalKinds.has(value.kind)) return false;
+  if (!(value.estimatedMinutes === null || (Number.isInteger(value.estimatedMinutes) && Number(value.estimatedMinutes) >= 0 && Number(value.estimatedMinutes) <= 480))) return false;
+  if (!(value.nextAction === null || typeof value.nextAction === 'string')) return false;
+  if (typeof value.confidence !== 'number' || value.confidence < 0 || value.confidence > 1 || typeof value.reason !== 'string') return false;
+  if (value.suggestedBucket !== undefined && (typeof value.suggestedBucket !== 'string' || !suggestedBuckets.has(value.suggestedBucket))) return false;
+  if (value.suggestedDate !== undefined && !isLocalDate(value.suggestedDate)) return false;
+  if (!validWaitingDetailsDraft(value.waitingDetails)) return false;
+  if (!(value.knowledgeSummary === undefined || value.knowledgeSummary === null || typeof value.knowledgeSummary === 'string')) return false;
+  if (value.provider !== undefined && (typeof value.provider !== 'string' || !proposalProviders.has(value.provider))) return false;
+  if (value.duplicateTaskId !== undefined && typeof value.duplicateTaskId !== 'string') return false;
+  if (value.splitTitles !== undefined && (!Array.isArray(value.splitTitles) || !value.splitTitles.every((title) => typeof title === 'string'))) return false;
+  return true;
+}
+
 function validateCurrentDomainData(value: unknown): value is DomainData {
   if (!isRecord(value) || value.version !== DEMO_DATA_VERSION || !hasCollections(value) || !Array.isArray(value.decisions) || !Array.isArray(value.taskPlanEvents)) return false;
   const collections = [value.tasks, value.captures, value.proposals, value.decisions, value.timeEntries, value.progressLogs, value.taskPlanEvents, value.knowledgeCards] as unknown[][];
@@ -84,7 +113,7 @@ function validateCurrentDomainData(value: unknown): value is DomainData {
   const proposalIds = new Set((value.proposals as RecordValue[]).map((proposal) => proposal.id as string));
 
   if (!(value.captures as unknown[]).every((capture) => isRecord(capture) && typeof capture.rawText === 'string' && isZonedDateTime(capture.createdAt) && typeof capture.source === 'string' && captureSources.has(capture.source) && typeof capture.pipelineState === 'string' && captureStates.has(capture.pipelineState))) return false;
-  if (!(value.proposals as unknown[]).every((proposal) => isRecord(proposal) && typeof proposal.captureId === 'string' && captureIds.has(proposal.captureId) && typeof proposal.status === 'string' && proposalStatuses.has(proposal.status) && typeof proposal.outcome === 'string' && proposalOutcomes.has(proposal.outcome) && typeof proposal.kind === 'string' && proposalKinds.has(proposal.kind))) return false;
+  if (!(value.proposals as unknown[]).every((proposal) => validProposal(proposal, captureIds))) return false;
   if (!(value.decisions as unknown[]).every((decision) => isRecord(decision) && typeof decision.captureId === 'string' && captureIds.has(decision.captureId) && typeof decision.proposalId === 'string' && proposalIds.has(decision.proposalId) && isZonedDateTime(decision.appliedAt) && (decision.revertedAt === undefined || isZonedDateTime(decision.revertedAt)) && isRecord(decision.effect))) return false;
   if (!(value.timeEntries as unknown[]).every((entry) => {
     if (!isRecord(entry) || typeof entry.taskId !== 'string' || !taskIds.has(entry.taskId) || !isZonedDateTime(entry.startedAt) || !isZonedDateTime(entry.endedAt)) return false;

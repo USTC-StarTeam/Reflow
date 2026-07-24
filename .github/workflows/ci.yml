@@ -30,6 +30,8 @@ jobs:
         run: npm run lint
       - name: Unit test
         run: npm test
+      - name: Gateway test
+        run: npm run test:gateway
       - name: Install Chromium for E2E
         run: npx playwright install --with-deps chromium
       - name: Core pipeline E2E

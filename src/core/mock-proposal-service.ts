@@ -1,5 +1,5 @@
 import { addDays, dateKey, stableId } from './date-utils';
-import type { AIProposal, PipelineFailure, ProposalRequest, ProposalResult, ProposalService, TaskCategory, TaskItem, WaitingDetails } from './types';
+import type { AIProposal, PipelineFailure, ProposalRequest, ProposalResult, ProposalService, ProposalTaskCandidate, TaskCategory, WaitingDetails } from './types';
 
 const communicationPattern = /客户|回复|沟通|会议|报价|合同/;
 const learningPattern = /学习|阅读|研究|课程|文档/;
@@ -50,7 +50,7 @@ function estimate(category: TaskCategory): number {
   return 25;
 }
 
-function findDuplicate(text: string, tasks: readonly TaskItem[]): TaskItem | undefined {
+function findDuplicate(text: string, tasks: readonly ProposalTaskCandidate[]): ProposalTaskCandidate | undefined {
   const tokens = text.replace(/[，。,.!?！？]/g, ' ').split(/\s+/).filter((token) => token.length >= 2);
   return tasks.find((task) => tokens.some((token) => task.title.includes(token)));
 }
@@ -61,6 +61,7 @@ export interface MockProposalServiceOptions {
 }
 
 export class MockProposalService implements ProposalService {
+  readonly kind = 'mock' as const;
   private readonly delayMs: number;
   private readonly failure?: PipelineFailure;
 
@@ -79,7 +80,7 @@ export class MockProposalService implements ProposalService {
     const isWaiting = Boolean(waitingDetails && (text.startsWith('等') || text.startsWith('等待') || waitingVerbPattern.test(text)));
     const isSomeday = !isKnowledge && !isWaiting && somedayPattern.test(text);
     const category = classify(text);
-    const duplicate = findDuplicate(text, request.existingTasks);
+    const duplicate = findDuplicate(text, request.existingTaskCandidates);
     const splitTitles = !isKnowledge && /和|以及|\/|、/.test(text)
       ? text.split(/和|以及|\/|、/).map((part) => part.trim()).filter(Boolean)
       : undefined;
@@ -117,6 +118,7 @@ export class MockProposalService implements ProposalService {
       knowledgeSummary: isKnowledge ? text : undefined,
       duplicateTaskId: isKnowledge ? undefined : duplicate?.id,
       splitTitles,
+      provider: 'mock',
     };
 
     return { status: 'success', proposals: [proposal] };

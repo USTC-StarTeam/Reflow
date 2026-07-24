@@ -24,12 +24,11 @@ function suggestedDestination(classification: VisibleClassification): string {
   return '今天';
 }
 
-function defaultWaitingDetails(proposal: AIProposal, captureCreatedAt?: string): WaitingDetails {
-  const sourceDate = captureCreatedAt ? localDateOf(captureCreatedAt) : dateKey(new Date());
-  return proposal.waitingDetails ?? {
-    waitingFor: '对方',
-    waitingOn: proposal.nextAction || proposal.title,
-    followUpDate: addLocalDays(sourceDate, 3),
+function editableWaitingDetails(proposal: AIProposal): WaitingDetails {
+  return {
+    waitingFor: proposal.waitingDetails?.waitingFor ?? '',
+    waitingOn: proposal.waitingDetails?.waitingOn ?? '',
+    followUpDate: proposal.waitingDetails?.followUpDate ?? '',
   };
 }
 
@@ -59,14 +58,17 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   const [classificationOpen, setClassificationOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
-  const [followUpDateDraft, setFollowUpDateDraft] = useState(defaultWaitingDetails(proposal, capture?.createdAt).followUpDate);
+  const initialWaitingDetails = editableWaitingDetails(proposal);
+  const [followUpDateDraft, setFollowUpDateDraft] = useState(initialWaitingDetails.followUpDate);
   const [followUpError, setFollowUpError] = useState('');
+  const [formError, setFormError] = useState('');
   const [title, setTitle] = useState(proposal.title);
   const [category, setCategory] = useState<TaskCategory>(proposal.category);
-  const [minutes, setMinutes] = useState(String(proposal.estimatedMinutes));
-  const [nextAction, setNextAction] = useState(proposal.nextAction);
+  const [minutes, setMinutes] = useState(proposal.estimatedMinutes === null ? '' : String(proposal.estimatedMinutes));
+  const [nextAction, setNextAction] = useState(proposal.nextAction ?? '');
+  const [plannedDate, setPlannedDate] = useState(proposal.suggestedDate ?? dateKey(new Date()));
   const [knowledgeSummary, setKnowledgeSummary] = useState(proposal.knowledgeSummary ?? '');
-  const [waitingDetails, setWaitingDetails] = useState<WaitingDetails>(defaultWaitingDetails(proposal, capture?.createdAt));
+  const [waitingDetails, setWaitingDetails] = useState<WaitingDetails>(initialWaitingDetails);
   const followUpSourceDate = capture?.createdAt ? localDateOf(capture.createdAt) : dateKey(new Date());
   const waitingDatePresets = [
     { label: '明天', value: addLocalDays(followUpSourceDate, 1) },
@@ -85,25 +87,70 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
       proposal,
       title,
       isTaskCategory(visibleClassification) ? visibleClassification : category,
-      Number(minutes) || proposal.estimatedMinutes,
+      Number(minutes),
       nextAction,
       knowledgeSummary,
       { visibleClassification, waitingDetails: visibleClassification === 'waiting' ? waitingDetails : undefined },
     );
   }
 
+  function validateBeforeAccept(visibleClassification: VisibleClassification, bucket?: WorkflowBucket): boolean {
+    if (!title.trim()) {
+      setFormError('请先补充有效标题。');
+      return false;
+    }
+    if (visibleClassification === 'knowledge') {
+      if (!knowledgeSummary.trim()) {
+        setFormError('保存知识前请补充有效摘要。');
+        return false;
+      }
+      setFormError('');
+      return true;
+    }
+    const parsedMinutes = Number(minutes);
+    if (!Number.isInteger(parsedMinutes) || parsedMinutes < 5 || parsedMinutes > 480) {
+      setFormError('确认任务前请填写 5～480 分钟的预计耗时。');
+      setEditing(true);
+      return false;
+    }
+    if (!nextAction.trim()) {
+      setFormError('确认任务前请补充下一步行动。');
+      setEditing(true);
+      return false;
+    }
+    if ((bucket === 'waiting' || visibleClassification === 'waiting')
+      && (!waitingDetails.waitingFor.trim() || !waitingDetails.waitingOn.trim() || !isValidDate(waitingDetails.followUpDate))) {
+      setFormError('放入等待列表前，请补充等待对象、等待内容和跟进日期。');
+      setEditing(true);
+      return false;
+    }
+    if (bucket === 'today' && !isValidDate(plannedDate)) {
+      setFormError('请填写有效的计划日期。');
+      setEditing(true);
+      return false;
+    }
+    setFormError('');
+    return true;
+  }
+
   function acceptTask(bucket: WorkflowBucket, classificationOverride?: VisibleClassification) {
-    submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket, plannedDate: bucket === 'today' ? dateKey(new Date()) : undefined });
+    const visibleClassification = classificationOverride ?? classification;
+    if (!validateBeforeAccept(visibleClassification, bucket)) return;
+    submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket, plannedDate: bucket === 'today' ? plannedDate : undefined });
   }
 
   function acceptKnowledge() {
+    if (!validateBeforeAccept('knowledge')) {
+      setEditing(true);
+      return;
+    }
     submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit('knowledge') });
   }
 
   function chooseClassification(next: VisibleClassification) {
     setClassification(next);
     if (isTaskCategory(next)) setCategory(next);
-    if (next === 'waiting') setWaitingDetails((current) => current ?? defaultWaitingDetails(proposal, capture?.createdAt));
+    setFormError('');
     setClassificationOpen(false);
   }
 
@@ -137,23 +184,25 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
     <Card accent="ai" testID={`proposal-${proposal.id}`}>
       <Field label="原始输入">{capture?.rawText ?? '原始输入不可用'}</Field>
       <Field label="AI 整理后的标题" emphasis>{title}</Field>
+      <Field label="整理方式">{proposal.provider === 'cloud' ? '云端 AI' : '本地规则'}</Field>
       <Field label="AI 归类结果">
         <Pressable testID={`proposal-classification-${proposal.id}`} accessibilityRole="button" accessibilityLabel={`修改 AI 归类结果：${visibleClassificationLabels[classification]}`} onPress={() => setClassificationOpen(true)} style={styles.classificationButton}>
           <Chip label={visibleClassificationLabels[classification]} tone="orange" />
           <Text style={styles.disclosure}>修改</Text>
         </Pressable>
       </Field>
-      <Field label="预计耗时">{isKnowledge ? '无需执行耗时' : `${minutes} 分钟`}</Field>
-      <Field label="下一步行动">{nextAction}</Field>
+      <Field label="预计耗时">{isKnowledge ? '无需执行耗时' : minutes ? `${minutes} 分钟` : '未估计'}</Field>
+      <Field label="下一步行动">{nextAction || '待补充'}</Field>
+      {!isKnowledge && !isWaiting && !isSomeday ? <Field label="建议日期">{proposal.suggestedDate ?? '未提取具体日期'}</Field> : null}
       <Field label="建议去向">{suggestedDestination(classification)}</Field>
       <Field label="理解理由">{proposal.reason}</Field>
 
       {isWaiting ? (
         <View style={styles.waitingBlock}>
           <Text style={styles.waitingHint}>目前无需你行动，等对方回复或处理后再继续。</Text>
-          <Field label="等待对象">{waitingDetails.waitingFor}</Field>
-          <Field label="等待内容">{waitingDetails.waitingOn}</Field>
-          <Field label="建议跟进">{`${formatShortDate(waitingDetails.followUpDate)}（${waitingDetails.followUpDate}）`}</Field>
+          <Field label="等待对象">{waitingDetails.waitingFor || '待补充'}</Field>
+          <Field label="等待内容">{waitingDetails.waitingOn || '待补充'}</Field>
+          <Field label="建议跟进">{waitingDetails.followUpDate ? `${formatShortDate(waitingDetails.followUpDate)}（${waitingDetails.followUpDate}）` : '待补充'}</Field>
         </View>
       ) : null}
 
@@ -165,26 +214,28 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
           <Text style={styles.fieldLabel}>{isKnowledge ? '标题' : '任务标题'}</Text>
           <TextInput testID={`proposal-title-${proposal.id}`} value={title} onChangeText={setTitle} style={styles.input} />
           {isKnowledge ? (
-            <><Text style={styles.fieldLabel}>知识摘要</Text><TextInput multiline value={knowledgeSummary} onChangeText={setKnowledgeSummary} style={[styles.input, styles.summaryInput]} /></>
+            <><Text style={styles.fieldLabel}>知识摘要</Text><TextInput testID={`proposal-knowledge-summary-${proposal.id}`} multiline value={knowledgeSummary} onChangeText={setKnowledgeSummary} style={[styles.input, styles.summaryInput]} /></>
           ) : (
             <>
               <Text style={styles.fieldLabel}>预计分钟</Text>
-              <TextInput value={minutes} onChangeText={setMinutes} keyboardType="number-pad" style={styles.input} />
+              <TextInput testID={`proposal-minutes-${proposal.id}`} value={minutes} onChangeText={setMinutes} keyboardType="number-pad" style={styles.input} />
               <Text style={styles.fieldLabel}>下一步行动</Text>
-              <TextInput value={nextAction} onChangeText={setNextAction} style={styles.input} />
-              {isWaiting ? <><Text style={styles.fieldLabel}>等待对象</Text><TextInput value={waitingDetails.waitingFor} onChangeText={(waitingFor) => setWaitingDetails((current) => ({ ...current, waitingFor }))} style={styles.input} /><Text style={styles.fieldLabel}>等待内容</Text><TextInput value={waitingDetails.waitingOn} onChangeText={(waitingOn) => setWaitingDetails((current) => ({ ...current, waitingOn }))} style={styles.input} /></> : null}
+              <TextInput testID={`proposal-next-action-${proposal.id}`} value={nextAction} onChangeText={setNextAction} style={styles.input} />
+              {!isWaiting && !isSomeday ? <><Text style={styles.fieldLabel}>计划日期</Text><TextInput testID={`proposal-date-${proposal.id}`} value={plannedDate} onChangeText={setPlannedDate} placeholder="YYYY-MM-DD" style={styles.input} /></> : null}
+              {isWaiting ? <><Text style={styles.fieldLabel}>等待对象</Text><TextInput testID={`proposal-waiting-for-${proposal.id}`} value={waitingDetails.waitingFor} onChangeText={(waitingFor) => setWaitingDetails((current) => ({ ...current, waitingFor }))} style={styles.input} /><Text style={styles.fieldLabel}>等待内容</Text><TextInput testID={`proposal-waiting-on-${proposal.id}`} value={waitingDetails.waitingOn} onChangeText={(waitingOn) => setWaitingDetails((current) => ({ ...current, waitingOn }))} style={styles.input} /></> : null}
             </>
           )}
           <ActionButton label="完成修改" onPress={() => setEditing(false)} />
         </View>
       ) : null}
+      {formError ? <Text testID={`proposal-form-error-${proposal.id}`} style={styles.inputError}>{formError}</Text> : null}
 
       <View style={styles.actions}>
-        {isKnowledge ? <><ActionButton testID={`accept-knowledge-${proposal.id}`} label="保存为知识" variant="purple" onPress={acceptKnowledge} /><ActionButton label="改成任务" onPress={() => acceptTask('today', isTaskCategory(category) ? category : 'learning')} /></> : null}
+        {isKnowledge ? <><ActionButton testID={`accept-knowledge-${proposal.id}`} label="保存为知识" variant="purple" onPress={acceptKnowledge} /><ActionButton label="改成任务" onPress={() => { chooseClassification(isTaskCategory(category) ? category : 'learning'); setEditing(true); }} /></> : null}
         {isWaiting ? <><ActionButton testID={`accept-waiting-${proposal.id}`} label="放入等待列表" variant="primary" onPress={() => acceptTask('waiting')} /><ActionButton label="设置跟进时间" onPress={() => { setFollowUpDateDraft(waitingDetails.followUpDate); setFollowUpError(''); setFollowUpOpen(true); }} /></> : null}
         {isSomeday ? <><ActionButton testID={`accept-someday-${proposal.id}`} label="保存到稍后" variant="primary" onPress={() => acceptTask('someday')} /><ActionButton label="加入今天" onPress={() => acceptTask('today')} /></> : null}
         {isUnknown ? <><ActionButton label="补充信息" variant="primary" onPress={() => setEditing(true)} /><ActionButton label="忽略" variant="danger" onPress={ignoreProposal} /></> : null}
-        {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <><ActionButton testID={`accept-${proposal.id}`} label="确认并加入今天" variant="primary" onPress={() => acceptTask('today')} /><ActionButton label="修改" onPress={() => setEditing(true)} /></> : null}
+        {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <><ActionButton testID={`accept-${proposal.id}`} label={plannedDate === dateKey(new Date()) ? '确认并加入今天' : `确认并安排到 ${plannedDate}`} variant="primary" onPress={() => acceptTask('today')} /><ActionButton label="修改" onPress={() => setEditing(true)} /></> : null}
         <ActionButton label="更多" onPress={() => setMoreOpen(true)} />
       </View>
 
@@ -217,10 +268,10 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
 }
 
 function FailedCaptureCard({ captureId }: { captureId: string }) {
-  const { data, retryCapture, capturing } = useReflowStore();
+  const { data, retryCapture, retryCaptureWithLocalRules, capturing, proposalServiceKind } = useReflowStore();
   const capture = data.captures.find((item) => item.id === captureId);
   if (!capture?.failure) return null;
-  return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>暂未能整理这条输入</Text><Text style={textStyles.meta}>{capture.failure.message}</Text>{capture.failure.retryable ? <ActionButton label={capturing ? '正在重试…' : '重新整理'} disabled={capturing} onPress={() => { void retryCapture(capture.id); }} /> : null}</Card>;
+  return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>暂未能整理这条输入</Text><Text style={textStyles.meta}>{capture.failure.message}</Text><View style={styles.actions}>{capture.failure.retryable ? <ActionButton label={capturing ? '正在重试…' : proposalServiceKind === 'cloud' ? '重新使用云端整理' : '重新使用本地规则整理'} disabled={capturing} onPress={() => { void retryCapture(capture.id); }} /> : null}{proposalServiceKind === 'cloud' ? <ActionButton testID={`fallback-local-${capture.id}`} label="使用本地规则整理" disabled={capturing} onPress={() => { void retryCaptureWithLocalRules(capture.id); }} /> : null}</View></Card>;
 }
 
 function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undoable: boolean }) {
@@ -230,6 +281,11 @@ function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undo
   const capture = decision ? data.captures.find((item) => item.id === decision.captureId) : undefined;
   if (!decision || !proposal) return null;
   const classification = decision.edited?.visibleClassification ?? resolveProposalVisibleClassification(proposal);
+  const plannedDate = decision.effect.type === 'createdTasks'
+    ? decision.effect.tasks.find((task) => task.plannedDate)?.plannedDate
+    : decision.effect.type === 'mergedTask'
+      ? decision.effect.appliedTask.plannedDate
+      : undefined;
   const result = decision.status === 'reverted'
     ? '已撤销'
     : decision.outcome === 'ignored'
@@ -240,7 +296,9 @@ function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undo
           ? '已放入等待列表'
           : decision.bucket === 'someday'
             ? '已保存到稍后'
-            : '已加入今天';
+            : plannedDate && plannedDate !== localDateOf(decision.appliedAt)
+              ? `已安排到 ${formatShortDate(plannedDate)}`
+              : '已加入今天';
   return <Card testID={`recent-decision-${decision.id}`}><View style={styles.recentTop}><View style={styles.recentCopy}><Text style={textStyles.cardTitle}>{decision.edited?.title ?? proposal.title}</Text><Text style={textStyles.meta}>{capture?.rawText ?? '原始输入不可用'}</Text></View><Chip label={visibleClassificationLabels[classification]} tone="orange" /></View><Text style={textStyles.meta}>{result} · {formatShortDate(decision.appliedAt)}</Text>{undoable ? <ActionButton testID="undo-decision" label="撤销最近决定" onPress={undoLastDecision} /> : null}</Card>;
 }
 

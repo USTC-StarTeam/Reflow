@@ -1,7 +1,7 @@
 import { addMinutes, isLocalDate, localDateOf, runtimeId, toZonedISOString } from './date-utils';
 import { categoryForVisibleClassification, defaultSuggestedBucket, resolveProposalVisibleClassification } from './classification';
 import { createTaskPlanEvent, findScheduleConflicts, samePlan, taskPlanSnapshot, validateSchedule } from './planning';
-import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type LocalDate, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type TaskPlanEvent, type TaskPlanEventKind, type TaskPlanEventSource, type UserDecision, type UserDecisionInput, type WaitingDetails, type WorkflowBucket } from './types';
+import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type LocalDate, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type TaskPlanEvent, type TaskPlanEventKind, type TaskPlanEventSource, type UserDecision, type UserDecisionInput, type WaitingDetails, type WaitingDetailsDraft, type WorkflowBucket } from './types';
 
 export type EditedProposal = ProposalEdit;
 
@@ -88,12 +88,12 @@ function isValidFollowUpDate(value: string | undefined): value is string {
   return isLocalDate(value);
 }
 
-function normalizeWaitingDetails(details: WaitingDetails | undefined): WaitingDetails | undefined {
+function normalizeWaitingDetails(details: WaitingDetails | WaitingDetailsDraft | null | undefined): WaitingDetails | undefined {
   if (!details) return undefined;
   return {
-    waitingFor: details.waitingFor.trim(),
-    waitingOn: details.waitingOn.trim(),
-    followUpDate: details.followUpDate.trim(),
+    waitingFor: details.waitingFor?.trim() ?? '',
+    waitingOn: details.waitingOn?.trim() ?? '',
+    followUpDate: details.followUpDate?.trim() ?? '',
   };
 }
 
@@ -302,11 +302,14 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
         visibleClassification,
         waitingDetails: visibleClassification === 'waiting' ? waitingDetails : undefined,
       };
+      if (!normalizedEdit.title.trim()) return failure(data, 'invalid_decision', '请填写有效标题。');
       if (visibleClassification === 'knowledge') {
+        const summary = normalizedEdit.knowledgeSummary?.trim() || proposal.knowledgeSummary?.trim() || '';
+        if (!summary) return failure(data, 'invalid_decision', '保存知识前请补充有效摘要。');
         const card = {
           id: `knowledge-${action.decisionId}`,
           title: normalizedEdit.title,
-          summary: normalizedEdit.knowledgeSummary?.trim() || proposal.knowledgeSummary || normalizedEdit.nextAction,
+          summary,
           source: taskSource(capture),
           createdAt: action.at,
         };
@@ -327,6 +330,10 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
           ? bucket ?? 'someday'
           : bucket ?? defaultSuggestedBucket(visibleClassification);
       if (!isTaskBucket(resolvedBucket)) return failure(data, 'invalid_decision', '任务建议需要选择今天、等待他人或稍后处理。');
+      if (!Number.isInteger(normalizedEdit.estimatedMinutes) || normalizedEdit.estimatedMinutes < 5 || normalizedEdit.estimatedMinutes > 480) {
+        return failure(data, 'invalid_decision', '确认任务前请填写 5～480 分钟的预计耗时。');
+      }
+      if (!normalizedEdit.nextAction.trim()) return failure(data, 'invalid_decision', '确认任务前请补充下一步行动。');
       if (resolvedBucket === 'waiting' && (!waitingDetails?.waitingFor || !waitingDetails.waitingOn || !isValidFollowUpDate(waitingDetails.followUpDate))) {
         return failure(data, 'invalid_follow_up', '请填写有效的等待对象、等待内容和跟进日期。');
       }
@@ -487,9 +494,9 @@ export function editProposal(proposal: AIProposal, title: string, category: Task
     title: title.trim() || proposal.title,
     category,
     estimatedMinutes: Math.max(0, estimatedMinutes),
-    nextAction: nextAction.trim() || proposal.nextAction,
+    nextAction: nextAction.trim() || proposal.nextAction?.trim() || '',
     visibleClassification: options?.visibleClassification,
     waitingDetails: options?.waitingDetails,
-    knowledgeSummary: knowledgeSummary?.trim() || proposal.knowledgeSummary,
+    knowledgeSummary: knowledgeSummary?.trim() || proposal.knowledgeSummary?.trim() || undefined,
   };
 }

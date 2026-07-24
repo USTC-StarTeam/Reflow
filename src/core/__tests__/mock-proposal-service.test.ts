@@ -1,23 +1,38 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { MockProposalService } from '../mock-proposal-service';
-import type { InboxCapture, TaskItem } from '../types';
+import type { InboxCapture, ProposalRequest, ProposalTaskCandidate } from '../types';
 
 const capture: InboxCapture = {
   id: 'capture-1', rawText: '下午回复客户报价', source: 'webText', createdAt: '2026-07-17T08:00:00.000Z', pipelineState: 'proposing',
 };
 
+function request(
+  source: InboxCapture,
+  existingTaskCandidates: ProposalTaskCandidate[] = [],
+): ProposalRequest {
+  return {
+    capture: source,
+    context: {
+      referenceDate: '2026-07-17',
+      timeZone: 'Asia/Shanghai',
+      locale: 'zh-CN',
+    },
+    existingTaskCandidates,
+  };
+}
+
 describe('MockProposalService', () => {
   it('returns deterministic structured suggestions without mutating task context', async () => {
     const service = new MockProposalService(0);
-    const tasks: TaskItem[] = [{ id: 'task-1', title: '已有任务', status: 'notStarted', category: 'work', bucket: 'today', estimatedMinutes: 20, nextAction: '开始', sourceSummary: 'Web 文本', sortIndex: 0, createdAt: capture.createdAt }];
-    const before = JSON.stringify(tasks);
-    const first = await service.propose({ capture, existingTasks: tasks });
-    const second = await service.propose({ capture, existingTasks: tasks });
+    const candidates = [{ id: 'task-1', title: '已有任务' }];
+    const before = JSON.stringify(candidates);
+    const first = await service.propose(request(capture, candidates));
+    const second = await service.propose(request(capture, candidates));
     expect(second).toEqual(first);
     expect(first).toMatchObject({ status: 'success' });
     if (first.status === 'success') expect(first.proposals[0]).toMatchObject({ category: 'communication', status: 'pending', outcome: 'task' });
-    expect(JSON.stringify(tasks)).toBe(before);
+    expect(JSON.stringify(candidates)).toBe(before);
   });
 
   it('creates split, unknown, and knowledge proposals deterministically', async () => {
@@ -25,9 +40,9 @@ describe('MockProposalService', () => {
     const compound = { ...capture, id: 'capture-2', rawText: '买药和预约体检' };
     const ambiguous = { ...capture, id: 'capture-3', rawText: '记得那件事情' };
     const knowledge = { ...capture, id: 'capture-4', rawText: '沉淀报价沟通原则：先确认预算口径' };
-    const compoundResult = await service.propose({ capture: compound, existingTasks: [] });
-    const ambiguousResult = await service.propose({ capture: ambiguous, existingTasks: [] });
-    const knowledgeResult = await service.propose({ capture: knowledge, existingTasks: [] });
+    const compoundResult = await service.propose(request(compound));
+    const ambiguousResult = await service.propose(request(ambiguous));
+    const knowledgeResult = await service.propose(request(knowledge));
     expect(compoundResult).toMatchObject({ status: 'success' });
     expect(ambiguousResult).toMatchObject({ status: 'success' });
     expect(knowledgeResult).toMatchObject({ status: 'success' });
@@ -42,9 +57,9 @@ describe('MockProposalService', () => {
     const someday = { ...capture, id: 'capture-someday', rawText: '下周再整理旅行报销材料' };
     const activeReply = { ...capture, id: 'capture-reply', rawText: '下午回复客户报价' };
     const [waitingResult, somedayResult, replyResult] = await Promise.all([
-      service.propose({ capture: waiting, existingTasks: [] }),
-      service.propose({ capture: someday, existingTasks: [] }),
-      service.propose({ capture: activeReply, existingTasks: [] }),
+      service.propose(request(waiting)),
+      service.propose(request(someday)),
+      service.propose(request(activeReply)),
     ]);
     if (waitingResult.status === 'success') expect(waitingResult.proposals[0]).toMatchObject({
       suggestedBucket: 'waiting',
@@ -56,6 +71,6 @@ describe('MockProposalService', () => {
 
   it('returns an explicit service failure when configured', async () => {
     const service = new MockProposalService({ delayMs: 0, failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });
-    await expect(service.propose({ capture, existingTasks: [] })).resolves.toEqual({ status: 'failure', failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });
+    await expect(service.propose(request(capture))).resolves.toEqual({ status: 'failure', failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });
   });
 });

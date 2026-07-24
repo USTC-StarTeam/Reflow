@@ -49,6 +49,88 @@ describe('persistence v4', () => {
     expect(result).toMatchObject({ status: 'success', counts: { tasks: fallback.tasks.length, taskPlanEvents: fallback.taskPlanEvents.length } });
   });
 
+  it('round-trips mixed legacy and Cloud proposals with nullable draft fields', () => {
+    const captureId = fallback.captures[0].id;
+    const cloudProposal = {
+      id: 'proposal-cloud-nullable',
+      captureId,
+      outcome: 'task' as const,
+      title: '待补充的云端建议',
+      category: 'unknown' as const,
+      estimatedMinutes: null,
+      confidence: 0.42,
+      reason: '输入信息不足，等待用户补充。',
+      kind: 'create' as const,
+      status: 'pending' as const,
+      nextAction: null,
+      suggestedBucket: 'today' as const,
+      waitingDetails: null,
+      knowledgeSummary: null,
+      provider: 'cloud' as const,
+    };
+    const mixed = {
+      ...fallback,
+      proposals: [
+        ...fallback.proposals.map(({ provider: _provider, ...proposal }) => proposal),
+        cloudProposal,
+      ],
+    };
+    const restored = parseStoredData(JSON.stringify(mixed), fallback, now);
+    expect(restored.proposals.find((proposal) => proposal.id === cloudProposal.id)).toEqual(cloudProposal);
+    expect(restored.proposals[0].provider).toBeUndefined();
+
+    const backup = parseBackup(serializeBackup(mixed, now), now);
+    expect(backup).toMatchObject({
+      status: 'success',
+      data: {
+        proposals: expect.arrayContaining([
+          expect.objectContaining({
+            id: cloudProposal.id,
+            estimatedMinutes: null,
+            nextAction: null,
+            provider: 'cloud',
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('accepts a full nullable waiting draft and rejects missing waiting keys', () => {
+    const waitingProposal = {
+      id: 'proposal-cloud-waiting',
+      captureId: fallback.captures[0].id,
+      outcome: 'task' as const,
+      title: '等待反馈',
+      category: 'communication' as const,
+      estimatedMinutes: null,
+      confidence: 0.8,
+      reason: '需要等待外部反馈。',
+      kind: 'create' as const,
+      status: 'pending' as const,
+      nextAction: null,
+      suggestedBucket: 'waiting' as const,
+      waitingDetails: { waitingFor: null, waitingOn: null, followUpDate: null },
+      knowledgeSummary: null,
+      provider: 'cloud' as const,
+    };
+    const valid = { ...fallback, proposals: [...fallback.proposals, waitingProposal] };
+    expect(isDomainData(valid)).toBe(true);
+
+    const invalid = JSON.parse(JSON.stringify(valid));
+    delete invalid.proposals.at(-1).waitingDetails.followUpDate;
+    expect(parseStoredData(JSON.stringify(invalid), fallback, now)).toEqual(fallback);
+    const envelope = JSON.parse(serializeBackup(valid, now));
+    delete envelope.data.proposals.at(-1).waitingDetails.waitingOn;
+    expect(parseBackup(JSON.stringify(envelope), now)).toMatchObject({ status: 'failure' });
+  });
+
+  it('does not include transient provider mode or Gateway configuration in backups', () => {
+    const serialized = serializeBackup(fallback, now);
+    expect(serialized).not.toContain('EXPO_PUBLIC_PROPOSAL_MODE');
+    expect(serialized).not.toContain('EXPO_PUBLIC_AI_GATEWAY_URL');
+    expect(serialized).not.toContain('proposalServiceKind');
+  });
+
   it.each([
     ['duplicate IDs', (data: typeof fallback) => ({ ...data, tasks: [...data.tasks, data.tasks[0]] })],
     ['broken references', (data: typeof fallback) => ({ ...data, timeEntries: [{ ...data.timeEntries[0], taskId: 'missing-task' }] })],

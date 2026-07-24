@@ -14,7 +14,7 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
 
   await page.getByTestId('quick-capture-input').fill(taskText);
   await page.getByTestId('quick-capture-submit').click();
-  await expect(page.getByText('已交给 Mock AI 整理，请到收件箱确认。')).toBeVisible();
+  await expect(page.getByText('已交给本地规则整理，请到收件箱确认。')).toBeVisible();
 
   await page.getByTestId('nav-收件箱').click();
   const proposal = page.locator('[data-testid^="proposal-"]', { hasText: taskText });
@@ -167,4 +167,15 @@ test('顺延后原日期回顾保留历史结果并在刷新后稳定', async ({
   await expect(outcome).toContainText('顺延到');
   await page.reload();
   await expect(outcome).toContainText('顺延到');
+});
+
+test('Mock 模式不会请求 Cloud Gateway', async ({ page }) => {
+  await fetch('http://127.0.0.1:8788/__reset', { method: 'POST' });
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill('验证本地规则不会访问网关');
+  await page.getByTestId('quick-capture-submit').click();
+  await expect(page.getByText('已交给本地规则整理，请到收件箱确认。')).toBeVisible();
+  const count = await fetch('http://127.0.0.1:8788/__count').then((response) => response.json());
+  expect(count.proposalRequests).toBe(0);
 });

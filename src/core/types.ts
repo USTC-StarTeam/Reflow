@@ -21,7 +21,7 @@ export type TaskPlanEventSource = 'user' | 'proposalDecision' | 'migration' | 'd
 
 export type CaptureSource = 'webText' | 'voice' | 'email' | 'feishu' | 'calendar' | 'shareExtension' | 'mobileShortcut';
 export type CapturePipelineState = 'captured' | 'proposing' | 'proposed' | 'proposalFailed' | 'resolved';
-export type PipelineFailureCode = 'empty_capture' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'schedule_conflict' | 'invalid_follow_up' | 'decision_not_reversible' | 'invalid_backup';
+export type PipelineFailureCode = 'empty_capture' | 'proposal_timeout' | 'proposal_rate_limited' | 'proposal_refused' | 'proposal_unavailable' | 'invalid_proposal' | 'invalid_decision' | 'task_not_found' | 'invalid_time' | 'invalid_schedule' | 'schedule_conflict' | 'invalid_follow_up' | 'decision_not_reversible' | 'invalid_backup';
 
 export interface PipelineFailure {
   code: PipelineFailureCode;
@@ -81,6 +81,12 @@ export interface WaitingDetails {
   followUpDate: string;
 }
 
+export interface WaitingDetailsDraft {
+  waitingFor: string | null;
+  waitingOn: string | null;
+  followUpDate: LocalDate | null;
+}
+
 export interface InboxCapture {
   id: string;
   rawText: string;
@@ -96,17 +102,19 @@ export interface AIProposal {
   outcome: ProposalOutcome;
   title: string;
   category: TaskCategory;
-  estimatedMinutes: number;
+  estimatedMinutes: number | null;
   confidence: number;
   reason: string;
   kind: ProposalKind;
   status: ProposalStatus;
-  nextAction: string;
+  nextAction: string | null;
   suggestedBucket?: SuggestedBucket;
-  waitingDetails?: WaitingDetails;
-  knowledgeSummary?: string;
+  suggestedDate?: LocalDate;
+  waitingDetails?: WaitingDetailsDraft | null;
+  knowledgeSummary?: string | null;
   duplicateTaskId?: string;
   splitTitles?: string[];
+  provider?: ProposalServiceKind;
 }
 
 export interface ProposalEdit {
@@ -221,9 +229,21 @@ export interface ReviewExplanationService {
   explain(facts: Readonly<ReviewFacts>): Promise<{ narrative: string }>;
 }
 
+export type ProposalServiceKind = 'mock' | 'cloud';
+
+export interface ProposalTaskCandidate {
+  id: string;
+  title: string;
+}
+
 export interface ProposalRequest {
-  capture: Readonly<InboxCapture>;
-  existingTasks: readonly TaskItem[];
+  capture: Readonly<Pick<InboxCapture, 'id' | 'rawText' | 'source' | 'createdAt'>>;
+  context: Readonly<{
+    referenceDate: LocalDate;
+    timeZone: string;
+    locale: 'zh-CN';
+  }>;
+  existingTaskCandidates: readonly ProposalTaskCandidate[];
 }
 
 export type ProposalResult =
@@ -231,6 +251,7 @@ export type ProposalResult =
   | { status: 'failure'; failure: PipelineFailure };
 
 export interface ProposalService {
+  readonly kind?: ProposalServiceKind;
   propose(request: ProposalRequest): Promise<ProposalResult>;
 }
 

@@ -8,7 +8,7 @@ Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
 - 当前版本分支：[USTC-StarTeam/Reflow · v1](https://github.com/USTC-StarTeam/Reflow/tree/v1)
 - 当前产品版本：V1，本地时间规划 MVP
 
-> 当前没有接入真实 AI、账号、后端、云同步或第三方平台。界面中的整理建议由确定性的 `MockProposalService` 生成，用于验证产品流程和领域边界。
+> 当前开发环境已支持通过本地 Gateway 调用真实云端模型生成 Proposal；公开在线 Demo 仍默认使用确定性的本地规则，不会发起第三方 AI 请求。账号、云同步和第三方平台集成尚未实现。
 
 ## 当前版本能做什么
 
@@ -79,7 +79,12 @@ Capture → ProposalService → AIProposal → UserDecision
 - 排期、状态、耗时、进展和删除必须通过明确的领域 Action 写入；
 - 回顾中的关键数字由程序根据事实确定性计算，模型不能生成或覆盖这些指标。
 
-`MockProposalService` 是当前默认实现。未来接入真实模型时，只需要实现相同的 `ProposalService` 接口，不需要重写 UI、Store 和任务执行逻辑。
+`ProposalService` 当前有两个实现：
+
+- `MockProposalService`：确定性的本地规则，也是公开 Demo 和普通本地启动的默认实现；
+- `CloudProposalService`：通过本地 Gateway 调用真实云端模型，并把严格校验后的 Draft 映射为同一种 `AIProposal`。
+
+Cloud 模式仍然复用相同的 Inbox、UserDecision、Reducer 和任务执行逻辑，不会让模型越过用户确认边界。
 
 当前版本不包含 ReAct 循环、自主工具选择、多 Agent、长期自主运行或通用 Agent Runtime。
 
@@ -133,6 +138,8 @@ src/
   features/  今天、收件箱、进行中、日历、回顾及共享 UI
 docs/        实施清单和领域约束
 e2e/         Web 核心流程验收
+gateway/     本地开发用云端 Proposal Gateway
+tools/       云端 Proposal 模型评测工具
 ```
 
 ## 本地运行
@@ -159,6 +166,40 @@ npm run ios
 ```
 
 Android 和 iOS 命令目前主要用于验证共享路由与组件的可复用性，首版仍以 Web 为主要验收目标。
+
+### 本地使用真实云端 Proposal
+
+Cloud 模式需要同时运行本地 Gateway 和 Expo Web。模型 API Key 只配置在 Gateway 进程中，不能使用 `EXPO_PUBLIC_*` 变量，也不能写入前端源码。
+
+首先复制本地变量示例：
+
+```powershell
+Copy-Item gateway/.dev.vars.example gateway/.dev.vars
+```
+
+在被 Git 忽略的 `gateway/.dev.vars` 中填写 `OPENAI_API_KEY`，然后启动 Gateway：
+
+```powershell
+npm run gateway
+```
+
+另开一个 PowerShell 终端，以 Cloud 模式启动 Web：
+
+```powershell
+$env:EXPO_PUBLIC_PROPOSAL_MODE = 'cloud'
+$env:EXPO_PUBLIC_AI_GATEWAY_URL = 'http://127.0.0.1:8787'
+npm run web
+```
+
+恢复默认本地规则模式：
+
+```powershell
+$env:EXPO_PUBLIC_PROPOSAL_MODE = 'mock'
+Remove-Item Env:EXPO_PUBLIC_AI_GATEWAY_URL -ErrorAction SilentlyContinue
+npm run web
+```
+
+详细配置、错误语义和安全边界见 [Gateway 本地运行说明](gateway/README.md)。
 
 ### 重置 Demo 数据
 
@@ -192,10 +233,13 @@ npm run typecheck
 # ESLint
 npm run lint
 
-# 44 个单元测试
+# 61 个 Jest 单元测试
 npm test
 
-# 6 条 Web 核心流程
+# 8 个本地 Gateway 单元测试
+npm run test:gateway
+
+# 10 条 Web 核心流程
 npm run test:e2e
 
 # 导出静态 Web，产物位于 dist/
@@ -206,6 +250,8 @@ npm run export:web
 
 - Capture 与 Proposal Pipeline；
 - Mock Proposal 的确定性输出；
+- Cloud Draft Schema、字段组合、请求白名单和安全错误；
+- Cloud Proposal 的 nullable 字段、旧 v4 数据兼容与本地规则显式回退；
 - UserDecision、撤销和正式产物写入；
 - 任务执行、单一当前任务与计划 Action；
 - 日期、时区、跨日拒绝和半开区间冲突；
@@ -246,13 +292,17 @@ python -m http.server 4173 -d dist
 
 `v1` 分支的 push 会触发 GitHub Actions 验证：
 
-- 类型检查、lint、单元测试、Playwright E2E 和静态导出。
+- 类型检查、lint、Jest、Gateway 单元测试、Playwright E2E 和静态导出。
 
 仓库保留了 GitHub Pages 部署工作流，但官方仓库目前尚未启用 Pages。上面的在线 Demo 暂时由个人 fork 的 `lsc` 分支发布。
 
 ## 数据与隐私
 
-- 当前没有账号、后端、遥测或第三方业务请求；
+- 默认 Mock 模式没有账号、后端、遥测或第三方 AI 请求；
+- Cloud 模式只向本地 Gateway 发送当前输入、输入来源、基准日期、时区和语言；
+- Cloud 模式不会上传现有任务、任务状态、计划日期、计划事件、执行日志、知识卡片、UserDecision、回顾或备份；
+- Gateway 从服务端环境读取模型 API Key，前端 Bundle、浏览器存储和仓库都不包含 Key；
+- Gateway 不记录 Capture 原文，不保存会话、任务或模型原始响应；
 - 任务、Capture、Proposal、UserDecision、计划事件、耗时、进展和知识卡片保存在当前浏览器；
 - 弹窗、loading、toast 和当前 Tab 等瞬时 UI 状态不会持久化；
 - 主数据损坏时会优先尝试最后一个合法恢复副本，再回退到种子数据；
@@ -264,7 +314,9 @@ python -m http.server 4173 -d dist
 
 当前版本尚未实现：
 
-- 真实 OpenAI、Claude 或其他模型调用；
+- P2 公网 Gateway、公开 Demo 的 Cloud 默认模式和第一次使用隐私确认；
+- 面向公网的正式认证、严格配额和完整防滥用；
+- 云端 Proposal 的 3～7 天真实使用验证；
 - 登录、账号和跨设备云同步；
 - 课程表和学校教务系统接入；
 - 外部日历、邮件、飞书和分享扩展；
@@ -288,3 +340,8 @@ python -m http.server 4173 -d dist
 - `v1` 推送后由 GitHub Actions 自动验证。
 
 更详细的实施里程碑和领域约束见 [docs/implementation-plan.md](docs/implementation-plan.md)。
+
+云端 Proposal 的当前状态与模型评测见：
+
+- [P0/P1 实施记录](docs/cloud-proposal-plan.md)
+- [最终模型评测报告](docs/cloud-proposal-evaluation.md)

@@ -40,9 +40,11 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand",
+    "test:gateway": "node --test gateway/__tests__/*.test.mjs",
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",
-    "export:web": "expo export -p web"
+    "export:web": "expo export -p web",
+    "gateway": "node gateway/server.mjs"
   },
   "jest": {
     "preset": "jest-expo",

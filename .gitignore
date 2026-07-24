@@ -40,6 +40,14 @@ yarn-error.*
 test-results/
 playwright-report/
 
+# P0 cloud proposal evaluation
+artifacts/proposal-eval/
+tools/proposal-eval/.env
+tools/proposal-eval/.env.*
+gateway/.dev.vars
+gateway/.env
+gateway/.env.*
+
 example
 
 # generated native folders

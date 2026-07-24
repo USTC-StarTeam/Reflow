@@ -5,7 +5,7 @@ import { useReflowStore } from '@/core/store';
 import { colors, radius, shadow } from './theme';
 
 export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: boolean; onSubmitted?: () => void }) {
-  const { capture, capturing } = useReflowStore();
+  const { capture, capturing, proposalServiceKind } = useReflowStore();
   const [value, setValue] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
           <Text style={[styles.sendText, value.trim() && styles.sendTextActive]}>{capturing ? '…' : value.trim() ? '↑' : '⌁'}</Text>
         </Pressable>
       </View>
-      {submitted ? <Text style={styles.success}>已交给 Mock AI 整理，请到收件箱确认。</Text> : null}
+      {submitted ? <Text style={styles.success}>{proposalServiceKind === 'cloud' ? '已交给云端 AI 整理，请到收件箱确认。' : '已交给本地规则整理，请到收件箱确认。'}</Text> : null}
       {error ? <Text testID="quick-capture-error" style={styles.error}>{error}</Text> : null}
     </View>
   );
