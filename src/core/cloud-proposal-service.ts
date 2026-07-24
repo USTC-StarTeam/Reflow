@@ -7,13 +7,13 @@ import {
 } from './cloud-proposal-contract';
 import type { AIProposal, PipelineFailure, ProposalRequest, ProposalResult, ProposalService } from './types';
 
-type FetchLike = typeof fetch;
-const platformFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+export type CloudProposalFetch = (input: string, init?: RequestInit) => Promise<Response>;
+const platformFetch: CloudProposalFetch = (input, init) => globalThis.fetch(input, init);
 
 export interface CloudProposalServiceOptions {
   gatewayUrl: string;
   timeoutMs?: number;
-  fetchImpl?: FetchLike;
+  fetchImpl?: CloudProposalFetch;
 }
 
 function unavailable(message = '云端整理服务暂时不可用，请稍后重试。'): ProposalResult {
@@ -66,7 +66,7 @@ export class CloudProposalService implements ProposalService {
   readonly kind = 'cloud' as const;
   private readonly gatewayUrl: string;
   private readonly timeoutMs: number;
-  private readonly fetchImpl: FetchLike;
+  private readonly fetchImpl: CloudProposalFetch;
 
   constructor(options: CloudProposalServiceOptions) {
     this.gatewayUrl = options.gatewayUrl.trim().replace(/\/+$/, '');

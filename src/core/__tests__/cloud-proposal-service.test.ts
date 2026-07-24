@@ -3,6 +3,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildCloudProposalWireRequest,
   CloudProposalService,
+  type CloudProposalFetch,
 } from '../cloud-proposal-service';
 import type { ProposalRequest } from '../types';
 
@@ -60,7 +61,7 @@ describe('CloudProposalService', () => {
   });
 
   it('maps one valid Draft to a deterministic pending create Proposal', async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(response({
+    const fetchImpl = jest.fn<CloudProposalFetch>().mockResolvedValue(response({
       status: 'success',
       schemaVersion: 1,
       draft: validDraft,
@@ -90,7 +91,7 @@ describe('CloudProposalService', () => {
   });
 
   it('keeps nullable Draft fields for Inbox completion instead of inventing defaults', async () => {
-    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(response({
+    const fetchImpl = jest.fn<CloudProposalFetch>().mockResolvedValue(response({
       status: 'success',
       schemaVersion: 1,
       draft: { ...validDraft, suggestedDate: null, estimatedMinutes: null, nextAction: null },
@@ -103,13 +104,13 @@ describe('CloudProposalService', () => {
   });
 
   it('maps timeout, rate limit, refusal and invalid output to structured failures', async () => {
-    const timeoutFetch = ((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    const timeoutFetch: CloudProposalFetch = (_url, init) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => {
         const error = new Error('aborted');
         error.name = 'AbortError';
         reject(error);
       });
-    })) as typeof fetch;
+    });
     await expect(new CloudProposalService({
       gatewayUrl: 'http://gateway.test',
       timeoutMs: 5,
@@ -120,19 +121,19 @@ describe('CloudProposalService', () => {
     });
 
     for (const [status, code] of [[429, 'proposal_rate_limited'], [504, 'proposal_timeout']] as const) {
-      const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(response(null, status));
+      const fetchImpl = jest.fn<CloudProposalFetch>().mockResolvedValue(response(null, status));
       await expect(new CloudProposalService({ gatewayUrl: 'http://gateway.test', fetchImpl }).propose(request))
         .resolves.toMatchObject({ status: 'failure', failure: { code } });
     }
 
-    const refused = jest.fn<typeof fetch>().mockResolvedValue(response({
+    const refused = jest.fn<CloudProposalFetch>().mockResolvedValue(response({
       status: 'failure',
       error: { code: 'proposal_refused', message: '无法整理', retryable: false },
     }, 422));
     await expect(new CloudProposalService({ gatewayUrl: 'http://gateway.test', fetchImpl: refused }).propose(request))
       .resolves.toEqual({ status: 'failure', failure: { code: 'proposal_refused', message: '无法整理', retryable: false } });
 
-    const invalid = jest.fn<typeof fetch>().mockResolvedValue(response({
+    const invalid = jest.fn<CloudProposalFetch>().mockResolvedValue(response({
       status: 'success',
       schemaVersion: 1,
       draft: { ...validDraft, suggestedBucket: 'someday', suggestedDate: '2026-07-25' },
