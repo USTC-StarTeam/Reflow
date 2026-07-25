@@ -8,11 +8,24 @@ async function resetDemo(page: Page) {
   await expect(page.getByTestId('reset-demo')).toBeHidden();
 }
 
+async function browserLocalDateAfter(page: Page, days: number) {
+  return page.evaluate((offset) => {
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, days);
+}
+
 test('Cloud Capture 进入收件箱，编辑确认后建议日期写入任务并刷新保留', async ({ page }) => {
   const input = '明天整理云端验收说明';
   const editedTitle = '整理云端验收说明并核对';
   await page.goto('/');
   await resetDemo(page);
+  const tomorrow = await browserLocalDateAfter(page, 1);
+  const [, month, day] = tomorrow.split('-').map(Number);
 
   await page.getByTestId('quick-capture-input').fill(input);
   await page.getByTestId('quick-capture-submit').click();
@@ -21,7 +34,7 @@ test('Cloud Capture 进入收件箱，编辑确认后建议日期写入任务并
 
   let proposal = page.locator('[data-testid^="proposal-"]', { hasText: '整理云端验收说明' });
   await expect(proposal).toContainText('云端 AI');
-  await expect(proposal).toContainText('2026-07-25');
+  await expect(proposal).toContainText(tomorrow);
 
   // Pending Proposal 属于领域数据，刷新后仍应存在，但正式任务尚未出现。
   await page.reload();
@@ -32,17 +45,17 @@ test('Cloud Capture 进入收件箱，编辑确认后建议日期写入任务并
   await proposal.locator('[data-testid^="proposal-minutes-"]').fill('50');
   await proposal.locator('[data-testid^="proposal-next-action-"]').fill('列出三个验收章节');
   await proposal.getByRole('button', { name: '完成修改' }).click();
-  await proposal.getByRole('button', { name: '确认并安排到 2026-07-25' }).click();
+  await proposal.getByRole('button', { name: `确认并安排到 ${tomorrow}` }).click();
   await expect(page.getByTestId('undo-decision')).toBeVisible();
   await expect(page.locator('[data-testid^="recent-decision-"]', { hasText: editedTitle }))
-    .toContainText('已安排到 7月25日');
+    .toContainText(`已安排到 ${month}月${day}日`);
 
   await page.reload();
   await expect(page.getByTestId('undo-decision')).toBeVisible();
   await page.getByTestId('nav-日历').click();
-  await page.getByTestId('calendar-day-2026-07-25').click();
+  await page.getByTestId(`calendar-day-${tomorrow}`).click();
   await expect(page.locator('[data-testid^="calendar-entry-"]', { hasText: editedTitle }))
-    .toContainText('2026-07-25');
+    .toContainText(tomorrow);
 });
 
 test('Cloud Knowledge Proposal 只在用户确认后创建知识卡片', async ({ page }) => {
