@@ -4,7 +4,7 @@ Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
 
 当前版本以 Web 为主要验收平台，桌面浏览器和手机浏览器都可以直接使用。项目保留 Expo / React Native 的跨端结构，但暂未发布原生安装包。
 
-- 在线 Demo（当前由个人 fork 发布）：[https://lsclin.github.io/Reflow/](https://lsclin.github.io/Reflow/)
+- 在线 Demo：[https://ustc-starteam.github.io/Reflow/](https://ustc-starteam.github.io/Reflow/)
 - 当前版本分支：[USTC-StarTeam/Reflow · v1](https://github.com/USTC-StarTeam/Reflow/tree/v1)
 - 当前产品版本：V1，本地时间规划 MVP
 
@@ -294,7 +294,7 @@ python -m http.server 4173 -d dist
 
 - 类型检查、lint、Jest、Gateway 单元测试、Playwright E2E 和静态导出。
 
-仓库保留了 GitHub Pages 部署工作流，但官方仓库目前尚未启用 Pages。上面的在线 Demo 暂时由个人 fork 的 `lsc` 分支发布。
+官方仓库使用 GitHub Actions 发布 Pages。`v1` 分支 push 后会分别触发完整验证和静态站点部署，在线 Demo 始终保持本地规则（Mock）为默认模式，不会因为部署最新前端而自动调用云端模型。
 
 ## 数据与隐私
 

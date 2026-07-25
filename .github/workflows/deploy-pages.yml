@@ -2,7 +2,8 @@ name: Deploy Reflow demo to GitHub Pages
 
 on:
   push:
-    branches: [lsc]
+    branches: [v1]
+  workflow_dispatch:
 
 permissions:
   contents: read
