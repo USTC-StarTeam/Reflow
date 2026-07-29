@@ -15,7 +15,7 @@ function extractWaitingDetails(text: string, createdAt: string): WaitingDetails 
   const leadingMatch = text.trim().match(leadingWaitingPattern);
   if (leadingMatch) {
     const [, waitingFor, verb, remaining] = leadingMatch;
-    const waitingOn = remaining.trim() ? `${verb === '确认' ? '确认' : '确认'}${remaining.trim()}` : `${verb}结果`;
+    const waitingOn = remaining.trim() ? `${verb}${remaining.trim()}` : `${verb}结果`;
     return {
       waitingFor: waitingFor.trim(),
       waitingOn,
