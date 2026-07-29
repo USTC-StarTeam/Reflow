@@ -1,0 +1,181 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const taskText = '推进季度预算口径整理';
+
+async function resetDemo(page: Page) {
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByTestId('reset-demo').click();
+  await expect(page.getByTestId('reset-demo')).toBeHidden();
+}
+
+test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新后保持可追踪', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+
+  await page.getByTestId('quick-capture-input').fill(taskText);
+  await page.getByTestId('quick-capture-submit').click();
+  await expect(page.getByText('已交给本地规则整理，请到收件箱确认。')).toBeVisible();
+
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: taskText });
+  await expect(proposal).toHaveCount(1);
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await expect(page.getByTestId('undo-decision')).toBeVisible();
+
+  // UserDecision 是领域数据，接受后立即刷新仍应保留并可撤销。
+  await page.reload();
+  await expect(page.getByTestId('undo-decision')).toBeVisible();
+
+  // 决策事件持久化前，允许撤销并恢复同一条 Proposal。
+  await page.getByTestId('undo-decision').click();
+  await expect(proposal).toHaveCount(1);
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+
+  await page.getByTestId('nav-日历').click();
+  const calendarEntry = page.locator('[data-testid^="calendar-entry-"]', { hasText: taskText });
+  await expect(calendarEntry).toContainText('未排期');
+
+  await page.getByTestId('nav-今天').click();
+  const todayTask = page.locator('[data-testid^="task-"]', { hasText: taskText });
+  await todayTask.getByRole('button', { name: `开始 ${taskText}` }).click();
+
+  await page.getByTestId('nav-进行中').click();
+  await expect(page.getByTestId('current-task-card')).toContainText(taskText);
+  await page.getByTestId('progress-input').fill('已核对预算假设');
+  await page.getByTestId('record-progress').click();
+  await page.getByTestId('record-time').click();
+  await page.getByTestId('complete-task').click();
+
+  await page.getByTestId('nav-日历').click();
+  await expect(calendarEntry).toContainText('实际完成');
+  await page.reload();
+  await expect(calendarEntry).toContainText('实际完成');
+
+  await page.getByTestId('nav-回顾').click();
+  await expect(page.getByTestId('review-summary')).toContainText('记录');
+
+  await page.reload();
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText(taskText)).toBeVisible();
+});
+
+test('收件箱清晰展示等待建议、九种归类和可撤销的等待决定', async ({ page }) => {
+  await page.goto('/inbox');
+  await resetDemo(page);
+  await page.getByTestId('nav-收件箱').click();
+
+  const waitingProposal = page.getByTestId('proposal-proposal-waiting');
+  await expect(page.getByText('待你确认')).toBeVisible();
+  await expect(page.getByText('最近处理')).toBeVisible();
+  await expect(waitingProposal).toContainText('等供应商确认送货时间');
+  await expect(waitingProposal).toContainText('AI 归类结果');
+  await expect(waitingProposal).toContainText('目前无需你行动，等对方回复或处理后再继续。');
+  await expect(waitingProposal).toContainText('供应商');
+  await expect(waitingProposal).toContainText('确认送货时间');
+
+  await waitingProposal.getByRole('button', { name: '设置跟进时间' }).click();
+  await page.getByTestId('follow-up-date-proposal-waiting').fill('2026-07-24');
+  await page.getByRole('button', { name: '保存日期' }).click();
+  await expect(waitingProposal).toContainText('2026-07-24');
+
+  const contractProposal = page.getByTestId('proposal-proposal-contract');
+  await contractProposal.getByTestId('proposal-classification-proposal-contract').click();
+  for (const classification of ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown']) {
+    await expect(page.getByTestId(`classification-option-${classification}`)).toBeVisible();
+  }
+  await page.getByTestId('classification-option-someday').click();
+  await expect(contractProposal.getByRole('button', { name: '保存到稍后' })).toBeVisible();
+  await contractProposal.getByTestId('proposal-classification-proposal-contract').click();
+  await page.getByTestId('classification-option-knowledge').click();
+  await expect(contractProposal.getByRole('button', { name: '保存为知识' })).toBeVisible();
+
+  await waitingProposal.getByRole('button', { name: '放入等待列表' }).click();
+  await expect(page.getByTestId('undo-decision')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('undo-decision')).toBeVisible();
+  await page.getByTestId('undo-decision').click();
+  await expect(page.getByTestId('proposal-proposal-waiting')).toBeVisible();
+});
+
+test('已排期任务完成后在同一天合并展示计划与实际完成', async ({ page }) => {
+  await page.goto('/active');
+  await resetDemo(page);
+
+  await expect(page.getByTestId('current-task-card')).toContainText('完成 Reflow Demo 页面结构');
+  await page.getByTestId('complete-task').click();
+  await page.getByTestId('nav-日历').click();
+
+  const calendarEntry = page.getByTestId('calendar-entry-task-reflow-demo');
+  await expect(calendarEntry).toContainText('计划 10:00–11:30');
+  await expect(calendarEntry).toContainText('实际完成');
+  await expect(calendarEntry.getByText('已完成')).toBeVisible();
+});
+
+test('点击排期先阻止冲突，用户明确确认后才写入并刷新保留', async ({ page }) => {
+  const text = '推进时间规划验收说明';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(text);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: text });
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await page.getByTestId('nav-今天').click();
+  const task = page.locator('[data-testid^="task-"]', { hasText: text });
+  await task.getByRole('button', { name: '安排时间' }).click();
+  await page.getByTestId('schedule-time').fill('10:30');
+  await page.getByTestId('schedule-duration').fill('30');
+  await page.getByTestId('confirm-schedule').click();
+  await expect(page.getByTestId('schedule-conflict')).toContainText('完成 Reflow Demo 页面结构');
+  await page.getByTestId('confirm-schedule-conflict').click();
+
+  await page.getByTestId('nav-日历').click();
+  const entry = page.locator('[data-testid^="calendar-entry-"]', { hasText: text });
+  await expect(entry).toContainText('10:30');
+  await page.reload();
+  await expect(entry).toContainText('10:30');
+});
+
+test('本地备份通过验证预览后可以恢复', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByRole('button', { name: '打开设置' }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('export-backup').click();
+  const download = await downloadPromise;
+  const backupPath = await download.path();
+  if (!backupPath) throw new Error('expected a downloaded backup');
+
+  await page.getByRole('button', { name: '关闭' }).click();
+  await page.getByRole('button', { name: '打开设置' }).click();
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByTestId('import-backup').click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(backupPath);
+  await expect(page.getByTestId('import-preview')).toContainText('条计划事件');
+  await page.getByTestId('confirm-import-backup').click();
+  await expect(page.getByText('备份已恢复，替换前的数据已保存为本地恢复副本。')).toBeVisible();
+});
+
+test('顺延后原日期回顾保留历史结果并在刷新后稳定', async ({ page }) => {
+  await page.goto('/review');
+  await resetDemo(page);
+  await page.getByTestId('nav-回顾').click();
+  const outcome = page.getByTestId('review-outcome-task-client-quote');
+  await expect(outcome).toContainText('未完成');
+  await page.getByTestId('defer-tomorrow-task-client-quote').click();
+  await expect(outcome).toContainText('顺延到');
+  await page.reload();
+  await expect(outcome).toContainText('顺延到');
+});
+
+test('Mock 模式不会请求 Cloud Gateway', async ({ page }) => {
+  await fetch('http://127.0.0.1:8788/__reset', { method: 'POST' });
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill('验证本地规则不会访问网关');
+  await page.getByTestId('quick-capture-submit').click();
+  await expect(page.getByText('已交给本地规则整理，请到收件箱确认。')).toBeVisible();
+  const count = await fetch('http://127.0.0.1:8788/__count').then((response) => response.json());
+  expect(count.proposalRequests).toBe(0);
+});
