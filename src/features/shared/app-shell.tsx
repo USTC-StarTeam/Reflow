@@ -43,7 +43,8 @@ export function AppShell({ children }: PropsWithChildren) {
     link.href = url;
     link.download = `reflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
-    URL.revokeObjectURL(url);
+    // 部分环境的下载管理器异步读取 blob，立即 revoke 可能导致下载失败。
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
     setSettingsMessage('备份已下载。文件未加密，请妥善保管。');
   }
 
