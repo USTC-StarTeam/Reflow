@@ -135,6 +135,7 @@ describe('persistence v4', () => {
     ['duplicate IDs', (data: typeof fallback) => ({ ...data, tasks: [...data.tasks, data.tasks[0]] })],
     ['broken references', (data: typeof fallback) => ({ ...data, timeEntries: [{ ...data.timeEntries[0], taskId: 'missing-task' }] })],
     ['cross-day schedule', (data: typeof fallback) => ({ ...data, tasks: data.tasks.map((task) => task.id === 'task-client-quote' ? { ...task, plannedStartAt: '2026-07-17T23:30:00+08:00', plannedEndAt: '2026-07-18T00:30:00+08:00' } : task) })],
+    ['invalid task waitingDetails', (data: typeof fallback) => ({ ...data, tasks: data.tasks.map((task) => task.id === 'task-client-quote' ? { ...task, waitingDetails: { waitingFor: '客户', waitingOn: 123, followUpDate: '2026-07-20' } } : task) })],
   ])('rejects %s without changing the supplied valid state', (_name, mutate) => {
     const before = JSON.stringify(fallback);
     const envelope = JSON.parse(serializeBackup(fallback, now));
