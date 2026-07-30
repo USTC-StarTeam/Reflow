@@ -1,6 +1,6 @@
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { type PropsWithChildren, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { selectPendingProposals } from '@/core/selectors';
@@ -31,6 +31,15 @@ export function AppShell({ children }: PropsWithChildren) {
   const pending = selectPendingProposals(data).length;
   const cloudMode = store.proposalServiceKind === 'cloud';
   const contextValue = useMemo(() => ({ openCapture: () => setCaptureOpen(true), openSettings: () => setSettingsOpen(true) }), []);
+
+  if (!store.hydrated) {
+    return (
+      <View testID="app-hydrating" style={styles.hydrating}>
+        <ActivityIndicator color={colors.primary} />
+        <Text style={textStyles.meta}>正在载入本地数据…</Text>
+      </View>
+    );
+  }
 
   function exportData() {
     if (Platform.OS !== 'web' || typeof document === 'undefined') {
@@ -143,6 +152,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
 const styles = StyleSheet.create({
   viewport: { flex: 1, backgroundColor: colors.page, alignItems: 'center' },
+  hydrating: { flex: 1, backgroundColor: colors.page, alignItems: 'center', justifyContent: 'center', gap: 10 },
   app: { flex: 1, width: '100%', maxWidth: 480, backgroundColor: colors.surface },
   appWeb: { boxShadow: `0 0 42px ${colors.shadow}` },
   appWebWide: { maxWidth: 1120 },

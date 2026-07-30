@@ -130,7 +130,13 @@ describe('domain reducer', () => {
     expect(waiting.data.tasks.find((task) => task.title === '等待供应商确认送货时间')).toMatchObject({ bucket: 'waiting', waitingDetails: { waitingFor: '供应商', followUpDate: '2026-07-20' } });
 
     const merged = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-merge', at: now, decision: { kind: 'accept', proposalId: 'proposal-duplicate-quote', bucket: 'someday', edited: { title: '确认客户报价', category: 'communication', estimatedMinutes: 20, nextAction: '回复客户' } } });
-    expect(merged.data.tasks.find((task) => task.id === 'task-client-quote')?.bucket).toBe('someday');
+    expect(merged.data.tasks.find((task) => task.id === 'task-client-quote')).toMatchObject({
+      title: '确认客户报价',
+      category: 'communication',
+      bucket: 'someday',
+      estimatedMinutes: 20,
+      nextAction: '回复客户',
+    });
   });
 
   it('persists a custom waiting follow-up date in the decision and restores the proposal on undo', () => {

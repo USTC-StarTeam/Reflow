@@ -82,7 +82,9 @@ function validTaskWaitingDetails(value: unknown): boolean {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   return typeof value.waitingFor === 'string'
+    && value.waitingFor.trim().length > 0
     && typeof value.waitingOn === 'string'
+    && value.waitingOn.trim().length > 0
     && isLocalDate(value.followUpDate);
 }
 
