@@ -124,11 +124,11 @@ function buildTaskOutcome(input: {
     const keepTimes = Boolean(targetDate && previousTask.plannedDate === targetDate);
     const appliedTask: TaskItem = {
       ...previousTask,
-      title: edit.title,
+      title: edit.title.trim(),
       category: edit.category,
       bucket,
       estimatedMinutes: edit.estimatedMinutes,
-      nextAction: edit.nextAction,
+      nextAction: edit.nextAction.trim(),
       plannedDate: targetDate,
       plannedStartAt: keepTimes ? previousTask.plannedStartAt : undefined,
       plannedEndAt: keepTimes ? previousTask.plannedEndAt : undefined,
