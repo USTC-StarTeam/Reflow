@@ -7,7 +7,7 @@ import { useReflowStore, type ReflowStoreValue } from '@/core/store';
 import { AppShell } from '../app-shell';
 
 jest.mock('expo-router', () => ({
-  usePathname: () => '/',
+  usePathname: () => '/inbox',
   useRouter: () => ({ replace: jest.fn() }),
 }));
 
