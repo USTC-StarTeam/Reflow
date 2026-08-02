@@ -62,4 +62,18 @@ describe('AppShell hydration boundary', () => {
     expect(screen.queryByTestId('domain-content')).toBeNull();
     expect(screen.queryByTestId('global-capture')).toBeNull();
   });
+
+  it('mounts interactive domain content after local data is hydrated', async () => {
+    mockedUseReflowStore.mockReturnValue(storeValue(true));
+
+    const screen = await render(
+      <AppShell>
+        <Text testID="domain-content">应用内容</Text>
+      </AppShell>,
+    );
+
+    expect(screen.queryByTestId('app-hydrating')).toBeNull();
+    expect(screen.getByTestId('domain-content')).toBeTruthy();
+    expect(screen.getByTestId('global-capture')).toBeTruthy();
+  });
 });

@@ -124,11 +124,11 @@ function buildTaskOutcome(input: {
     const keepTimes = Boolean(targetDate && previousTask.plannedDate === targetDate);
     const appliedTask: TaskItem = {
       ...previousTask,
-      title: edit.title.trim(),
+      title: edit.title,
       category: edit.category,
       bucket,
       estimatedMinutes: edit.estimatedMinutes,
-      nextAction: edit.nextAction.trim(),
+      nextAction: edit.nextAction,
       plannedDate: targetDate,
       plannedStartAt: keepTimes ? previousTask.plannedStartAt : undefined,
       plannedEndAt: keepTimes ? previousTask.plannedEndAt : undefined,
@@ -299,8 +299,11 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       const { edited, bucket } = action.decision;
       const visibleClassification = resolveProposalVisibleClassification(proposal, edited);
       const waitingDetails = normalizeWaitingDetails(edited.waitingDetails ?? proposal.waitingDetails);
+      // 在边界统一 trim，保证 merge、create、knowledge 三种产物拿到的都是清洗后的值。
       const normalizedEdit: ProposalEdit = {
         ...edited,
+        title: edited.title.trim(),
+        nextAction: edited.nextAction.trim(),
         category: categoryForVisibleClassification(visibleClassification, edited.category),
         visibleClassification,
         waitingDetails: visibleClassification === 'waiting' ? waitingDetails : undefined,
