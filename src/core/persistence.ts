@@ -72,7 +72,20 @@ function validTask(value: unknown): value is TaskItem {
   if (typeof value.nextAction !== 'string' || typeof value.sourceSummary !== 'string') return false;
   if (value.completedAt !== undefined && !isZonedDateTime(value.completedAt)) return false;
   if (value.deletedAt !== undefined && !isZonedDateTime(value.deletedAt)) return false;
+  if (!validTaskWaitingDetails(value.waitingDetails)) return false;
   return validPlanSnapshot(value);
+}
+
+// 与 WaitingDetails（非 draft）一致：三个字段都必须是有效字符串，
+// followUpDate 必须是合法 LocalDate。undefined 表示该任务不处于等待状态。
+function validTaskWaitingDetails(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return typeof value.waitingFor === 'string'
+    && value.waitingFor.trim().length > 0
+    && typeof value.waitingOn === 'string'
+    && value.waitingOn.trim().length > 0
+    && isLocalDate(value.followUpDate);
 }
 
 function validWaitingDetailsDraft(value: unknown): boolean {

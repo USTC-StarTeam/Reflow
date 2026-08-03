@@ -67,6 +67,9 @@ function storeReducer(state: StoreState, action: StoreAction): StoreState {
     case 'setCapturing':
       return { ...state, capturing: action.value };
     case 'domain': {
+      // 水合完成前忽略所有领域动作，否则持久化数据加载后会整体覆盖 state，
+      // 导致用户在水合期间触发的捕捉/建议被静默丢弃，并产生找不到 capture 的失败。
+      if (!state.hydrated) return state;
       const transition = reduceDomain(state.data, action.action);
       return {
         ...state,

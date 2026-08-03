@@ -130,7 +130,27 @@ describe('domain reducer', () => {
     expect(waiting.data.tasks.find((task) => task.title === '等待供应商确认送货时间')).toMatchObject({ bucket: 'waiting', waitingDetails: { waitingFor: '供应商', followUpDate: '2026-07-20' } });
 
     const merged = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-merge', at: now, decision: { kind: 'accept', proposalId: 'proposal-duplicate-quote', bucket: 'someday', edited: { title: '确认客户报价', category: 'communication', estimatedMinutes: 20, nextAction: '回复客户' } } });
-    expect(merged.data.tasks.find((task) => task.id === 'task-client-quote')?.bucket).toBe('someday');
+    expect(merged.data.tasks.find((task) => task.id === 'task-client-quote')).toMatchObject({
+      title: '确认客户报价',
+      category: 'communication',
+      bucket: 'someday',
+      estimatedMinutes: 20,
+      nextAction: '回复客户',
+    });
+  });
+
+  it('trims whitespace from accepted task title and next action', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00'));
+    const created = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-trim-create', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', edited: { title: '  审阅新版合同  ', category: 'work', estimatedMinutes: 35, nextAction: ' 标记风险条款 ' } } });
+    expect(created).toMatchObject({ status: 'success' });
+    expect(created.data.tasks.find((task) => task.id === 'task-decision-trim-create-0'))
+      .toMatchObject({ title: '审阅新版合同', nextAction: '标记风险条款' });
+
+    const merged = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-trim-merge', at: now, decision: { kind: 'accept', proposalId: 'proposal-duplicate-quote', bucket: 'someday', edited: { title: '  确认客户报价  ', category: 'communication', estimatedMinutes: 20, nextAction: ' 回复客户 ' } } });
+    expect(merged).toMatchObject({ status: 'success' });
+    expect(merged.data.tasks.find((task) => task.id === 'task-client-quote'))
+      .toMatchObject({ title: '确认客户报价', nextAction: '回复客户' });
+    expect(merged.data.decisions[0]).toMatchObject({ edited: { title: '确认客户报价', nextAction: '回复客户' } });
   });
 
   it('persists a custom waiting follow-up date in the decision and restores the proposal on undo', () => {

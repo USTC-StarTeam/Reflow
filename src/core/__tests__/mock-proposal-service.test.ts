@@ -69,6 +69,17 @@ describe('MockProposalService', () => {
     if (replyResult.status === 'success') expect(replyResult.proposals[0]).toMatchObject({ category: 'communication', suggestedBucket: 'today' });
   });
 
+  it('uses the matched verb instead of hardcoding 确认 in waitingOn', async () => {
+    const service = new MockProposalService(0);
+    // verb=回复：修复前会被错误改写成「确认报价」，修复后应保留「回复报价」。
+    const reply = { ...capture, id: 'capture-waiting-reply', rawText: '等客户回复报价' };
+    const result = await service.propose(request(reply));
+    if (result.status === 'success') expect(result.proposals[0]).toMatchObject({
+      suggestedBucket: 'waiting',
+      waitingDetails: { waitingFor: '客户', waitingOn: '回复报价', followUpDate: '2026-07-20' },
+    });
+  });
+
   it('returns an explicit service failure when configured', async () => {
     const service = new MockProposalService({ delayMs: 0, failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });
     await expect(service.propose(request(capture))).resolves.toEqual({ status: 'failure', failure: { code: 'proposal_unavailable', message: '离线', retryable: true } });

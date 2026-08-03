@@ -124,8 +124,11 @@ function buildTaskOutcome(input: {
     const keepTimes = Boolean(targetDate && previousTask.plannedDate === targetDate);
     const appliedTask: TaskItem = {
       ...previousTask,
+      title: edit.title,
       category: edit.category,
       bucket,
+      estimatedMinutes: edit.estimatedMinutes,
+      nextAction: edit.nextAction,
       plannedDate: targetDate,
       plannedStartAt: keepTimes ? previousTask.plannedStartAt : undefined,
       plannedEndAt: keepTimes ? previousTask.plannedEndAt : undefined,
@@ -296,8 +299,11 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       const { edited, bucket } = action.decision;
       const visibleClassification = resolveProposalVisibleClassification(proposal, edited);
       const waitingDetails = normalizeWaitingDetails(edited.waitingDetails ?? proposal.waitingDetails);
+      // 在边界统一 trim，保证 merge、create、knowledge 三种产物拿到的都是清洗后的值。
       const normalizedEdit: ProposalEdit = {
         ...edited,
+        title: edited.title.trim(),
+        nextAction: edited.nextAction.trim(),
         category: categoryForVisibleClassification(visibleClassification, edited.category),
         visibleClassification,
         waitingDetails: visibleClassification === 'waiting' ? waitingDetails : undefined,
@@ -404,7 +410,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
     }
     case 'recordTime': {
       if (!findTask(data, action.taskId)) return failure(data, 'task_not_found', '找不到需要记录耗时的任务。');
-      if (!Number.isFinite(action.minutes) || action.minutes <= 0) return failure(data, 'invalid_time', '耗时必须是大于 0 的分钟数。');
+      if (!Number.isFinite(action.minutes) || action.minutes <= 0 || action.minutes > 1440) return failure(data, 'invalid_time', '耗时必须是大于 0 且不超过 1440 分钟的数值。');
       const endedAt = new Date(action.at);
       if (Number.isNaN(endedAt.getTime())) return failure(data, 'invalid_time', '耗时记录的时间无效。');
       const startedAt = addMinutes(endedAt, -action.minutes);

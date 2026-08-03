@@ -1,6 +1,6 @@
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { type PropsWithChildren, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { selectPendingProposals } from '@/core/selectors';
@@ -32,6 +32,15 @@ export function AppShell({ children }: PropsWithChildren) {
   const cloudMode = store.proposalServiceKind === 'cloud';
   const contextValue = useMemo(() => ({ openCapture: () => setCaptureOpen(true), openSettings: () => setSettingsOpen(true) }), []);
 
+  if (!store.hydrated) {
+    return (
+      <View testID="app-hydrating" style={styles.hydrating}>
+        <ActivityIndicator color={colors.primary} />
+        <Text style={textStyles.meta}>正在载入本地数据…</Text>
+      </View>
+    );
+  }
+
   function exportData() {
     if (Platform.OS !== 'web' || typeof document === 'undefined') {
       setSettingsMessage('当前 MVP 先支持 Web 下载备份。');
@@ -43,7 +52,8 @@ export function AppShell({ children }: PropsWithChildren) {
     link.href = url;
     link.download = `reflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
-    URL.revokeObjectURL(url);
+    // 部分环境的下载管理器异步读取 blob，立即 revoke 可能导致下载失败。
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
     setSettingsMessage('备份已下载。文件未加密，请妥善保管。');
   }
 
@@ -142,6 +152,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
 const styles = StyleSheet.create({
   viewport: { flex: 1, backgroundColor: colors.page, alignItems: 'center' },
+  hydrating: { flex: 1, backgroundColor: colors.page, alignItems: 'center', justifyContent: 'center', gap: 10 },
   app: { flex: 1, width: '100%', maxWidth: 480, backgroundColor: colors.surface },
   appWeb: { boxShadow: `0 0 42px ${colors.shadow}` },
   appWebWide: { maxWidth: 1120 },
