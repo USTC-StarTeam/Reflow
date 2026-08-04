@@ -97,62 +97,81 @@ function nullableNonEmptyString(value, maxLength) {
 
 export function validateDraft(value) {
   const errors = [];
-  if (!isPlainObject(value)) return { valid: false, schemaValid: false, domainValid: false, errors: ['Draft 必须是对象。'] };
-  if (!hasExactKeys(value, draftKeys)) errors.push('Draft 字段集合与 Schema 不一致。');
-  if (typeof value.title !== 'string' || !value.title.trim() || value.title.length > 80) errors.push('title 必须是 1–80 字符的非空字符串。');
-  if (!CATEGORIES.includes(value.category)) errors.push('category 非法。');
-  if (!OUTCOMES.includes(value.outcome)) errors.push('outcome 非法。');
-  if (!(value.suggestedBucket === null || BUCKETS.includes(value.suggestedBucket))) errors.push('suggestedBucket 非法。');
-  if (!(value.suggestedDate === null || isLocalDate(value.suggestedDate))) errors.push('suggestedDate 必须是合法 LocalDate 或 null。');
-  if (!(value.estimatedMinutes === null || (Number.isInteger(value.estimatedMinutes) && value.estimatedMinutes >= 5 && value.estimatedMinutes <= 480))) errors.push('estimatedMinutes 必须是 5–480 的整数或 null。');
-  if (!nullableNonEmptyString(value.nextAction, 240)) errors.push('nextAction 必须是非空字符串或 null。');
-  if (!nullableNonEmptyString(value.knowledgeSummary, 600)) errors.push('knowledgeSummary 必须是非空字符串或 null。');
-  if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) errors.push('confidence 必须位于 0–1。');
-  if (typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 240) errors.push('reason 必须是 1–240 字符的非空字符串。');
+  const schemaIssues = [];
+  const addSchemaIssue = (path, code, expected, message) => {
+    schemaIssues.push({ path, code, expected });
+    errors.push(message);
+  };
+  if (!isPlainObject(value)) {
+    return {
+      valid: false,
+      schemaValid: false,
+      domainValid: false,
+      errors: ['Draft 必须是对象。'],
+      issues: [{ path: '$', code: 'object_required', expected: 'object' }],
+    };
+  }
+  if (!hasExactKeys(value, draftKeys)) addSchemaIssue('$', 'exact_field_set', 'exact Cloud Proposal Draft fields', 'Draft 字段集合与 Schema 不一致。');
+  if (typeof value.title !== 'string' || !value.title.trim() || value.title.length > 80) addSchemaIssue('$.title', 'non_empty_string_1_80', 'non-empty string with 1–80 characters', 'title 必须是 1–80 字符的非空字符串。');
+  if (!CATEGORIES.includes(value.category)) addSchemaIssue('$.category', 'category_enum', 'work | communication | learning | life | health | unknown', 'category 非法。');
+  if (!OUTCOMES.includes(value.outcome)) addSchemaIssue('$.outcome', 'outcome_enum', 'task | knowledge', 'outcome 非法。');
+  if (!(value.suggestedBucket === null || BUCKETS.includes(value.suggestedBucket))) addSchemaIssue('$.suggestedBucket', 'bucket_enum_or_null', 'today | waiting | someday | null', 'suggestedBucket 非法。');
+  if (!(value.suggestedDate === null || isLocalDate(value.suggestedDate))) addSchemaIssue('$.suggestedDate', 'local_date_or_null', 'YYYY-MM-DD local date or null', 'suggestedDate 必须是合法 LocalDate 或 null。');
+  if (!(value.estimatedMinutes === null || (Number.isInteger(value.estimatedMinutes) && value.estimatedMinutes >= 5 && value.estimatedMinutes <= 480))) addSchemaIssue('$.estimatedMinutes', 'integer_5_480_or_null', 'integer from 5 to 480 or null', 'estimatedMinutes 必须是 5–480 的整数或 null。');
+  if (!nullableNonEmptyString(value.nextAction, 240)) addSchemaIssue('$.nextAction', 'non_empty_string_240_or_null', 'non-empty string up to 240 characters or null', 'nextAction 必须是非空字符串或 null。');
+  if (!nullableNonEmptyString(value.knowledgeSummary, 600)) addSchemaIssue('$.knowledgeSummary', 'non_empty_string_600_or_null', 'non-empty string up to 600 characters or null', 'knowledgeSummary 必须是非空字符串或 null。');
+  if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) addSchemaIssue('$.confidence', 'number_0_1', 'finite number from 0 to 1', 'confidence 必须位于 0–1。');
+  if (typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 240) addSchemaIssue('$.reason', 'non_empty_string_1_240', 'non-empty string with 1–240 characters', 'reason 必须是 1–240 字符的非空字符串。');
 
   if (value.waitingDetails !== null) {
     if (!isPlainObject(value.waitingDetails) || !hasExactKeys(value.waitingDetails, waitingKeys)) {
-      errors.push('waitingDetails 必须是 null 或包含全部三个键的对象。');
+      addSchemaIssue('$.waitingDetails', 'waiting_details_shape_or_null', 'null or object with waitingFor, waitingOn, and followUpDate', 'waitingDetails 必须是 null 或包含全部三个键的对象。');
     } else {
-      if (!nullableNonEmptyString(value.waitingDetails.waitingFor, 120)) errors.push('waitingFor 必须是非空字符串或 null。');
-      if (!nullableNonEmptyString(value.waitingDetails.waitingOn, 240)) errors.push('waitingOn 必须是非空字符串或 null。');
-      if (!(value.waitingDetails.followUpDate === null || isLocalDate(value.waitingDetails.followUpDate))) errors.push('followUpDate 必须是合法 LocalDate 或 null。');
+      if (!nullableNonEmptyString(value.waitingDetails.waitingFor, 120)) addSchemaIssue('$.waitingDetails.waitingFor', 'non_empty_string_120_or_null', 'non-empty string up to 120 characters or null', 'waitingFor 必须是非空字符串或 null。');
+      if (!nullableNonEmptyString(value.waitingDetails.waitingOn, 240)) addSchemaIssue('$.waitingDetails.waitingOn', 'non_empty_string_240_or_null', 'non-empty string up to 240 characters or null', 'waitingOn 必须是非空字符串或 null。');
+      if (!(value.waitingDetails.followUpDate === null || isLocalDate(value.waitingDetails.followUpDate))) addSchemaIssue('$.waitingDetails.followUpDate', 'local_date_or_null', 'YYYY-MM-DD local date or null', 'followUpDate 必须是合法 LocalDate 或 null。');
     }
   }
 
   const schemaValid = errors.length === 0;
   const domainErrors = [];
+  const domainIssues = [];
+  const addDomainIssue = (path, code, expected, message) => {
+    domainIssues.push({ path, code, expected });
+    domainErrors.push(message);
+  };
   if (schemaValid) {
-    const visibleValues = [
-      value.title,
-      value.nextAction,
-      value.reason,
-      value.knowledgeSummary,
-      value.waitingDetails?.waitingFor,
-      value.waitingDetails?.waitingOn,
+    const visibleFields = [
+      ['$.title', value.title],
+      ['$.nextAction', value.nextAction],
+      ['$.reason', value.reason],
+      ['$.knowledgeSummary', value.knowledgeSummary],
+      ['$.waitingDetails.waitingFor', value.waitingDetails?.waitingFor],
+      ['$.waitingDetails.waitingOn', value.waitingDetails?.waitingOn],
     ];
-    if (visibleValues.some(containsInternalTerm)) {
-      domainErrors.push('用户可见字段包含内部 Schema、类型或字段名称。');
+    const internalField = visibleFields.find(([, fieldValue]) => containsInternalTerm(fieldValue));
+    if (internalField) {
+      addDomainIssue(internalField[0], 'internal_term_forbidden', 'user-visible text without internal schema or protocol terms', '用户可见字段包含内部 Schema、类型或字段名称。');
     }
     if (value.outcome === 'knowledge') {
-      if (value.suggestedBucket !== null) domainErrors.push('knowledge 的 suggestedBucket 必须是 null。');
-      if (value.suggestedDate !== null) domainErrors.push('knowledge 的 suggestedDate 必须是 null。');
-      if (value.estimatedMinutes !== null) domainErrors.push('knowledge 的 estimatedMinutes 必须是 null。');
-      if (value.nextAction !== null) domainErrors.push('knowledge 的 nextAction 必须是 null。');
-      if (value.waitingDetails !== null) domainErrors.push('knowledge 的 waitingDetails 必须是 null。');
-      if (value.knowledgeSummary === null) domainErrors.push('knowledge 必须提供 knowledgeSummary。');
+      if (value.suggestedBucket !== null) addDomainIssue('$.suggestedBucket', 'knowledge_bucket_null', 'null when outcome is knowledge', 'knowledge 的 suggestedBucket 必须是 null。');
+      if (value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'knowledge_date_null', 'null when outcome is knowledge', 'knowledge 的 suggestedDate 必须是 null。');
+      if (value.estimatedMinutes !== null) addDomainIssue('$.estimatedMinutes', 'knowledge_estimate_null', 'null when outcome is knowledge', 'knowledge 的 estimatedMinutes 必须是 null。');
+      if (value.nextAction !== null) addDomainIssue('$.nextAction', 'knowledge_next_action_null', 'null when outcome is knowledge', 'knowledge 的 nextAction 必须是 null。');
+      if (value.waitingDetails !== null) addDomainIssue('$.waitingDetails', 'knowledge_waiting_details_null', 'null when outcome is knowledge', 'knowledge 的 waitingDetails 必须是 null。');
+      if (value.knowledgeSummary === null) addDomainIssue('$.knowledgeSummary', 'knowledge_summary_required', 'non-empty string when outcome is knowledge', 'knowledge 必须提供 knowledgeSummary。');
     } else {
-      if (value.suggestedBucket === null) domainErrors.push('task 必须提供 suggestedBucket。');
-      if (value.knowledgeSummary !== null) domainErrors.push('task 的 knowledgeSummary 必须是 null。');
+      if (value.suggestedBucket === null) addDomainIssue('$.suggestedBucket', 'task_bucket_required', 'today | waiting | someday when outcome is task', 'task 必须提供 suggestedBucket。');
+      if (value.knowledgeSummary !== null) addDomainIssue('$.knowledgeSummary', 'task_knowledge_summary_null', 'null when outcome is task', 'task 的 knowledgeSummary 必须是 null。');
     }
     if (value.suggestedBucket === 'waiting') {
-      if (value.suggestedDate !== null) domainErrors.push('waiting 的 suggestedDate 必须是 null。');
-      if (value.waitingDetails === null) domainErrors.push('waiting 必须返回完整 nullable waitingDetails 对象。');
+      if (value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'waiting_date_null', 'null when suggestedBucket is waiting', 'waiting 的 suggestedDate 必须是 null。');
+      if (value.waitingDetails === null) addDomainIssue('$.waitingDetails', 'waiting_details_required', 'complete nullable object when suggestedBucket is waiting', 'waiting 必须返回完整 nullable waitingDetails 对象。');
     } else if (value.waitingDetails !== null) {
-      domainErrors.push('非 waiting Proposal 的 waitingDetails 必须是 null。');
+      addDomainIssue('$.waitingDetails', 'non_waiting_details_null', 'null unless suggestedBucket is waiting', '非 waiting Proposal 的 waitingDetails 必须是 null。');
     }
     if (value.suggestedBucket === 'someday' && value.suggestedDate !== null) {
-      domainErrors.push('someday 的 suggestedDate 必须是 null。');
+      addDomainIssue('$.suggestedDate', 'someday_date_null', 'null when suggestedBucket is someday', 'someday 的 suggestedDate 必须是 null。');
     }
   }
   const domainValid = schemaValid && domainErrors.length === 0;
@@ -161,6 +180,7 @@ export function validateDraft(value) {
     schemaValid,
     domainValid,
     errors: [...errors, ...domainErrors],
+    issues: [...schemaIssues, ...domainIssues],
   };
 }
 
@@ -232,7 +252,23 @@ export function buildJobs(suite) {
 
 export function schemaForOpenAI(schema) {
   const { $schema: _schema, $id: _id, ...supported } = schema;
-  return supported;
+  const normalize = (value) => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value === null || typeof value !== 'object') return value;
+    const normalized = Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, normalize(child)]),
+    );
+    const enumValues = Array.isArray(normalized.enum) ? normalized.enum : null;
+    const nonNullEnumValues = enumValues?.filter((item) => item !== null) ?? [];
+    if (normalized.type === undefined
+      && enumValues?.includes(null)
+      && nonNullEnumValues.length > 0
+      && nonNullEnumValues.every((item) => typeof item === 'string')) {
+      normalized.type = ['string', 'null'];
+    }
+    return normalized;
+  };
+  return normalize(supported);
 }
 
 export function extractResponseText(response) {

@@ -177,7 +177,7 @@ Cloud 模式需要同时运行本地 Gateway 和 Expo Web。模型 API Key 只�
 Copy-Item gateway/.dev.vars.example gateway/.dev.vars
 ```
 
-在被 Git 忽略的 `gateway/.dev.vars` 中填写 `OPENAI_API_KEY`，然后启动 Gateway：
+在被 Git 忽略的 `gateway/.dev.vars` 中填写 `DEEPSEEK_API_KEY`。Gateway 默认使用 DeepSeek 官方 Responses API、`deepseek-v4-flash` 和 `high` 推理强度；旧 `OPENAI_*` 配置仍兼容。然后启动 Gateway：
 
 ```powershell
 npm run gateway

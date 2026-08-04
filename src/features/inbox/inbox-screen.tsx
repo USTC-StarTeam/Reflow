@@ -66,7 +66,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   const [category, setCategory] = useState<TaskCategory>(proposal.category);
   const [minutes, setMinutes] = useState(proposal.estimatedMinutes === null ? '' : String(proposal.estimatedMinutes));
   const [nextAction, setNextAction] = useState(proposal.nextAction ?? '');
-  const [plannedDate, setPlannedDate] = useState(proposal.suggestedDate ?? dateKey(new Date()));
+  const [plannedDate, setPlannedDate] = useState(proposal.suggestedDate ?? '');
   const [knowledgeSummary, setKnowledgeSummary] = useState(proposal.knowledgeSummary ?? '');
   const [waitingDetails, setWaitingDetails] = useState<WaitingDetails>(initialWaitingDetails);
   const followUpSourceDate = capture?.createdAt ? localDateOf(capture.createdAt) : dateKey(new Date());
@@ -94,7 +94,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
     );
   }
 
-  function validateBeforeAccept(visibleClassification: VisibleClassification, bucket?: WorkflowBucket): boolean {
+  function validateBeforeAccept(visibleClassification: VisibleClassification, bucket?: WorkflowBucket, acceptedDate?: string): boolean {
     if (!title.trim()) {
       setFormError('请先补充有效标题。');
       return false;
@@ -124,7 +124,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
       setEditing(true);
       return false;
     }
-    if (bucket === 'today' && !isValidDate(plannedDate)) {
+    if (bucket === 'today' && !isValidDate(acceptedDate ?? '')) {
       setFormError('请填写有效的计划日期。');
       setEditing(true);
       return false;
@@ -135,8 +135,9 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
 
   function acceptTask(bucket: WorkflowBucket, classificationOverride?: VisibleClassification) {
     const visibleClassification = classificationOverride ?? classification;
-    if (!validateBeforeAccept(visibleClassification, bucket)) return;
-    submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket, plannedDate: bucket === 'today' ? plannedDate : undefined });
+    const acceptedDate = bucket === 'today' ? plannedDate.trim() || dateKey(new Date()) : undefined;
+    if (!validateBeforeAccept(visibleClassification, bucket, acceptedDate)) return;
+    submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket, plannedDate: acceptedDate });
   }
 
   function acceptKnowledge() {
@@ -235,7 +236,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
         {isWaiting ? <><ActionButton testID={`accept-waiting-${proposal.id}`} label="放入等待列表" variant="primary" onPress={() => acceptTask('waiting')} /><ActionButton label="设置跟进时间" onPress={() => { setFollowUpDateDraft(waitingDetails.followUpDate); setFollowUpError(''); setFollowUpOpen(true); }} /></> : null}
         {isSomeday ? <><ActionButton testID={`accept-someday-${proposal.id}`} label="保存到稍后" variant="primary" onPress={() => acceptTask('someday')} /><ActionButton label="加入今天" onPress={() => acceptTask('today')} /></> : null}
         {isUnknown ? <><ActionButton label="补充信息" variant="primary" onPress={() => setEditing(true)} /><ActionButton label="忽略" variant="danger" onPress={ignoreProposal} /></> : null}
-        {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <><ActionButton testID={`accept-${proposal.id}`} label={plannedDate === dateKey(new Date()) ? '确认并加入今天' : `确认并安排到 ${plannedDate}`} variant="primary" onPress={() => acceptTask('today')} /><ActionButton label="修改" onPress={() => setEditing(true)} /></> : null}
+        {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <><ActionButton testID={`accept-${proposal.id}`} label={!plannedDate.trim() || plannedDate.trim() === dateKey(new Date()) ? '确认并加入今天' : `确认并安排到 ${plannedDate.trim()}`} variant="primary" onPress={() => acceptTask('today')} /><ActionButton label="修改" onPress={() => setEditing(true)} /></> : null}
         <ActionButton label="更多" onPress={() => setMoreOpen(true)} />
       </View>
 

@@ -11,6 +11,7 @@ import {
   SCHEMA_VERSION,
   sha256,
 } from './lib.mjs';
+import { readEvaluationProviderConfig } from './config.mjs';
 import { generateReport } from './score.mjs';
 
 const directory = new URL('.', import.meta.url);
@@ -45,6 +46,35 @@ function makeDraft(testCase, estimableCaseIds) {
 async function main() {
   const workDirectory = await mkdtemp(resolve(tmpdir(), 'reflow-proposal-eval-'));
   try {
+    const providerDefaults = readEvaluationProviderConfig({ env: {} });
+    const explicitLowProvider = readEvaluationProviderConfig({
+      env: { DEEPSEEK_REASONING_EFFORT: 'low' },
+    });
+    const cliOverrideProvider = readEvaluationProviderConfig({
+      env: { DEEPSEEK_REASONING_EFFORT: 'low' },
+      args: { reasoning: 'medium' },
+    });
+    const legacyProvider = readEvaluationProviderConfig({
+      env: {
+        OPENAI_API_KEY: 'offline-legacy-key',
+        OPENAI_BASE_URL: 'https://legacy-offline.invalid/v1',
+        OPENAI_MODEL: 'legacy-offline-model',
+        OPENAI_REASONING_EFFORT: 'high',
+      },
+    });
+    if (providerDefaults.responsesUrl !== 'https://api.deepseek.com/responses'
+      || providerDefaults.model !== 'deepseek-v4-flash'
+      || providerDefaults.reasoningEffort !== 'high'
+      || explicitLowProvider.reasoningEffort !== 'low'
+      || cliOverrideProvider.reasoningEffort !== 'medium'
+      || providerDefaults.pricingPerMillionTokens.input !== 0.14
+      || providerDefaults.pricingPerMillionTokens.output !== 0.28
+      || legacyProvider.responsesUrl !== 'https://legacy-offline.invalid/v1/responses'
+      || legacyProvider.model !== 'legacy-offline-model'
+      || legacyProvider.pricingPerMillionTokens.input !== 5
+      || legacyProvider.pricingPerMillionTokens.output !== 30) {
+      throw new Error('评测 Provider 配置自检失败。');
+    }
     const [suite, schema, prompt] = await Promise.all([
       readJson(new URL('cases.json', directory)),
       readJson(new URL('cloud-proposal-schema.json', directory)),

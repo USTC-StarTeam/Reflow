@@ -19,6 +19,21 @@ function addLocalDay(date, amount) {
 
 function draftFor(request) {
   const rawText = request.capture.rawText;
+  if (/信息不足/u.test(rawText)) {
+    return {
+      title: '待补充的事项',
+      category: 'unknown',
+      outcome: 'task',
+      suggestedBucket: 'today',
+      suggestedDate: null,
+      estimatedMinutes: null,
+      nextAction: null,
+      waitingDetails: null,
+      knowledgeSummary: null,
+      confidence: 0.35,
+      reason: '信息不足，需要补充具体行动和背景。',
+    };
+  }
   if (/经验|结论|记住/u.test(rawText)) {
     return {
       title: '评审前确认验收口径',

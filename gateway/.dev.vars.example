@@ -1,11 +1,19 @@
 # Copy to gateway/.dev.vars for local development. Never commit the real file.
-OPENAI_API_KEY=
-OPENAI_BASE_URL=https://api.chatanywhere.tech/v1
-OPENAI_MODEL=gpt-5.6-terra
-OPENAI_REASONING_EFFORT=high
+# DeepSeek official Responses API (preferred). The copied .dev.vars file is Git-ignored.
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_REASONING_EFFORT=high
+
+# Legacy OpenAI-compatible variables remain supported when no DEEPSEEK_* variable is set.
+# OPENAI_API_KEY=
+# OPENAI_BASE_URL=https://provider.example/v1
+# OPENAI_MODEL=provider-model
+# OPENAI_REASONING_EFFORT=high
 
 # Optional local settings
 AI_ENABLED=true
+GATEWAY_DIAGNOSTICS_ENABLED=false
 PORT=8787
 HOST=127.0.0.1
 ALLOWED_ORIGINS=http://127.0.0.1:8081,http://localhost:8081

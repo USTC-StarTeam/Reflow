@@ -74,6 +74,43 @@ test('Cloud Knowledge Proposal 只在用户确认后创建知识卡片', async (
   await expect(page.getByText('评审前先确认验收口径，可以减少返工。')).toBeVisible();
 });
 
+test('Cloud 模糊 Proposal 保持日期为空，只在用户确认时加入今天', async ({ page }) => {
+  const input = '信息不足：那个先处理一下';
+  const editedTitle = '补充并处理待确认事项';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+
+  let proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await expect(proposal).toContainText('未提取具体日期');
+  await expect(proposal).toContainText('待补充');
+
+  // Pending Proposal 尚未转成正式任务。
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText('待补充的事项', { exact: true })).toHaveCount(0);
+  await page.getByTestId('nav-收件箱').click();
+
+  proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await proposal.getByRole('button', { name: '补充信息' }).click();
+  const dateInput = proposal.locator('[data-testid^="proposal-date-"]');
+  await expect(dateInput).toHaveValue('');
+  await expect(dateInput).toHaveAttribute('placeholder', 'YYYY-MM-DD');
+
+  await proposal.locator('[data-testid^="proposal-classification-"]').click();
+  await page.getByTestId('classification-option-work').click();
+  await proposal.locator('[data-testid^="proposal-title-"]').fill(editedTitle);
+  await proposal.locator('[data-testid^="proposal-minutes-"]').fill('30');
+  await proposal.locator('[data-testid^="proposal-next-action-"]').fill('确认背景并完成处理');
+  await expect(dateInput).toHaveValue('');
+  await expect(proposal.getByRole('button', { name: '确认并加入今天' })).toBeVisible();
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText(editedTitle, { exact: true })).toBeVisible();
+});
+
 test('Cloud 失败保留 Capture，用户明确选择本地规则后恢复', async ({ page }) => {
   const input = '云端失败测试事项';
   await page.goto('/');

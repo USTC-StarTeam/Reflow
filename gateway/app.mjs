@@ -29,6 +29,16 @@ function failure(code, message, retryable) {
   return { status: 'failure', error: { code, message, retryable } };
 }
 
+function logDiagnostic(logger, enabled, diagnostic) {
+  if (!enabled) return;
+  logger.info?.({
+    event: 'proposal_diagnostic',
+    failureStage: diagnostic.failureStage,
+    classification: diagnostic.classification,
+    issues: diagnostic.issues,
+  });
+}
+
 function validTimeZone(value) {
   if (typeof value !== 'string' || !value || value.length > 80) return false;
   try {
@@ -90,9 +100,16 @@ async function readBody(req, maxBytes) {
 }
 
 function safeUpstreamFailure(status) {
+  if (status === 400) return { status: 400, body: failure('invalid_proposal', '云端模型请求格式无效，请检查本地模型配置。', false) };
+  if (status === 401) return { status: 401, body: failure('proposal_unavailable', '云端模型认证失败，请检查本地 API Key。', false) };
+  if (status === 402) return { status: 402, body: failure('proposal_unavailable', '云端模型账户余额不足，请充值或更换 API Key。', false) };
+  if (status === 403) return { status: 403, body: failure('proposal_unavailable', '当前 API Key 无权访问所请求的模型或接口。', false) };
+  if (status === 404) return { status: 404, body: failure('proposal_unavailable', '未找到所请求的模型或接口，请检查本地模型配置。', false) };
+  if (status === 422) return { status: 422, body: failure('invalid_proposal', '云端模型参数无效，请检查本地模型配置。', false) };
   if (status === 429) return { status: 429, body: failure('proposal_rate_limited', '云端模型请求较多，请稍后重试。', true) };
   if (status === 408 || status === 504) return { status: 504, body: failure('proposal_timeout', '云端模型响应超时。', true) };
-  return { status: 503, body: failure('proposal_unavailable', '云端模型暂时不可用。', true) };
+  if (status >= 500) return { status: 503, body: failure('proposal_unavailable', '云端模型暂时不可用。', true) };
+  return { status: 503, body: failure('proposal_unavailable', '云端模型拒绝了请求，请检查本地模型配置。', false) };
 }
 
 export function createGatewayHandler({ config, fetchImpl = fetch, logger = console }) {
@@ -180,71 +197,129 @@ export function createGatewayHandler({ config, fetchImpl = fetch, logger = conso
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.upstreamTimeoutMs);
       let upstream;
+      let upstreamBody = null;
       try {
-        upstream = await fetchImpl(config.responsesUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            model: config.model,
-            store: false,
-            reasoning: { effort: config.reasoningEffort },
-            max_output_tokens: config.maxOutputTokens,
-            input: [
-              { role: 'developer', content: prompt },
-              {
-                role: 'user',
-                content: JSON.stringify({
-                  referenceDate: validatedRequest.value.context.referenceDate,
-                  timeZone: validatedRequest.value.context.timeZone,
-                  locale: validatedRequest.value.context.locale,
-                  capture: validatedRequest.value.capture,
-                }),
-              },
-            ],
-            text: {
-              format: {
-                type: 'json_schema',
-                name: 'reflow_cloud_proposal_draft',
-                strict: true,
-                schema: schemaForOpenAI(schema),
-              },
+        try {
+          upstream = await fetchImpl(config.responsesUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${config.apiKey}`,
+              'Content-Type': 'application/json',
             },
-          }),
-        });
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-          safeJson(res, 504, failure('proposal_timeout', '云端模型响应超时。', true), allowedOrigin);
-          resultStatus = 'timeout';
+            signal: controller.signal,
+            body: JSON.stringify({
+              model: config.model,
+              store: false,
+              reasoning: { effort: config.reasoningEffort },
+              max_output_tokens: config.maxOutputTokens,
+              input: [
+                { role: 'developer', content: prompt },
+                {
+                  role: 'user',
+                  content: JSON.stringify({
+                    referenceDate: validatedRequest.value.context.referenceDate,
+                    timeZone: validatedRequest.value.context.timeZone,
+                    locale: validatedRequest.value.context.locale,
+                    capture: validatedRequest.value.capture,
+                  }),
+                },
+              ],
+              text: {
+                format: {
+                  type: 'json_schema',
+                  name: 'reflow_cloud_proposal_draft',
+                  strict: true,
+                  schema: schemaForOpenAI(schema),
+                },
+              },
+            }),
+          });
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            logDiagnostic(logger, config.diagnosticsEnabled, {
+              failureStage: 'upstream_request',
+              classification: 'api_adapter',
+              issues: [{ path: '$', code: 'upstream_timeout', expected: 'Responses API response within configured timeout' }],
+            });
+            safeJson(res, 504, failure('proposal_timeout', '云端模型响应超时。', true), allowedOrigin);
+            resultStatus = 'timeout';
+            return;
+          }
+          logDiagnostic(logger, config.diagnosticsEnabled, {
+            failureStage: 'upstream_request',
+            classification: 'api_adapter',
+            issues: [{ path: '$', code: 'upstream_network_error', expected: 'reachable Responses API endpoint' }],
+          });
+          safeJson(res, 503, failure('proposal_unavailable', '云端模型暂时不可用。', true), allowedOrigin);
+          resultStatus = 'network_error';
           return;
         }
-        safeJson(res, 503, failure('proposal_unavailable', '云端模型暂时不可用。', true), allowedOrigin);
-        resultStatus = 'network_error';
-        return;
+
+        try {
+          upstreamBody = await upstream.json();
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            logDiagnostic(logger, config.diagnosticsEnabled, {
+              failureStage: 'upstream_response',
+              classification: 'api_adapter',
+              issues: [{ path: '$', code: 'upstream_timeout', expected: 'complete Responses API response body within configured timeout' }],
+            });
+            safeJson(res, 504, failure('proposal_timeout', '云端模型响应超时。', true), allowedOrigin);
+            resultStatus = 'timeout';
+            return;
+          }
+        }
       } finally {
         clearTimeout(timeout);
       }
 
-      const upstreamBody = await upstream.json().catch(() => null);
       if (!upstream.ok) {
+        logDiagnostic(logger, config.diagnosticsEnabled, {
+          failureStage: 'upstream_response',
+          classification: 'api_adapter',
+          issues: [{ path: '$', code: 'upstream_request_rejected', expected: 'successful Responses API response' }],
+        });
         const mapped = safeUpstreamFailure(upstream.status);
         safeJson(res, mapped.status, mapped.body, allowedOrigin);
         resultStatus = `upstream_${upstream.status}`;
         return;
       }
+
+      if (upstreamBody === null) {
+        logDiagnostic(logger, config.diagnosticsEnabled, {
+          failureStage: 'response_parsing',
+          classification: 'api_adapter',
+          issues: [{ path: '$', code: 'invalid_response_envelope_json', expected: 'JSON Responses API envelope' }],
+        });
+        safeJson(res, 502, failure('invalid_proposal', '模型返回的建议格式无效。', true), allowedOrigin);
+        resultStatus = 'invalid_response_envelope';
+        return;
+      }
       const refusal = extractRefusal(upstreamBody);
       if (refusal) {
+        logDiagnostic(logger, config.diagnosticsEnabled, {
+          failureStage: 'response_parsing',
+          classification: 'response_parsing',
+          issues: [{ path: '$.output', code: 'model_refusal', expected: 'output_text response content' }],
+        });
         safeJson(res, 422, failure('proposal_refused', '模型无法整理这条输入，请修改内容或使用本地规则。', false), allowedOrigin);
         resultStatus = 'refused';
         return;
       }
       let draft;
+      const responseText = extractResponseText(upstreamBody);
       try {
-        draft = JSON.parse(extractResponseText(upstreamBody));
+        draft = JSON.parse(responseText);
       } catch {
+        logDiagnostic(logger, config.diagnosticsEnabled, {
+          failureStage: 'response_parsing',
+          classification: 'response_parsing',
+          issues: [{
+            path: '$.output',
+            code: responseText ? 'invalid_draft_json' : 'missing_output_text',
+            expected: responseText ? 'valid JSON object text' : 'output_text response content',
+          }],
+        });
         safeJson(res, 502, failure('invalid_proposal', '模型返回的建议格式无效。', true), allowedOrigin);
         resultStatus = 'invalid_json_output';
         return;
@@ -255,6 +330,11 @@ export function createGatewayHandler({ config, fetchImpl = fetch, logger = conso
       });
       const validation = validateDraft(draft);
       if (!validation.valid) {
+        logDiagnostic(logger, config.diagnosticsEnabled, {
+          failureStage: 'draft_validation',
+          classification: validation.schemaValid ? 'domain_validation' : 'schema_validation',
+          issues: validation.issues,
+        });
         safeJson(res, 502, failure('invalid_proposal', '模型返回的建议未通过安全校验。', true), allowedOrigin);
         resultStatus = 'invalid_output';
         return;
