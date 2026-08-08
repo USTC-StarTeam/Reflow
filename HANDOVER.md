@@ -1,9 +1,12 @@
 # Reflow 项目交接文档
 
-更新时间：2026-07-28  
-当前分支：`v1`  
-当前提交：`96ce33b`  
-官方 Demo：<https://ustc-starteam.github.io/Reflow/>
+更新时间：2026-08-06
+
+> 本文后续的 `v1`、ChatAnywhere、`gpt-5.6-terra`、Prompt v5 / Schema v3 和旧测试数量均为当时的历史交接记录，不应作为当前工作树或当前 Cloud 默认配置。实际分支、提交和工作区状态应以 Git 为准。
+
+当前本地 Cloud 默认：DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`；Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4`、后处理 `reflow-proposal-conservative-normalizer-v2`。当前回归规模为 Gateway 45、Jest 72、Playwright E2E 17；公开 Demo 仍默认 Mock。
+
+> 历史 `tools/proposal-eval/cases.json` 保持归档不改写，但有两项已确认与当前 Day 1 语义冲突：H01 将“月底前完成暑期项目中期汇报”期望为月末具体日；S29 将“下周再整理以前的项目归档”期望为 `someday`。当前 v6/v4/v2 均按较新的原则将这两种范围词处理为 `bucket/date = null`。`validateSuite` / `buildJobs` 只校验这份历史 Suite 的结构和作业集合，不证明其旧预期符合当前语义。
 
 ## 1. 这是什么项目
 
@@ -209,7 +212,7 @@ Review 从 `TaskItem`、`TaskPlanEvent`、`completedAt`、`TimeEntry`、`Progres
 
 ## 7. 真实 AI 已完成情况
 
-### P0 模型评测
+### P0 模型评测（历史记录）
 
 P0 已完成，最终结论为“通过”。
 
@@ -236,7 +239,7 @@ P0 已完成，最终结论为“通过”。
 
 这些是合成评测结果，不代表真实用户试用已经完成。
 
-### P1 本地 Cloud 链路
+### P1 本地 Cloud 链路（历史架构记录）
 
 本地真实 AI 技术链路已经实现：
 
@@ -268,7 +271,7 @@ Cloud 第一版固定返回一个 `create` Proposal，不生成 split、merge �
 Cloud 失败后 Capture 保持 `proposalFailed`，用户可以重试或明确选择本地规则；
 系统不静默回退。
 
-### 当前真实 AI 阻塞
+### 截至 2026-07-28 的历史外部 Provider 阻塞
 
 截至 2026-07-28，最近一次诊断已经确认：
 
@@ -279,30 +282,35 @@ Cloud 失败后 Capture 保持 `proposalFailed`，用户可以重试或明确选
 - `POST /responses` 返回 HTTP 403；
 - ChatAnywhere 的明确原因是当前账户余额不足。
 
-因此当前阻塞是外部账户余额，不是 Reflow 前端、Gateway、Base URL、Key 读取或模型名
-错误。充值或更换有效 Key 后，需要重新运行 Smoke Test。
+这项历史阻塞当时是外部账户余额，不是 Reflow 前端、Gateway、Base URL、Key 读取或模型名
+错误；它不描述当前 DeepSeek 本地 Gateway 状态，也不应据此执行充值或改 Key。
 
 当前 Gateway 会把多数上游 403/5xx 映射为通用“云端模型暂时不可用”，因此页面看不到
 额度不足的具体原因。这是一个可改善的错误映射问题，但不能把上游原始响应或 Key 片段
 直接返回浏览器。
 
-## 8. 当前工程状态
+## 8. 截至 2026-07-28 的历史工程快照
 
-- 当前分支：`v1`
-- 当前提交：`96ce33b`
+以下分支、提交、同步和工作区描述仅记录当时状态；开始工作时必须用 `git status`、
+`git branch --show-current` 和 `git rev-parse HEAD` 确认实际状态，不得将其作为当前工程事实。
+
+- 当时分支：`v1`
+- 当时提交：`96ce33b`
 - 本地与 `origin/v1` 同步
-- 当前工作区在创建本文档前是干净的
+- 创建本文档前的工作区是干净的
 - 官方 Pages 已启用并监听 `v1`
 - 官方 Demo 当前对应最新 `v1`
 - 官方 Demo 默认 Mock
 
-最近记录的完整验证规模：
+当时记录的完整验证规模：
 
 - 61 个 Jest 单元测试；
 - 8 个 Gateway 单元测试；
 - 10 条 Playwright E2E；
 - TypeScript、ESLint 和 Expo Web 静态导出通过；
 - GitHub Actions Verify 和 Pages 部署通过。
+
+当前回归规模以本文顶部和实际命令输出为准：Gateway 45、Jest 72、Playwright E2E 17。
 
 主要目录：
 
@@ -355,16 +363,37 @@ Agent 不得自行恢复公网部署工作。
 
 后续工作必须拆成小步骤，每一步完成后停止等待审查。
 
-### Step 1：恢复第三方模型可用性
+### Step 1：DeepSeek 本地 Gateway 的 Day 1 定向复验
 
-这是外部配置任务，不修改代码：
+这是本地验证任务，不扩展到公网、完整长期试用或新的产品能力：
 
-1. 为 ChatAnywhere 账户充值，或更换有效 API Key；
-2. 重新启动 Gateway；
-3. 使用一条不含隐私的合成输入调用 `/responses`；
-4. 确认 Gateway 返回合法 Proposal。
+1. 使用已有本地安全配置启动 DeepSeek Gateway，不读取或输出 Key；
+2. 以不含隐私的合成输入做 Day 1 定向 Smoke，覆盖模糊输入、范围日期、明确延期、多意图和明确日期；
+3. 检查 Proposal 的 nullable 字段、日期归一化与确认前零正式写入；
+4. 运行对应 Gateway、离线和 Web 回归，记录命令输出与安全失败分类。
 
-验收后立即停止，不顺手修改 Prompt 或产品代码。
+验收后立即停止，不顺手修改 Prompt、Provider、超时或产品代码。
+
+#### 2026-08-07 Day 1 合成 Smoke（脱敏记录，当前仍 FIX REQUIRED）
+
+本轮仅使用合成输入和本地 Gateway；未记录 Key、原始上游响应或真实用户数据。所有成功结果
+只停留在 pending Proposal，未经过 UserDecision / Reducer，正式数据写入为零。
+
+- “参赛材料”：经批准外网路径 HTTP 200，约 5.76 秒；`unknown`，bucket/date 为 null，耗时和下一步均为空。
+- “周末 Agent 资料”：HTTP 200，约 7.79 秒；`learning/task`，bucket/date 为 null，60 分钟，标题与下一步语义正确。
+- “下个月主页”：HTTP 504，约 15.04 秒；安全分类 `upstream_response` / `api_adapter` / `upstream_timeout`。失败未静默回退，正式数据仍为零。
+- Smoke 4–6 因失败即停止，未执行；首次受沙箱限制出现的 `network_error` 属执行环境限制，不计为模型失败。
+
+当前结论仍为 FIX REQUIRED：不得依据单次上游超时提高 15 秒 timeout 或改写 Prompt；等待监督判断后再决定下一步。
+
+#### 2026-08-08 当前分支交接状态（`fix/cloud-proposal-conservative-semantics`）
+
+- 核心真实 AI Pipeline 已接通；AI 仍只生成 pending Proposal，只有 UserDecision → Reducer 可以写入正式数据，其他产品不变量不变。
+- 已通过：offline self-test、Gateway 45、Jest 72、typecheck、lint、`export:web` 与 `git diff --check`。
+- 完整 `npm run test:e2e` 的 17/17 断言均显示 `ok`，但 Windows 在第一个 Playwright `webServer` teardown 后卡住，480 秒外层以退出码 124 结束；不能算 E2E 门禁通过，当前仍为 FIX REQUIRED。
+- 真实合成 Smoke 1、2 成功，Smoke 3 在 15 秒安全超时，4–6 未执行；不得据此调整 Prompt、模型、timeout 或 retry。
+- 唯一推荐下一步：独立解决 Playwright/Expo 的 Windows 进程退出问题，取得 `npm run test:e2e` 自然退出码 0 后，再做最终审查/PR。
+- 当前工作区未提交、未 push、未部署；分支范围与验证状态见 [分支说明](docs/branches/fix-cloud-proposal-conservative-semantics.md)。
 
 ### Step 2：运行五条本地合成 Smoke
 

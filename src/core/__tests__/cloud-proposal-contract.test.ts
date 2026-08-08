@@ -21,17 +21,38 @@ const taskDraft: CloudProposalDraft = {
 };
 
 describe('Cloud Proposal contract', () => {
-  it('accepts nullable execution suggestions while preserving the exact draft shape', () => {
+  it('accepts an undecided task with null bucket/date and preserves nullable execution fields', () => {
     const result = validateCloudProposalDraft({
       ...taskDraft,
+      suggestedBucket: null,
       suggestedDate: null,
       estimatedMinutes: null,
       nextAction: null,
     });
     expect(result).toMatchObject({
       status: 'success',
-      draft: { estimatedMinutes: null, nextAction: null, suggestedDate: null },
+      draft: { suggestedBucket: null, estimatedMinutes: null, nextAction: null, suggestedDate: null },
     });
+  });
+
+  it('requires today to carry a valid date', () => {
+    expect(validateCloudProposalDraft({ ...taskDraft, suggestedDate: null }))
+      .toMatchObject({ status: 'failure' });
+    expect(validateCloudProposalDraft(taskDraft)).toMatchObject({ status: 'success' });
+  });
+
+  it('requires unknown tasks to keep workflow and execution suggestions empty', () => {
+    const unknown = {
+      ...taskDraft,
+      category: 'unknown' as const,
+      suggestedBucket: null,
+      suggestedDate: null,
+      estimatedMinutes: null,
+      nextAction: null,
+      confidence: 0.3,
+    };
+    expect(validateCloudProposalDraft(unknown)).toMatchObject({ status: 'success' });
+    expect(validateCloudProposalDraft({ ...unknown, estimatedMinutes: 30 })).toMatchObject({ status: 'failure' });
   });
 
   it('requires all nullable waiting keys and rejects malformed dates', () => {

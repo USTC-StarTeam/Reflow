@@ -13,7 +13,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npm run web -- --port 8081',
+      command: 'node ./node_modules/expo/bin/cli start --web --port 8081',
       url: 'http://127.0.0.1:8081',
       env: { EXPO_PUBLIC_PROPOSAL_MODE: 'mock', EXPO_PUBLIC_AI_GATEWAY_URL: '' },
       reuseExistingServer: !process.env.CI,
@@ -26,8 +26,12 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: 'node e2e/start-cloud-web.mjs',
+      command: 'node ./node_modules/expo/bin/cli start --web --port 8082',
       url: 'http://127.0.0.1:8082',
+      env: {
+        EXPO_PUBLIC_PROPOSAL_MODE: 'cloud',
+        EXPO_PUBLIC_AI_GATEWAY_URL: 'http://127.0.0.1:8788',
+      },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

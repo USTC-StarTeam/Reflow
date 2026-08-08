@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://reflow.local/schemas/cloud-proposal-draft-v3.json",
+  "$id": "https://reflow.local/schemas/cloud-proposal-draft-v4.json",
   "title": "ReflowCloudProposalDraft",
   "description": "One structured, non-authoritative proposal for a single Reflow capture.",
   "type": "object",
@@ -50,7 +50,7 @@
         "someday",
         null
       ],
-      "description": "Workflow suggestion for tasks. Use waiting when progress currently depends on another person or organization. Use someday only when the user explicitly defers the action with language such as 以后再、有空再、稍后再. A broad future period such as 下个月去做 remains today with a null date. Must be null for knowledge."
+      "description": "Workflow suggestion. today requires a concrete non-null suggestedDate. Use null for knowledge, a task whose planning date is undecided, and broad future ranges without a day. Use waiting for an external dependency. Use someday only for explicit deferral."
     },
     "suggestedDate": {
       "anyOf": [
@@ -62,7 +62,7 @@
           "type": "null"
         }
       ],
-      "description": "A task planning date only when the user supplied or clearly implied one."
+      "description": "A task planning date only when the user supplied or clearly implied one. It must be non-null exactly when suggestedBucket is today."
     },
     "estimatedMinutes": {
       "anyOf": [

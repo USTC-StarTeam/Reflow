@@ -86,6 +86,8 @@ Capture → ProposalService → AIProposal → UserDecision
 
 Cloud 模式仍然复用相同的 Inbox、UserDecision、Reducer 和任务执行逻辑，不会让模型越过用户确认边界。
 
+当前本地 Cloud 默认配置为 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度，使用 Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v2`。旧 ChatAnywhere P0 评测记录仅是历史结果，见下方链接中的历史边界说明。
+
 当前版本不包含 ReAct 循环、自主工具选择、多 Agent、长期自主运行或通用 Agent Runtime。
 
 ## 时间规划与历史回顾
@@ -217,7 +219,7 @@ npm run web
 1. 打开左上角品牌入口并重置 Demo 数据。
 2. 在“今天”输入一条事项，例如“整理下周汇报提纲”。
 3. 前往“收件箱”，查看整理后的标题、分类、预计耗时和下一步行动。
-4. 修改内容或分类，然后确认加入今天。
+4. 修改内容或分类；没有建议日期时，先明确选择计划日期，再确认加入对应日期。
 5. 回到“今天”，点击未排期任务并安排日期、开始时间和时长。
 6. 如有冲突，确认系统不会自动修改其他任务，再选择取消或“仍然安排”。
 7. 开始任务，在“进行中”记录进展、耗时和打断，然后完成任务。
@@ -233,13 +235,13 @@ npm run typecheck
 # ESLint
 npm run lint
 
-# 61 个 Jest 单元测试
+# 72 个 Jest 单元测试
 npm test
 
-# 8 个本地 Gateway 单元测试
+# 45 个本地 Gateway 单元测试
 npm run test:gateway
 
-# 10 条 Web 核心流程
+# 17 条 Web 核心流程
 npm run test:e2e
 
 # 导出静态 Web，产物位于 dist/

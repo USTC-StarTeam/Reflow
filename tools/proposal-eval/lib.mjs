@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-export const PROMPT_VERSION = 'reflow-proposal-final-v5';
-export const SCHEMA_VERSION = 'reflow-cloud-proposal-draft-v3';
+export const PROMPT_VERSION = 'reflow-proposal-conservative-v6';
+export const SCHEMA_VERSION = 'reflow-cloud-proposal-draft-v4';
 export const SUITE_VERSION = 'reflow-proposal-cases-v1';
-export const POSTPROCESS_VERSION = 'reflow-proposal-date-normalizer-v1';
+export const POSTPROCESS_VERSION = 'reflow-proposal-conservative-normalizer-v2';
 
 export const CATEGORIES = ['work', 'communication', 'learning', 'life', 'health', 'unknown'];
 export const OUTCOMES = ['task', 'knowledge'];
@@ -59,30 +59,196 @@ function formatLocalDate(year, month, day) {
   ].join('-');
 }
 
+function addLocalDays(referenceDate, amount) {
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day + amount));
+  return formatLocalDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+}
+
+function weekdayDate(text, referenceDate) {
+  const match = text.match(/(下周|下星期|本周|这周|本星期|这星期|星期|周)([一二三四五六日天])/u);
+  if (!match) return null;
+  const weekdays = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+  const target = weekdays[match[2]];
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const rawWeekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const current = rawWeekday === 0 ? 7 : rawWeekday;
+  const delta = match[1].startsWith('下')
+    ? 7 - current + target
+    : match[1].startsWith('本') || match[1].startsWith('这')
+      ? target - current
+      : (target - current + 7) % 7;
+  return addLocalDays(referenceDate, delta);
+}
+
+function nextMonthDate(text, referenceDate) {
+  const match = text.match(/下个月(?:的)?(\d{1,2})[日号]/u);
+  if (!match) return null;
+  const [year, month] = referenceDate.split('-').map(Number);
+  const value = new Date(Date.UTC(year, month, Number(match[1])));
+  const candidate = formatLocalDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+  return Number(match[1]) === value.getUTCDate() ? candidate : null;
+}
+
+function nextMonthNthWeekday(text, referenceDate) {
+  const match = text.match(/下个月第([一二三四五六七八九十\d]+)个?(?:周|星期)([一二三四五六日天])/u);
+  if (!match) return null;
+  const ordinalNames = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  const ordinal = /^\d+$/u.test(match[1]) ? Number(match[1]) : ordinalNames[match[1]];
+  const weekdays = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+  const target = weekdays[match[2]];
+  if (!Number.isInteger(ordinal) || ordinal < 1 || !target) return null;
+
+  const [year, month] = referenceDate.split('-').map(Number);
+  const firstOfNextMonth = new Date(Date.UTC(year, month, 1));
+  const firstWeekday = firstOfNextMonth.getUTCDay() || 7;
+  const day = 1 + ((target - firstWeekday + 7) % 7) + ((ordinal - 1) * 7);
+  const candidate = new Date(Date.UTC(year, month, day));
+  if (candidate.getUTCMonth() !== firstOfNextMonth.getUTCMonth()) return null;
+  return formatLocalDate(candidate.getUTCFullYear(), candidate.getUTCMonth() + 1, candidate.getUTCDate());
+}
+
 export function inferDeterministicSuggestedDate(rawText, referenceDate) {
   if (typeof rawText !== 'string' || !isLocalDate(referenceDate)) return null;
   const text = rawText.trim();
-  const [year, month] = referenceDate.split('-').map(Number);
-
-  if (/(?:今天|今晚|今早|今晨|今儿|上午|中午|下午)/u.test(text)) {
-    return referenceDate;
+  const isoDate = text.match(/(?:^|\D)(\d{4}-\d{2}-\d{2})(?:\D|$)/u)?.[1];
+  if (isoDate && isLocalDate(isoDate)) return isoDate;
+  const chineseDate = text.match(/(?:(\d{4})年)?(\d{1,2})月(\d{1,2})[日号]/u);
+  if (chineseDate) {
+    const referenceYear = Number(referenceDate.slice(0, 4));
+    const month = Number(chineseDate[2]);
+    const day = Number(chineseDate[3]);
+    let year = chineseDate[1] ? Number(chineseDate[1]) : referenceYear;
+    let candidate = formatLocalDate(year, month, day);
+    if (!isLocalDate(candidate)) return null;
+    if (!chineseDate[1] && candidate < referenceDate) candidate = formatLocalDate(year + 1, month, day);
+    return isLocalDate(candidate) ? candidate : null;
   }
-  if (/(?:本月)?月底(?:前|之前)?/u.test(text)) {
-    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    return formatLocalDate(year, month, lastDay);
-  }
+  const nextMonthOrdinalWeekday = nextMonthNthWeekday(text, referenceDate);
+  if (nextMonthOrdinalWeekday) return nextMonthOrdinalWeekday;
+  const nextMonth = nextMonthDate(text, referenceDate);
+  if (nextMonth) return nextMonth;
+  if (/明天/u.test(text)) return addLocalDays(referenceDate, 1);
+  if (/(?:今天|今晚|今早|今晨|今儿)/u.test(text)) return referenceDate;
+  const weekday = weekdayDate(text, referenceDate);
+  if (weekday) return weekday;
   return null;
 }
 
+function hasMultipleIndependentActions(text) {
+  const hasSubstantiveClause = (value) => value
+    .replace(/[\s，,。！？!?、]/gu, '')
+    .length >= 2;
+
+  // A trailing semicolon is only punctuation, and words such as “以及” often
+  // join the objects of one action. Treat a capture as multi-action only when
+  // its structure separates two substantive clauses: either a complete
+  // semicolon-delimited pair or an explicit sequential clause marker.
+  const semicolonClauses = text.split(/[；;]/u).filter(hasSubstantiveClause);
+  if (semicolonClauses.length >= 2) return true;
+
+  for (const match of text.matchAll(/(?:然后|接着|随后|再(?:把|去))/gu)) {
+    const before = text.slice(0, match.index);
+    const after = text.slice((match.index ?? 0) + match[0].length);
+    if (hasSubstantiveClause(before) && hasSubstantiveClause(after)) return true;
+  }
+  return false;
+}
+
+// Chinese surface form alone cannot safely distinguish every noun phrase from
+// every short imperative. Keep this deliberately narrow, confirmed bare-input
+// guard instead of guessing from a broad suffix or an action word list.
+const confirmedAmbiguousBarePhrases = new Set(['参赛材料', '竞赛展示材料']);
+
+function isAmbiguousNounPhrase(text) {
+  return confirmedAmbiguousBarePhrases.has(text);
+}
+
+function conservativeUnknownDraft(draft, title, reason) {
+  return {
+    ...draft,
+    title: title.slice(0, 80),
+    category: 'unknown',
+    outcome: 'task',
+    suggestedBucket: null,
+    suggestedDate: null,
+    estimatedMinutes: null,
+    nextAction: null,
+    waitingDetails: null,
+    knowledgeSummary: null,
+    confidence: Math.min(typeof draft.confidence === 'number' ? draft.confidence : 0.35, 0.35),
+    reason,
+  };
+}
+
+function hasBroadFutureRange(text, referenceDate) {
+  return /(?:这周末|本周末|周末|下周(?![一二三四五六日天])|下星期(?![一二三四五六日天])|月底)/u.test(text)
+    || (/下个月/u.test(text) && nextMonthDate(text, referenceDate) === null && nextMonthNthWeekday(text, referenceDate) === null);
+}
+
+function isExplicitlyDeferred(text) {
+  return /(?:以后有空|以后再|有空再|有时间再|将来再说|稍后再|暂缓|哪天再|回头再|暂时不急)/u.test(text);
+}
+
+function hasExplicitFollowUpIntent(text) {
+  return /(?:提醒(?:我)?|跟进|催(?:一下)?|再联系|再问)/u.test(text);
+}
+
+function normalizeWaitingFollowUpDate(draft, text, referenceDate) {
+  if (!isPlainObject(draft.waitingDetails)) return draft;
+  // A date attached to the other party's expected reply is not automatically
+  // the user's follow-up date. Preserve or derive one only when the capture
+  // explicitly asks the user to follow up and has a uniquely resolvable day.
+  const followUpDate = hasExplicitFollowUpIntent(text)
+    ? inferDeterministicSuggestedDate(text, referenceDate)
+    : null;
+  return {
+    ...draft,
+    waitingDetails: { ...draft.waitingDetails, followUpDate },
+  };
+}
+
 export function postprocessDraft(draft, { rawText, referenceDate } = {}) {
-  if (!isPlainObject(draft)
-    || draft.outcome !== 'task'
-    || draft.suggestedBucket !== 'today'
-    || draft.suggestedDate !== null) {
+  if (!isPlainObject(draft) || typeof rawText !== 'string') return draft;
+  if (!OUTCOMES.includes(draft.outcome)
+    || !CATEGORIES.includes(draft.category)
+    || !(draft.suggestedBucket === null || BUCKETS.includes(draft.suggestedBucket))
+    || !(draft.suggestedDate === null || isLocalDate(draft.suggestedDate))) {
     return draft;
   }
-  const suggestedDate = inferDeterministicSuggestedDate(rawText, referenceDate);
-  return suggestedDate ? { ...draft, suggestedDate } : draft;
+  const text = rawText.trim();
+  // Knowledge may describe a sequence of explanatory steps; it is not a
+  // collection of task actions and must remain intact.
+  if (draft.outcome === 'knowledge') return draft;
+  if (hasMultipleIndependentActions(text)) {
+    return conservativeUnknownDraft(draft, text || '多个事项待拆分', '检测到多个独立行动，请拆开后逐条输入，避免遗漏其中任一事项。');
+  }
+  // A single waiting item is already a valid workflow state. Only preserve it
+  // after the multi-action safeguard, so a later action is never silently
+  // discarded because a model chose waiting for the first clause.
+  if (draft.suggestedBucket === 'waiting') return normalizeWaitingFollowUpDate(draft, text, referenceDate);
+  if (isAmbiguousNounPhrase(text)) {
+    return conservativeUnknownDraft(draft, text || '待补充的事项', '信息不足，请补充要做的动作、时间或具体含义。');
+  }
+  if (draft.category === 'unknown') return conservativeUnknownDraft(draft, draft.title, draft.reason);
+  if (isExplicitlyDeferred(text)) {
+    return { ...draft, suggestedBucket: 'someday', suggestedDate: null };
+  }
+  const inferredDate = inferDeterministicSuggestedDate(text, referenceDate);
+  if (hasBroadFutureRange(text, referenceDate) && !inferredDate) {
+    return { ...draft, suggestedBucket: null, suggestedDate: null };
+  }
+  if (draft.suggestedBucket === 'someday') {
+    return inferredDate
+      ? { ...draft, suggestedBucket: 'today', suggestedDate: inferredDate }
+      : { ...draft, suggestedBucket: null, suggestedDate: null };
+  }
+  if (inferredDate) {
+    return { ...draft, suggestedBucket: 'today', suggestedDate: inferredDate };
+  }
+  return draft.suggestedBucket === 'today'
+    ? { ...draft, suggestedBucket: null, suggestedDate: null }
+    : draft;
 }
 
 function hasExactKeys(value, keys) {
@@ -161,8 +327,13 @@ export function validateDraft(value) {
       if (value.waitingDetails !== null) addDomainIssue('$.waitingDetails', 'knowledge_waiting_details_null', 'null when outcome is knowledge', 'knowledge 的 waitingDetails 必须是 null。');
       if (value.knowledgeSummary === null) addDomainIssue('$.knowledgeSummary', 'knowledge_summary_required', 'non-empty string when outcome is knowledge', 'knowledge 必须提供 knowledgeSummary。');
     } else {
-      if (value.suggestedBucket === null) addDomainIssue('$.suggestedBucket', 'task_bucket_required', 'today | waiting | someday when outcome is task', 'task 必须提供 suggestedBucket。');
       if (value.knowledgeSummary !== null) addDomainIssue('$.knowledgeSummary', 'task_knowledge_summary_null', 'null when outcome is task', 'task 的 knowledgeSummary 必须是 null。');
+      if (value.suggestedBucket === null && value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'undecided_task_date_null', 'null when task destination is undecided', '未决定去向的 task 日期必须为 null。');
+      if (value.suggestedBucket === 'today' && value.suggestedDate === null) addDomainIssue('$.suggestedDate', 'today_date_required', 'valid local date when suggestedBucket is today', 'today 必须包含合法 suggestedDate。');
+      if (value.category === 'unknown'
+        && (value.suggestedBucket !== null || value.suggestedDate !== null || value.estimatedMinutes !== null || value.nextAction !== null || value.waitingDetails !== null || value.confidence > 0.5)) {
+        addDomainIssue('$', 'unknown_task_conservative', 'unknown task with null workflow/execution fields and low confidence', 'unknown task 必须保守并保持执行字段为空。');
+      }
     }
     if (value.suggestedBucket === 'waiting') {
       if (value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'waiting_date_null', 'null when suggestedBucket is waiting', 'waiting 的 suggestedDate 必须是 null。');

@@ -399,11 +399,11 @@ describe('local proposal gateway', () => {
     assert.equal(JSON.stringify(logs).includes(secretMalformedOutput), false);
   });
 
-  it('normalizes unambiguous local date phrases without changing the model contract', async () => {
+  it('normalizes explicit tomorrow without treating the time of day as today', async () => {
     const { url } = await startGateway({
       fetchImpl: async () => upstreamResponse({
         ...validDraft,
-        title: '下午回复客户',
+        title: '回复客户',
         category: 'communication',
         suggestedDate: null,
         estimatedMinutes: 15,
@@ -415,11 +415,158 @@ describe('local proposal gateway', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...requestBody,
-        capture: { rawText: '下午回复客户', source: 'webText' },
+        capture: { rawText: '明天下午回复客户', source: 'webText' },
       }),
     });
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).draft.suggestedDate, '2026-07-24');
+    assert.equal((await response.json()).draft.suggestedDate, '2026-07-25');
+  });
+
+  it('removes a model today fallback when the capture has no date', async () => {
+    const { url } = await startGateway({
+      fetchImpl: async () => upstreamResponse({ ...validDraft, suggestedDate: null }),
+    });
+    const response = await fetch(`${url}/v1/proposals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...requestBody, capture: { rawText: '整理项目说明', source: 'webText' } }),
+    });
+    assert.equal(response.status, 200);
+    const draft = (await response.json()).draft;
+    assert.equal(draft.suggestedBucket, null);
+    assert.equal(draft.suggestedDate, null);
+  });
+
+  it('preserves a legal knowledge Draft before task-only postprocessing', async () => {
+    const knowledgeDraft = {
+      title: '复盘目标确认原则', category: 'work', outcome: 'knowledge', suggestedBucket: null, suggestedDate: null,
+      estimatedMinutes: null, nextAction: null, waitingDetails: null, knowledgeSummary: '先确认目标，再检查数据。', confidence: 0.9, reason: '这是可复用的复盘经验。',
+    };
+    const { url } = await startGateway({ fetchImpl: async () => upstreamResponse(knowledgeDraft) });
+    const response = await fetch(`${url}/v1/proposals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...requestBody, capture: { rawText: '复盘经验：先确认目标，然后检查数据', source: 'webText' } }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).draft, knowledgeDraft);
+  });
+
+  it('preserves waiting while removing an unsupported model follow-up date', async () => {
+    const waitingDraft = {
+      title: '等待老师回复', category: 'communication', outcome: 'task', suggestedBucket: 'waiting', suggestedDate: null,
+      estimatedMinutes: null, nextAction: null, waitingDetails: { waitingFor: '老师', waitingOn: '回复', followUpDate: '2026-07-31' }, knowledgeSummary: null, confidence: 0.9, reason: '当前需要等待老师回复。',
+    };
+    const { url } = await startGateway({ fetchImpl: async () => upstreamResponse(waitingDraft) });
+    const response = await fetch(`${url}/v1/proposals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...requestBody, capture: { rawText: '等老师下周回复', source: 'webText' } }),
+    });
+    assert.equal(response.status, 200);
+    const draft = (await response.json()).draft;
+    assert.equal(draft.suggestedBucket, 'waiting');
+    assert.equal(draft.waitingDetails.followUpDate, null);
+  });
+
+  it('derives a waiting follow-up date only from explicit follow-up intent and a resolvable day', async () => {
+    const waitingDraft = {
+      title: '等待老师回复', category: 'communication', outcome: 'task', suggestedBucket: 'waiting', suggestedDate: null,
+      estimatedMinutes: null, nextAction: null, waitingDetails: { waitingFor: '老师', waitingOn: '回复', followUpDate: '2026-07-31' }, knowledgeSummary: null, confidence: 0.9, reason: '当前需要等待老师回复。',
+    };
+    const { url } = await startGateway({ fetchImpl: async () => upstreamResponse(waitingDraft) });
+    for (const expected of [
+      { rawText: '等老师回复', followUpDate: null },
+      { rawText: '等老师下周回复', followUpDate: null },
+      { rawText: '周五还没回复就提醒我', followUpDate: '2026-07-24' },
+    ]) {
+      const response = await fetch(`${url}/v1/proposals`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestBody, capture: { rawText: expected.rawText, source: 'webText' } }),
+      });
+      assert.equal(response.status, 200);
+      const draft = (await response.json()).draft;
+      assert.equal(draft.suggestedBucket, 'waiting');
+      assert.equal(draft.waitingDetails.followUpDate, expected.followUpDate);
+    }
+  });
+
+  it('does not let a waiting Draft hide a later independent action', async () => {
+    const waitingDraft = {
+      title: '等待老师回复', category: 'communication', outcome: 'task', suggestedBucket: 'waiting', suggestedDate: null,
+      estimatedMinutes: null, nextAction: null, waitingDetails: { waitingFor: '老师', waitingOn: '回复', followUpDate: '2026-07-31' }, knowledgeSummary: null, confidence: 0.9, reason: '当前需要等待老师回复。',
+    };
+    const { url } = await startGateway({ fetchImpl: async () => upstreamResponse(waitingDraft) });
+    const response = await fetch(`${url}/v1/proposals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...requestBody, capture: { rawText: '等老师回复，然后提交申请', source: 'webText' } }),
+    });
+    assert.equal(response.status, 200);
+    const draft = (await response.json()).draft;
+    assert.equal(draft.category, 'unknown');
+    assert.equal(draft.suggestedBucket, null);
+    assert.equal(draft.title, '等老师回复，然后提交申请');
+    assert.match(draft.reason, /拆开/u);
+  });
+
+  it('ignores trailing semicolons while retaining multiple independent actions', async () => {
+    const { url } = await startGateway();
+    for (const rawText of ['交电费；', '交电费；取快递；', '交电费；取快递；报名比赛；']) {
+      const response = await fetch(`${url}/v1/proposals`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestBody, capture: { rawText, source: 'webText' } }),
+      });
+      assert.equal(response.status, 200);
+      const draft = (await response.json()).draft;
+      if (rawText === '交电费；') {
+        assert.equal(draft.category, validDraft.category);
+      } else {
+        assert.equal(draft.category, 'unknown');
+        assert.equal(draft.suggestedBucket, null);
+        assert.match(draft.reason, /拆开/u);
+      }
+    }
+  });
+
+  it('derives task dates from the capture instead of trusting model-provided dates', async () => {
+    const { url } = await startGateway({
+      fetchImpl: async () => upstreamResponse({ ...validDraft, suggestedDate: '2026-07-24' }),
+    });
+    for (const expected of [
+      { rawText: '整理项目说明', suggestedBucket: null, suggestedDate: null },
+      { rawText: '明天整理项目说明', suggestedBucket: 'today', suggestedDate: '2026-07-25' },
+      { rawText: '下周三整理项目说明', suggestedBucket: 'today', suggestedDate: '2026-07-29' },
+    ]) {
+      const response = await fetch(`${url}/v1/proposals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestBody, capture: { rawText: expected.rawText, source: 'webText' } }),
+      });
+      assert.equal(response.status, 200);
+      const draft = (await response.json()).draft;
+      assert.equal(draft.suggestedBucket, expected.suggestedBucket);
+      assert.equal(draft.suggestedDate, expected.suggestedDate);
+    }
+  });
+
+  it('recognizes explicit deferred intent without treating a dated range as someday', async () => {
+    const { url } = await startGateway({
+      fetchImpl: async () => upstreamResponse({ ...validDraft, suggestedDate: null, suggestedBucket: null }),
+    });
+    for (const expected of [
+      { rawText: '哪天再弄一下个人主页', suggestedBucket: 'someday' },
+      { rawText: '个人主页暂时不急', suggestedBucket: 'someday' },
+      { rawText: '回头再整理项目说明', suggestedBucket: 'someday' },
+      { rawText: '下周再整理项目说明', suggestedBucket: null },
+    ]) {
+      const response = await fetch(`${url}/v1/proposals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestBody, capture: { rawText: expected.rawText, source: 'webText' } }),
+      });
+      assert.equal(response.status, 200);
+      const draft = (await response.json()).draft;
+      assert.equal(draft.suggestedBucket, expected.suggestedBucket);
+      assert.equal(draft.suggestedDate, null);
+    }
   });
 
   it('does not call the model when AI_ENABLED is off', async () => {

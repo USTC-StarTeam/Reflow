@@ -18,6 +18,8 @@
 
 Prompt、Schema、模型和推理强度都会写入 `manifest.json` 和每条运行记录。修改 Prompt 或 Schema 时必须同步更新 `lib.mjs` 中的版本号。
 
+> 历史 Suite 的结构仍用于归档评测，但其旧日期预期不等同于当前产品规则：H01 曾将“月底前完成暑期项目中期汇报”期望为月末具体日期，S29 曾将“下周再整理以前的项目归档”期望为 `someday`。当前 Day 1 v6/v4/v2 对这两种只有范围、没有唯一日期的表达均使用 `suggestedBucket=null`、`suggestedDate=null`。`validateSuite` 和 `buildJobs` 只验证历史 Suite 结构及其 80 个作业，不验证旧预期符合当前语义。
+
 DeepSeek 默认价格是当前官方非缓存价格，仅用于本地估算，Provider 可能随时调整。评测当前没有单独建模缓存命中折扣，因此输入统一按非缓存价格做保守估算；正式运行前仍应核对最新价格，并可用 `--input-price` / `--output-price` 显式覆盖。旧 `OPENAI_*` 兼容路径继续保留历史默认 `5` / `30`，避免改变旧评测行为。
 
 ## 安全配置

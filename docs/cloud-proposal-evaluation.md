@@ -2,6 +2,8 @@
 
 评测日期：2026-07-24
 
+> 历史边界：本文件记录 2026-07-24 的 ChatAnywhere / `gpt-5.6-terra` P0 合成评测，保留其原始配置和成绩，不是当前 DeepSeek 本地 Cloud 默认配置，也不是当前 Prompt、Schema 或后处理的成绩。当前默认配置见 README 与 Gateway 文档。
+
 ## 结论
 
 第一版云端 Proposal 模型评测结论为：**通过**。

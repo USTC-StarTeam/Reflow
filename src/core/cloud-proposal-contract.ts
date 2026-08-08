@@ -126,7 +126,13 @@ export function validateCloudProposalDraft(value: unknown):
         errors.push('knowledge 字段组合无效。');
       }
     } else {
-      if (value.suggestedBucket === null || value.knowledgeSummary !== null) errors.push('task 字段组合无效。');
+      if (value.knowledgeSummary !== null) errors.push('task 字段组合无效。');
+      if (value.suggestedBucket === null && value.suggestedDate !== null) errors.push('未决定去向的 task 不能包含日期。');
+      if (value.suggestedBucket === 'today' && value.suggestedDate === null) errors.push('today 必须包含合法日期。');
+      if (value.category === 'unknown'
+        && (value.suggestedBucket !== null || value.suggestedDate !== null || value.estimatedMinutes !== null || value.nextAction !== null || value.waitingDetails !== null || Number(value.confidence) > 0.5)) {
+        errors.push('unknown task 必须保守并保持执行字段为空。');
+      }
       if (value.suggestedBucket === 'waiting') {
         if (value.suggestedDate !== null || value.waitingDetails === null) errors.push('waiting 字段组合无效。');
       } else if (value.waitingDetails !== null) {

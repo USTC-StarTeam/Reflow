@@ -94,12 +94,12 @@ describe('CloudProposalService', () => {
     const fetchImpl = jest.fn<CloudProposalFetch>().mockResolvedValue(response({
       status: 'success',
       schemaVersion: 1,
-      draft: { ...validDraft, suggestedDate: null, estimatedMinutes: null, nextAction: null },
+      draft: { ...validDraft, suggestedBucket: null, suggestedDate: null, estimatedMinutes: null, nextAction: null },
     }));
     const result = await new CloudProposalService({ gatewayUrl: 'http://gateway.test', fetchImpl }).propose(request);
     expect(result).toMatchObject({
       status: 'success',
-      proposals: [{ estimatedMinutes: null, nextAction: null, suggestedDate: undefined }],
+      proposals: [{ estimatedMinutes: null, nextAction: null, suggestedBucket: undefined, suggestedDate: undefined }],
     });
   });
 

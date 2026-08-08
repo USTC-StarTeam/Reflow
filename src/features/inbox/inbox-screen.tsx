@@ -16,12 +16,13 @@ function isValidDate(value: string): boolean {
   return isLocalDate(value);
 }
 
-function suggestedDestination(classification: VisibleClassification): string {
+function suggestedDestination(classification: VisibleClassification, plannedDate: string): string {
   if (classification === 'waiting') return '等待列表';
   if (classification === 'someday') return '稍后列表';
   if (classification === 'knowledge') return '知识卡片';
   if (classification === 'unknown') return '补充信息后再决定';
-  return '今天';
+  if (plannedDate.trim()) return `计划日期 ${plannedDate.trim()}`;
+  return '待选择计划日期';
 }
 
 function editableWaitingDetails(proposal: AIProposal): WaitingDetails {
@@ -133,9 +134,9 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
     return true;
   }
 
-  function acceptTask(bucket: WorkflowBucket, classificationOverride?: VisibleClassification) {
+  function acceptTask(bucket: WorkflowBucket, classificationOverride?: VisibleClassification, acceptedDateOverride?: string) {
     const visibleClassification = classificationOverride ?? classification;
-    const acceptedDate = bucket === 'today' ? plannedDate.trim() || dateKey(new Date()) : undefined;
+    const acceptedDate = bucket === 'today' ? acceptedDateOverride ?? plannedDate.trim() : undefined;
     if (!validateBeforeAccept(visibleClassification, bucket, acceptedDate)) return;
     submitUserDecision({ kind: 'accept', proposalId: proposal.id, edited: buildEdit(classificationOverride), bucket, plannedDate: acceptedDate });
   }
@@ -194,8 +195,8 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
       </Field>
       <Field label="预计耗时">{isKnowledge ? '无需执行耗时' : minutes ? `${minutes} 分钟` : '未估计'}</Field>
       <Field label="下一步行动">{nextAction || '待补充'}</Field>
-      {!isKnowledge && !isWaiting && !isSomeday ? <Field label="建议日期">{proposal.suggestedDate ?? '未提取具体日期'}</Field> : null}
-      <Field label="建议去向">{suggestedDestination(classification)}</Field>
+      {!isKnowledge && !isWaiting && !isSomeday ? <Field label="建议日期">{plannedDate.trim() || '未提取具体日期'}</Field> : null}
+      <Field label="建议去向">{suggestedDestination(classification, plannedDate)}</Field>
       <Field label="理解理由">{proposal.reason}</Field>
 
       {isWaiting ? (
@@ -234,9 +235,9 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
       <View style={styles.actions}>
         {isKnowledge ? <><ActionButton testID={`accept-knowledge-${proposal.id}`} label="保存为知识" variant="purple" onPress={acceptKnowledge} /><ActionButton label="改成任务" onPress={() => { chooseClassification(isTaskCategory(category) ? category : 'learning'); setEditing(true); }} /></> : null}
         {isWaiting ? <><ActionButton testID={`accept-waiting-${proposal.id}`} label="放入等待列表" variant="primary" onPress={() => acceptTask('waiting')} /><ActionButton label="设置跟进时间" onPress={() => { setFollowUpDateDraft(waitingDetails.followUpDate); setFollowUpError(''); setFollowUpOpen(true); }} /></> : null}
-        {isSomeday ? <><ActionButton testID={`accept-someday-${proposal.id}`} label="保存到稍后" variant="primary" onPress={() => acceptTask('someday')} /><ActionButton label="加入今天" onPress={() => acceptTask('today')} /></> : null}
+        {isSomeday ? <><ActionButton testID={`accept-someday-${proposal.id}`} label="保存到稍后" variant="primary" onPress={() => acceptTask('someday')} /><ActionButton label="选择计划日期" onPress={() => { chooseClassification(isTaskCategory(category) ? category : 'work'); setEditing(true); }} /></> : null}
         {isUnknown ? <><ActionButton label="补充信息" variant="primary" onPress={() => setEditing(true)} /><ActionButton label="忽略" variant="danger" onPress={ignoreProposal} /></> : null}
-        {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <><ActionButton testID={`accept-${proposal.id}`} label={!plannedDate.trim() || plannedDate.trim() === dateKey(new Date()) ? '确认并加入今天' : `确认并安排到 ${plannedDate.trim()}`} variant="primary" onPress={() => acceptTask('today')} /><ActionButton label="修改" onPress={() => setEditing(true)} /></> : null}
+        {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <>{plannedDate.trim() ? <ActionButton testID={`accept-${proposal.id}`} label={plannedDate.trim() === dateKey(new Date()) ? '确认并加入今天' : `确认并安排到 ${plannedDate.trim()}`} variant="primary" onPress={() => acceptTask('today')} /> : <ActionButton testID={`select-date-${proposal.id}`} label="选择计划日期" variant="primary" onPress={() => setEditing(true)} />}<ActionButton label="修改" onPress={() => setEditing(true)} /></> : null}
         <ActionButton label="更多" onPress={() => setMoreOpen(true)} />
       </View>
 
