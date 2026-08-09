@@ -17,6 +17,9 @@ function addLocalDay(date, amount) {
   return value.toISOString().slice(0, 10);
 }
 
+// These deterministic fixtures validate the Web pipeline and rendering only.
+// They are not evidence of general Chinese ambiguity or multi-intent detection;
+// fuzzy semantics belong to the real model and its acceptance tests.
 function draftFor(request) {
   const rawText = request.capture.rawText;
   if (/(?:然后|并且|另外|再把|再去)/u.test(rawText)) {

@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-export const PROMPT_VERSION = 'reflow-proposal-conservative-v6';
+export const PROMPT_VERSION = 'reflow-proposal-conservative-v7';
 export const SCHEMA_VERSION = 'reflow-cloud-proposal-draft-v4';
 export const SUITE_VERSION = 'reflow-proposal-cases-v1';
-export const POSTPROCESS_VERSION = 'reflow-proposal-conservative-normalizer-v2';
+export const POSTPROCESS_VERSION = 'reflow-proposal-conservative-normalizer-v3';
 
 export const CATEGORIES = ['work', 'communication', 'learning', 'life', 'health', 'unknown'];
 export const OUTCOMES = ['task', 'knowledge'];
@@ -135,15 +135,15 @@ export function inferDeterministicSuggestedDate(rawText, referenceDate) {
   return null;
 }
 
-function hasMultipleIndependentActions(text) {
+function hasHighConfidenceMultipleActions(text) {
   const hasSubstantiveClause = (value) => value
     .replace(/[\s，,。！？!?、]/gu, '')
     .length >= 2;
 
-  // A trailing semicolon is only punctuation, and words such as “以及” often
-  // join the objects of one action. Treat a capture as multi-action only when
-  // its structure separates two substantive clauses: either a complete
-  // semicolon-delimited pair or an explicit sequential clause marker.
+  // This is intentionally a limited, high-confidence safeguard rather than a
+  // general Chinese multi-intent parser. A trailing semicolon is punctuation,
+  // and conjunctions such as “并” or “以及” can join steps or objects inside one
+  // task. Fuzzy intent boundaries remain the model's responsibility.
   const semicolonClauses = text.split(/[；;]/u).filter(hasSubstantiveClause);
   if (semicolonClauses.length >= 2) return true;
 
@@ -153,15 +153,6 @@ function hasMultipleIndependentActions(text) {
     if (hasSubstantiveClause(before) && hasSubstantiveClause(after)) return true;
   }
   return false;
-}
-
-// Chinese surface form alone cannot safely distinguish every noun phrase from
-// every short imperative. Keep this deliberately narrow, confirmed bare-input
-// guard instead of guessing from a broad suffix or an action word list.
-const confirmedAmbiguousBarePhrases = new Set(['参赛材料', '竞赛展示材料']);
-
-function isAmbiguousNounPhrase(text) {
-  return confirmedAmbiguousBarePhrases.has(text);
 }
 
 function conservativeUnknownDraft(draft, title, reason) {
@@ -220,16 +211,13 @@ export function postprocessDraft(draft, { rawText, referenceDate } = {}) {
   // Knowledge may describe a sequence of explanatory steps; it is not a
   // collection of task actions and must remain intact.
   if (draft.outcome === 'knowledge') return draft;
-  if (hasMultipleIndependentActions(text)) {
+  if (hasHighConfidenceMultipleActions(text)) {
     return conservativeUnknownDraft(draft, text || '多个事项待拆分', '检测到多个独立行动，请拆开后逐条输入，避免遗漏其中任一事项。');
   }
   // A single waiting item is already a valid workflow state. Only preserve it
   // after the multi-action safeguard, so a later action is never silently
   // discarded because a model chose waiting for the first clause.
   if (draft.suggestedBucket === 'waiting') return normalizeWaitingFollowUpDate(draft, text, referenceDate);
-  if (isAmbiguousNounPhrase(text)) {
-    return conservativeUnknownDraft(draft, text || '待补充的事项', '信息不足，请补充要做的动作、时间或具体含义。');
-  }
   if (draft.category === 'unknown') return conservativeUnknownDraft(draft, draft.title, draft.reason);
   if (isExplicitlyDeferred(text)) {
     return { ...draft, suggestedBucket: 'someday', suggestedDate: null };

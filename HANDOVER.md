@@ -4,9 +4,11 @@
 
 > 本文后续的 `v1`、Prompt v5 / Schema v3 和早期 Provider 试验均保留为历史交接记录。当前实现、模型合同和最终验证结论以本文顶部、当前分支说明和实际 Git 状态为准。
 
-Gateway 的 tracked 默认仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`，并保留 `OPENAI_*` 兼容路径；当前本地 Trial 使用被 Git 忽略的 ChatAnywhere / `gpt-5.6-terra` / `high` 配置。Prompt 为 `reflow-proposal-conservative-v6`、Schema 为 `reflow-cloud-proposal-draft-v4`、后处理为 `reflow-proposal-conservative-normalizer-v2`。当前回归规模为 Gateway 45、Jest 72、Playwright E2E 17；公开 Demo 仍默认 Mock。
+Gateway 的 tracked 默认仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`，并保留 `OPENAI_*` 兼容路径；当前本地 Trial 使用被 Git 忽略的 ChatAnywhere / `gpt-5.6-terra` / `high` 配置。当前 Prompt 为 `reflow-proposal-conservative-v7`、Schema 为 `reflow-cloud-proposal-draft-v4`、后处理为 `reflow-proposal-conservative-normalizer-v3`；2026-08-09 的六条 ChatAnywhere Trial 使用此前的 v6/v4/v2 合同。当前回归规模以实际最终门禁为准；公开 Demo 仍默认 Mock。
 
-> 历史 `tools/proposal-eval/cases.json` 保持归档不改写，但有两项已确认与当前 Day 1 语义冲突：H01 将“月底前完成暑期项目中期汇报”期望为月末具体日；S29 将“下周再整理以前的项目归档”期望为 `someday`。当前 v6/v4/v2 均按较新的原则将这两种范围词处理为 `bucket/date = null`。`validateSuite` / `buildJobs` 只校验这份历史 Suite 的结构和作业集合，不证明其旧预期符合当前语义。
+2026-08-10 对 v7/v3 发起的 8 条限量语义 Smoke 因 PowerShell→Node 标准输入中文编码损坏而无效，不能计为模型通过或失败；达到请求上限后未重试。详细记录见当前分支说明。
+
+> 历史 `tools/proposal-eval/cases.json` 保持归档不改写，但有两项已确认与当前 Day 1 语义冲突：H01 将“月底前完成暑期项目中期汇报”期望为月末具体日；S29 将“下周再整理以前的项目归档”期望为 `someday`。当前 v7/v4/v3 按较新的原则将这两种范围词处理为 `bucket/date = null`。`validateSuite` / `buildJobs` 只校验这份历史 Suite 的结构和作业集合，不证明其旧预期符合当前语义。
 
 ## 1. 这是什么项目
 

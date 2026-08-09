@@ -74,7 +74,7 @@ test('Cloud Knowledge Proposal 只在用户确认后创建知识卡片', async (
   await expect(page.getByText('评审前先确认验收口径，可以减少返工。')).toBeVisible();
 });
 
-test('Cloud 模糊 Proposal 保守为空，补充后仍需主动选择日期', async ({ page }) => {
+test('Cloud UI 保留 Gateway 返回的模糊 Proposal，补充后仍需主动选择日期', async ({ page }) => {
   const input = '竞赛展示材料';
   const editedTitle = '整理竞赛展示材料';
   await page.goto('/');
@@ -174,7 +174,7 @@ test('Cloud 模糊未来范围不补具体日期，确认前不创建 Task', asy
   await expect(page.getByText(input, { exact: true })).toHaveCount(0);
 });
 
-test('Cloud 多意图提示拆分且确认前不创建多个任务', async ({ page }) => {
+test('Cloud UI 展示 Gateway 返回的多意图拆分提示且确认前不创建任务', async ({ page }) => {
   const input = '周末把 Agent 资料整理一下，再把排协网站首页也重新整理一下';
   await page.goto('/');
   await resetDemo(page);

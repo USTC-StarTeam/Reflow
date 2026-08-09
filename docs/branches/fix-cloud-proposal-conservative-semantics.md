@@ -31,7 +31,7 @@
 - 生命周期自测 5/5 通过。受控端口污染会快速非零失败，且在启动任何其他服务前停止；这阻止 Mock 项目静默复用旧 Cloud 服务。
 - 执行线程在端口干净条件下连续两轮完整 `npm run test:e2e` 均为 17/17，Playwright/runner code 0，服务和 8081/8082/8788 端口均清理。监督独立复跑也为 17/17、exit 0、无端口/进程残留。历史 480 秒 / 124 已由新 runner 解决，不再是当前 blocker。
 - 其余最终门禁均有通过记录：typecheck、lint、Jest 72/72、Gateway 45/45、`export:web`、离线 proposal self-test 和 `git diff --check`。
-- 当前 Cloud 合同：Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4`、Normalizer `reflow-proposal-conservative-normalizer-v2`、`high` 和 15 秒上游生命周期 deadline。tracked Gateway 默认仍为 DeepSeek 官方 API / `deepseek-v4-flash`；最终本地 Trial 通过被 Git 忽略的 `OPENAI_*` 配置使用 ChatAnywhere / `gpt-5.6-terra`，不改变公开 Demo 的 Mock 默认。
+- 当前 Cloud 合同：Prompt `reflow-proposal-conservative-v7`、Schema `reflow-cloud-proposal-draft-v4`、Normalizer `reflow-proposal-conservative-normalizer-v3`、`high` 和 15 秒上游生命周期 deadline。v7/v3 删除了裸短语精确白名单，并明确 deterministic layer 只负责硬约束和有限高置信度 safeguard；一般模糊语义和 multi-intent 判断由模型承担。tracked Gateway 默认仍为 DeepSeek 官方 API / `deepseek-v4-flash`；最终本地 Trial 通过被 Git 忽略的 `OPENAI_*` 配置使用 ChatAnywhere / `gpt-5.6-terra`，不改变公开 Demo 的 Mock 默认。
 
 ### 2026-08-09 DeepSeek 六类 Web Smoke（早期外部阻塞记录）
 
@@ -60,6 +60,13 @@
 - unknown、范围日期、someday、多意图和明确次日加 60 分钟均符合当前保守语义；严重编造为 0，所有结果通过严格 Schema 与领域组合校验。
 - 确认前 Task、Knowledge、TaskPlanEvent 和 Decision 均无增量；用户明确确认一条次日 Proposal 后才由 UserDecision → Reducer 创建正式 Task、Decision 和计划事件，刷新后保留。
 - Provider 切换只需要 local config。API Key、`gateway/.dev.vars` 和 DeepSeek 本地备份均未进入 Git；公开 Demo 继续默认 Mock。
+
+### 2026-08-10 v7/v3 限量语义 Smoke（无效样本记录）
+
+- 本地 ignored ChatAnywhere 配置仍可用，diagnostics=false。按最多 8 条的上限发出 8 个请求，均 HTTP 200，Gateway 延迟约 2.9～3.3 秒，且均通过 Schema/领域校验。
+- 该窗口不能作为 v7 模型语义证据：Windows PowerShell 向 Node 标准输入传递测试脚本时破坏了中文编码，模型收到问号字符；单任务对照也因此全部返回 conservative unknown。
+- 达到 8 条上限后没有更换传输方式重试，也没有为了结果修改 Prompt、Schema 或 normalizer。后续若需要验证 v7 模型语义，应在单独批准的窗口使用 UTF-8 安全输入方式重新执行；不得把本次结果计为通过或失败。
+- 结束后 Gateway 已停止，8787 无监听，diagnostics=false；未记录 API Key、原始上游响应或真实用户内容。
 
 ## 已知阻塞与合并约束
 

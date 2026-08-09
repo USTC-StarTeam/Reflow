@@ -60,11 +60,14 @@ async function main() {
     readFile(new URL('prompt.md', directory), 'utf8'),
   ]);
   assert(validateSuite(suite).valid && buildJobs(suite).length === 80, '历史 P0 Suite 结构自检失败。');
-  assert(PROMPT_VERSION === 'reflow-proposal-conservative-v6'
+  assert(PROMPT_VERSION === 'reflow-proposal-conservative-v7'
     && SCHEMA_VERSION === 'reflow-cloud-proposal-draft-v4'
-    && POSTPROCESS_VERSION === 'reflow-proposal-conservative-normalizer-v2'
+    && POSTPROCESS_VERSION === 'reflow-proposal-conservative-normalizer-v3'
     && prompt.includes(PROMPT_VERSION)
     && prompt.includes('“下周再整理” still names only a week range')
+    && prompt.includes('整理项目周报并预约体检')
+    && prompt.includes('下载并安装软件')
+    && prompt.includes('Deterministic code may')
     && !prompt.includes('“下周再整理”, “以后有空整理”, and “有时间再整理” use `someday`')
     && schema.$id.endsWith('cloud-proposal-draft-v4.json')
     && sha256(prompt).length === 64
@@ -127,10 +130,29 @@ async function main() {
     const clearShortTask = postprocessDraft({ ...baseTask, title: rawText, suggestedBucket: 'today', suggestedDate: null }, { rawText, referenceDate: '2026-07-24' });
     assert(clearShortTask.category !== 'unknown' && clearShortTask.suggestedBucket === null && clearShortTask.estimatedMinutes === 45 && clearShortTask.nextAction === baseTask.nextAction && validateDraft(clearShortTask).valid, `${rawText} 不应被裸名词保护误判为 unknown。`);
   }
-  const vague = postprocessDraft({ ...baseTask, suggestedBucket: 'today' }, { rawText: '竞赛展示材料', referenceDate: '2026-07-24' });
-  assert(vague.category === 'unknown' && vague.suggestedBucket === null && vague.estimatedMinutes === null && vague.nextAction === null, '模糊名词未保守处理。');
-  const competitionMaterials = postprocessDraft({ ...baseTask, suggestedBucket: 'today' }, { rawText: '参赛材料', referenceDate: '2026-07-24' });
-  assert(competitionMaterials.category === 'unknown' && competitionMaterials.suggestedBucket === null && competitionMaterials.estimatedMinutes === null && competitionMaterials.nextAction === null, '参赛材料必须保持保守 unknown。');
+  for (const rawText of ['参赛材料', '比赛分享材料', '项目汇报材料']) {
+    const modelClassifiedTask = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(modelClassifiedTask.category === baseTask.category
+      && modelClassifiedTask.title === baseTask.title
+      && modelClassifiedTask.estimatedMinutes === baseTask.estimatedMinutes
+      && modelClassifiedTask.nextAction === baseTask.nextAction,
+    `${rawText} 不应触发 deterministic phrase-specific 语义改写。`);
+    const modelClassifiedUnknown = postprocessDraft({
+      ...baseTask,
+      title: rawText,
+      category: 'unknown',
+      suggestedBucket: 'today',
+      suggestedDate: '2026-07-24',
+    }, { rawText, referenceDate: '2026-07-24' });
+    assert(modelClassifiedUnknown.category === 'unknown'
+      && modelClassifiedUnknown.suggestedBucket === null
+      && modelClassifiedUnknown.suggestedDate === null
+      && modelClassifiedUnknown.estimatedMinutes === null
+      && modelClassifiedUnknown.nextAction === null
+      && modelClassifiedUnknown.waitingDetails === null
+      && modelClassifiedUnknown.confidence <= 0.35,
+    `${rawText} 被模型判为 unknown 后必须由 deterministic contract 保持保守。`);
+  }
   for (const rawText of ['交电费；', '交电费;', '了解报名时间以及要求']) {
     const singleAction = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
     assert(singleAction.category === baseTask.category && singleAction.title === baseTask.title && validateDraft(singleAction).valid, `${rawText} 不能仅因尾标点或名词并列被误判为多行动。`);
@@ -143,8 +165,30 @@ async function main() {
     const trailingSemicolonMulti = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
     assert(trailingSemicolonMulti.category === 'unknown' && trailingSemicolonMulti.title === rawText && trailingSemicolonMulti.reason.includes('拆开'), `${rawText} 必须忽略尾随分号后仍识别多个独立行动。`);
   }
-  const knownMulti = postprocessDraft(baseTask, { rawText: '周末把 Agent 资料整理一下，再把排协网站首页也重新整理一下', referenceDate: '2026-07-24' });
-  assert(knownMulti.category === 'unknown' && knownMulti.title.includes('Agent 资料') && knownMulti.title.includes('排协网站首页'), '顺序连接的两个行动必须保留为一个待拆分 Proposal。');
+  const highConfidenceMulti = postprocessDraft(baseTask, { rawText: '周末把 Agent 资料整理一下，再把排协网站首页也重新整理一下', referenceDate: '2026-07-24' });
+  assert(highConfidenceMulti.category === 'unknown' && highConfidenceMulti.title.includes('Agent 资料') && highConfidenceMulti.title.includes('排协网站首页'), '高置信度顺序结构必须保留全部行动并提示拆分。');
+  for (const rawText of ['下载并安装软件', '整理并提交申请材料', '了解报名时间以及要求', '阅读论文并做笔记']) {
+    const coherentTask = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(coherentTask.category === baseTask.category
+      && coherentTask.title === baseTask.title
+      && coherentTask.estimatedMinutes === baseTask.estimatedMinutes
+      && coherentTask.nextAction === baseTask.nextAction,
+    `${rawText} 不应被有限 safeguard 当作多个独立行动。`);
+  }
+  const modelClassifiedMulti = postprocessDraft({
+    ...baseTask,
+    title: '整理项目周报并预约体检',
+    category: 'unknown',
+    suggestedBucket: null,
+    estimatedMinutes: null,
+    nextAction: null,
+    confidence: 0.3,
+  }, { rawText: '整理项目周报并预约体检', referenceDate: '2026-07-24' });
+  assert(modelClassifiedMulti.category === 'unknown'
+    && modelClassifiedMulti.title.includes('整理项目周报')
+    && modelClassifiedMulti.title.includes('预约体检')
+    && modelClassifiedMulti.suggestedBucket === null,
+  '一般 multi-intent 由模型识别后，deterministic contract 必须保留全部语义和保守字段。');
 
   const modelInventedToday = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-24' }, { rawText: '整理项目说明', referenceDate: '2026-07-24' });
   assert(modelInventedToday.suggestedBucket === null && modelInventedToday.suggestedDate === null, '无日期原文不能保留模型臆造的今天。');
@@ -153,7 +197,7 @@ async function main() {
   const modelWrongNextWednesday = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-24' }, { rawText: '下周三整理项目说明', referenceDate: '2026-07-24' });
   assert(modelWrongNextWednesday.suggestedBucket === 'today' && modelWrongNextWednesday.suggestedDate === '2026-07-29', '下周三必须以确定性日期覆盖模型错误日期。');
 
-  console.log('Proposal 工具离线自检通过：历史 Suite 结构未改写（不声明旧预期符合当前语义），v6/v4/v2 合同与保守日期规则有效。');
+  console.log('Proposal 工具离线自检通过：历史 Suite 结构未改写（不声明旧预期符合当前语义），v7/v4/v3 职责边界与保守日期规则有效。');
 }
 
 main().catch((error) => {

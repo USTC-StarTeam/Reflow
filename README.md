@@ -87,7 +87,7 @@ Capture → ProposalService → AIProposal → UserDecision
 
 Cloud 模式仍然复用相同的 Inbox、UserDecision、Reducer 和任务执行逻辑，不会让模型越过用户确认边界。
 
-Gateway 的 tracked 默认配置仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度；同时保留 `OPENAI_*` 兼容配置。当前合同使用 Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v2`。2026-08-09 使用被 Git 忽略的本地配置完成了 ChatAnywhere / `gpt-5.6-terra` / `high` 的六条 Web Smoke，结果为 6/6 成功、0 timeout；这不会改变公开 Demo 默认使用 Mock，也不会把本地 Provider 配置写入仓库。
+Gateway 的 tracked 默认配置仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度；同时保留 `OPENAI_*` 兼容配置。当前合同使用 Prompt `reflow-proposal-conservative-v7`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v3`。2026-08-09 使用当时的 v6/v4/v2 合同和被 Git 忽略的本地配置完成了 ChatAnywhere / `gpt-5.6-terra` / `high` 六条 Web Smoke，结果为 6/6 成功、0 timeout；这不会改变公开 Demo 默认使用 Mock，也不会把本地 Provider 配置写入仓库。
 
 当前版本不包含 ReAct 循环、自主工具选择、多 Agent、长期自主运行或通用 Agent Runtime。
 
