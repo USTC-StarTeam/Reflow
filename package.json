@@ -42,7 +42,7 @@
     "test": "jest --runInBand",
     "test:gateway": "node --test gateway/__tests__/*.test.mjs",
     "test:watch": "jest --watch",
-    "test:e2e": "playwright test",
+    "test:e2e": "node e2e/lifecycle-runner-self-test.mjs && node e2e/run-e2e.mjs",
     "export:web": "expo export -p web",
     "gateway": "node gateway/server.mjs"
   },
