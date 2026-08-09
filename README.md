@@ -5,7 +5,8 @@ Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
 当前版本以 Web 为主要验收平台，桌面浏览器和手机浏览器都可以直接使用。项目保留 Expo / React Native 的跨端结构，但暂未发布原生安装包。
 
 - 在线 Demo：[https://ustc-starteam.github.io/Reflow/](https://ustc-starteam.github.io/Reflow/)
-- 当前版本分支：[USTC-StarTeam/Reflow · v1](https://github.com/USTC-StarTeam/Reflow/tree/v1)
+- 稳定版本分支：[USTC-StarTeam/Reflow · main](https://github.com/USTC-StarTeam/Reflow/tree/main)
+- 当前 Cloud Proposal 开发分支：`fix/cloud-proposal-conservative-semantics`
 - 当前产品版本：V1，本地时间规划 MVP
 
 > 当前开发环境已支持通过本地 Gateway 调用真实云端模型生成 Proposal；公开在线 Demo 仍默认使用确定性的本地规则，不会发起第三方 AI 请求。账号、云同步和第三方平台集成尚未实现。
@@ -86,7 +87,7 @@ Capture → ProposalService → AIProposal → UserDecision
 
 Cloud 模式仍然复用相同的 Inbox、UserDecision、Reducer 和任务执行逻辑，不会让模型越过用户确认边界。
 
-当前本地 Cloud 默认配置为 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度，使用 Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v2`。旧 ChatAnywhere P0 评测记录仅是历史结果，见下方链接中的历史边界说明。
+Gateway 的 tracked 默认配置仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度；同时保留 `OPENAI_*` 兼容配置。当前合同使用 Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v2`。2026-08-09 使用被 Git 忽略的本地配置完成了 ChatAnywhere / `gpt-5.6-terra` / `high` 的六条 Web Smoke，结果为 6/6 成功、0 timeout；这不会改变公开 Demo 默认使用 Mock，也不会把本地 Provider 配置写入仓库。
 
 当前版本不包含 ReAct 循环、自主工具选择、多 Agent、长期自主运行或通用 Agent Runtime。
 
@@ -292,11 +293,11 @@ python -m http.server 4173 -d dist
 
 然后访问 `http://localhost:4173`。
 
-`v1` 分支的 push 会触发 GitHub Actions 验证：
+面向 `main` 的 Pull Request 和 `main` 分支的 push 会触发 GitHub Actions 验证：
 
 - 类型检查、lint、Jest、Gateway 单元测试、Playwright E2E 和静态导出。
 
-官方仓库使用 GitHub Actions 发布 Pages。`v1` 分支 push 后会分别触发完整验证和静态站点部署，在线 Demo 始终保持本地规则（Mock）为默认模式，不会因为部署最新前端而自动调用云端模型。
+官方仓库使用 GitHub Actions 发布 Pages。改动通过 PR 合入 `main` 后，`main` 的 push 会触发完整验证和静态站点部署；功能分支本身不会直接发布。在线 Demo 始终保持本地规则（Mock）为默认模式，不会因为部署最新前端而自动调用云端模型。
 
 ## 数据与隐私
 
@@ -334,12 +335,12 @@ python -m http.server 4173 -d dist
 
 ## 开发与协作
 
-- 当前版本分支为 `v1`；
+- 稳定版本分支为 `main`，当前 Cloud Proposal 开发分支为 `fix/cloud-proposal-conservative-semantics`；
 - 不 force push，不重写 `main` 历史；
 - 不删除已有产品参考文件；
 - 新功能优先保证核心流程稳定、可追踪、可撤销；
 - 提交前应运行与改动相关的检查；
-- `v1` 推送后由 GitHub Actions 自动验证。
+- 面向 `main` 的 PR 由 GitHub Actions 自动验证，合入 `main` 后再部署 Pages。
 
 更详细的实施里程碑和领域约束见 [docs/implementation-plan.md](docs/implementation-plan.md)。
 

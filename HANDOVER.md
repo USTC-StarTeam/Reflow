@@ -1,10 +1,10 @@
 # Reflow 项目交接文档
 
-更新时间：2026-08-06
+更新时间：2026-08-09
 
-> 本文后续的 `v1`、ChatAnywhere、`gpt-5.6-terra`、Prompt v5 / Schema v3 和旧测试数量均为当时的历史交接记录，不应作为当前工作树或当前 Cloud 默认配置。实际分支、提交和工作区状态应以 Git 为准。
+> 本文后续的 `v1`、Prompt v5 / Schema v3 和早期 Provider 试验均保留为历史交接记录。当前实现、模型合同和最终验证结论以本文顶部、当前分支说明和实际 Git 状态为准。
 
-当前本地 Cloud 默认：DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`；Prompt `reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4`、后处理 `reflow-proposal-conservative-normalizer-v2`。当前回归规模为 Gateway 45、Jest 72、Playwright E2E 17；公开 Demo 仍默认 Mock。
+Gateway 的 tracked 默认仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`，并保留 `OPENAI_*` 兼容路径；当前本地 Trial 使用被 Git 忽略的 ChatAnywhere / `gpt-5.6-terra` / `high` 配置。Prompt 为 `reflow-proposal-conservative-v6`、Schema 为 `reflow-cloud-proposal-draft-v4`、后处理为 `reflow-proposal-conservative-normalizer-v2`。当前回归规模为 Gateway 45、Jest 72、Playwright E2E 17；公开 Demo 仍默认 Mock。
 
 > 历史 `tools/proposal-eval/cases.json` 保持归档不改写，但有两项已确认与当前 Day 1 语义冲突：H01 将“月底前完成暑期项目中期汇报”期望为月末具体日；S29 将“下周再整理以前的项目归档”期望为 `someday`。当前 v6/v4/v2 均按较新的原则将这两种范围词处理为 `bucket/date = null`。`validateSuite` / `buildJobs` 只校验这份历史 Suite 的结构和作业集合，不证明其旧预期符合当前语义。
 
@@ -363,7 +363,17 @@ Agent 不得自行恢复公网部署工作。
 
 后续工作必须拆成小步骤，每一步完成后停止等待审查。
 
-### Step 1：DeepSeek 本地 Gateway 的 Day 1 定向复验
+### 当前阶段结论（2026-08-09）
+
+- Cloud Proposal 产品范围已经冻结；AI 仍只生成一个 pending Proposal，正式数据只能由 UserDecision → Reducer 写入。
+- Windows E2E 生命周期 blocker 已由 PID-owned runner 解决；Playwright 17/17 可以自然返回 exit code 0，服务和端口能够清理。
+- DeepSeek 在固定 15 秒预算下的限定窗口为 3/6 成功、3/6 timeout；该结果保留为上游长尾延迟证据，不驱动 Prompt、Schema、模型 fallback、retry 或 timeout 变更。
+- 随后通过既有 `OPENAI_*` 兼容路径，以本地忽略配置运行 ChatAnywhere / `gpt-5.6-terra` / `high`。固定六条 Web Smoke 为 6/6 成功、0 timeout，Gateway 延迟约 2.7～5.1 秒，覆盖 unknown、范围日期、someday、多意图和明确日期；严重编造为 0。
+- 正式写入边界已再次验证：确认前 Task 5、Knowledge 2、TaskPlanEvent 5、Decision 0；确认一条明确日期 Proposal 后分别为 6、2、6、1，刷新后 Proposal、Decision 和 Task 保留。
+- ChatAnywhere Trial 只改变 `gateway/.dev.vars` 等被 Git 忽略的本地配置，没有新增 tracked Provider 架构；DeepSeek 支持和 tracked 默认没有删除，公开 Demo 仍默认 Mock。
+- 当前只进行最终工程收口、PR Review 和 CI；不得自动开始 20～30 条真实试用、公网 AI 部署或新的产品功能。
+
+### 历史 Step 1：DeepSeek 本地 Gateway 的 Day 1 定向复验
 
 这是本地验证任务，不扩展到公网、完整长期试用或新的产品能力：
 
@@ -374,7 +384,7 @@ Agent 不得自行恢复公网部署工作。
 
 验收后立即停止，不顺手修改 Prompt、Provider、超时或产品代码。
 
-#### 2026-08-07 Day 1 合成 Smoke（脱敏记录，当前仍 FIX REQUIRED）
+#### 2026-08-07 Day 1 合成 Smoke（脱敏历史记录）
 
 本轮仅使用合成输入和本地 Gateway；未记录 Key、原始上游响应或真实用户数据。所有成功结果
 只停留在 pending Proposal，未经过 UserDecision / Reducer，正式数据写入为零。
@@ -384,37 +394,74 @@ Agent 不得自行恢复公网部署工作。
 - “下个月主页”：HTTP 504，约 15.04 秒；安全分类 `upstream_response` / `api_adapter` / `upstream_timeout`。失败未静默回退，正式数据仍为零。
 - Smoke 4–6 因失败即停止，未执行；首次受沙箱限制出现的 `network_error` 属执行环境限制，不计为模型失败。
 
-当前结论仍为 FIX REQUIRED：不得依据单次上游超时提高 15 秒 timeout 或改写 Prompt；等待监督判断后再决定下一步。
+当时结论为 FIX REQUIRED：不得依据单次上游超时提高 15 秒 timeout 或改写 Prompt；后续当前下一步以本节下方的 teardown Gate 复验和限定六类 Smoke 计划为准。
 
-#### 2026-08-08 当前分支交接状态（`fix/cloud-proposal-conservative-semantics`）
+#### 2026-08-08 当前分支交接状态（`fix/cloud-proposal-conservative-semantics`，teardown Gate 前的历史记录）
 
 - 核心真实 AI Pipeline 已接通；AI 仍只生成 pending Proposal，只有 UserDecision → Reducer 可以写入正式数据，其他产品不变量不变。
 - 已通过：offline self-test、Gateway 45、Jest 72、typecheck、lint、`export:web` 与 `git diff --check`。
-- 完整 `npm run test:e2e` 的 17/17 断言均显示 `ok`，但 Windows 在第一个 Playwright `webServer` teardown 后卡住，480 秒外层以退出码 124 结束；不能算 E2E 门禁通过，当前仍为 FIX REQUIRED。
+- 历史上，完整 `npm run test:e2e` 曾出现 17/17 断言显示 `ok`、但 Windows 在 Playwright `webServer` teardown 后卡住并由 480 秒外层以退出码 124 结束的 blocker；该结论已由下方当前 teardown Gate 复验取代。
 - 真实合成 Smoke 1、2 成功，Smoke 3 在 15 秒安全超时，4–6 未执行；不得据此调整 Prompt、模型、timeout 或 retry。
-- 唯一推荐下一步：独立解决 Playwright/Expo 的 Windows 进程退出问题，取得 `npm run test:e2e` 自然退出码 0 后，再做最终审查/PR。
+- 当时的唯一推荐下一步是独立解决 Playwright/Expo 的 Windows 进程退出问题；当前状态见下方 teardown Gate 复验。
 - 当前工作区未提交、未 push、未部署；分支范围与验证状态见 [分支说明](docs/branches/fix-cloud-proposal-conservative-semantics.md)。
 
-### Step 2：运行五条本地合成 Smoke
+#### 2026-08-09 Windows E2E 生命周期 Gate（已修复）
 
-覆盖：
+历史 480 秒 / 124 是 Playwright `webServer` 承担 Expo 与 mock Gateway 生命周期时的 Windows
+blocker；它不再是当前未解决问题。当前工作树移除了 Playwright `webServer`，改由
+PID-owned Node runner 启动、健康检查并只清理自己记录的 Expo / mock Gateway 子树。
 
-1. 普通工作任务；
-2. 明确或相对日期；
-3. 等待他人；
-4. 稍后处理；
-5. 知识沉淀。
+- 改动仅限 `package.json`、`playwright.config.ts`、`e2e/lifecycle-runner.mjs`、`e2e/run-e2e.mjs`、`e2e/lifecycle-runner-self-test.mjs`；未改产品、领域、AI 或 Gateway 业务语义。
+- 生命周期 Node 自测 5/5 通过：端口占用会在启动服务前失败；成功路径清理自有服务；子命令失败码原样传播；清理只针对记录 PID；重复清理幂等。
+- 受控 8081 端口污染会快速非零失败，不会静默复用 Cloud / Mock 服务，也不会启动 8082 或 8788。
+- 执行线程在端口干净条件下连续两轮完整 `npm run test:e2e` 均为 17/17，Playwright 与 runner 均自然返回 code 0；每轮后 8081、8082、8788 及本轮相关进程均已清理。监督也独立复跑 17/17、exit 0，并确认无端口或进程残留。
+- 该 runner 使用记录 PID 的受限清理，不依赖 `process.exit(0)`、忽略退出码、全局按进程名终止或复用既有服务；Windows 原问题由移除 `webServer` 生命周期责任得到规避。Node 子进程与记录 PID 的设计保持跨平台；CI/Linux 未被人为跳过或放宽。
 
-逐条确认：
+#### 2026-08-09 DeepSeek 六类 Web Smoke（早期外部阻塞记录）
 
-- 收件箱显示“云端 AI”；
-- 标题、分类、耗时、日期和下一步可理解；
-- 用户确认前没有 Task 或 Knowledge 写入；
-- 用户确认后复用现有 Reducer；
-- 日历、回顾和刷新恢复正常；
-- 失败时本地规则入口正常。
+该历史窗口的合同为：DeepSeek 官方 API、`deepseek-v4-flash`、`high`、Prompt
+`reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4`、后处理
+`reflow-proposal-conservative-normalizer-v2` 与 15 秒上游生命周期 deadline。
 
-完成后停止，不依据单个样本重写 Prompt。
+- 六条合成 Web Smoke 分两个受控窗口执行，共实际发出四条且均无重试。第一窗口的第 1、2 条分别约 3.6 秒和 3.5 秒后安全 unavailable；第二窗口的第 3、4 条分别约 0.44 秒和 3.74 秒后安全 unavailable。每个窗口都在连续两条 unavailable 后停止，因此第 5、6 条未发送，且从未切换 Mock。
+- 因没有返回 Proposal，当时不能验收分类、日期、nullable 字段或人工语义；该窗口的语义 Gate 为 **FAIL / blocked by external generation availability**，当时不可声称 PR-ready。
+- 两个窗口的 UI 都明确提供“重新使用云端整理”和“使用本地规则整理”入口，未发生静默回退。客户端安全失败码为 `proposal_unavailable`；在 diagnostics=false 条件下不能把它进一步断言为某个具体上游 HTTP 状态。Key、Prompt 与上游响应均未泄露。
+- 第二窗口的产品级备份计数再次证明确认前正式数据未写入：Task 5→5、Knowledge 2→2、TaskPlanEvent 5→5、Decision 0→0；仅增加两条失败 Capture，未产生 Proposal，也未经过 UserDecision / Reducer。
+- 监督后续只读验证 `/models` 与 `/user/balance` 均为 HTTP 200，目标模型可见且 `is_available=true`。这排除了持续性的 Key、余额或模型不可见问题，但不证明生成请求可用，也不能精确反推前两次上游状态。
+- 两个窗口的临时 UI 备份均已删除；8081 与 8787 已释放，相关本轮进程为零，诊断开关已恢复并保持关闭。
+
+#### 2026-08-09 DeepSeek 限量脱敏诊断与继续验收（历史记录）
+
+用户随后授权最多三条真实 Web UI 诊断请求。Gateway 仅临时记录白名单字段，未记录 Capture
+原文、Proposal 字段值、Prompt、Schema、Key、认证头或上游正文；诊断结束后本地文件和新启动的
+Gateway 运行时均已恢复为 `diagnostics=false`。
+
+- D1 成功：Gateway 约 12.5 秒、UI 约 12.8 秒；没有诊断事件。返回普通任务建议，范围日期保持 `suggestedDate=null`、去向待用户选择，没有回退到 today。
+- D2 失败：Gateway 约 15.0 秒、UI 约 15.4 秒；诊断为 `failureStage=upstream_response`、`classification=api_adapter`、`code=upstream_timeout`。按本轮分类属于 `other`，不是 local/network，也没有证据表明是 upstream 5xx。
+- D3 成功：Gateway 约 6.8 秒。测试动作因上一条失败后输入框保留文本而把两段合成输入拼接；模型保守返回未识别、日期/耗时/下一步为空，没有静默丢掉其中一项或创建多个 Proposal。该结果可作为多意图保守性的补充证据，但不能替代独立明确日期案例。
+- 本轮没有复现 `proposal_unavailable`，因此不能用这次结果追溯早期四次 unavailable 的唯一来源；早期状态仍只能归入 network 或 upstream 5xx 的安全合集。
+
+关闭诊断并重启 Gateway 后继续最小语义验收：
+
+- 独立明确日期案例约 4.0 秒成功，云端 Proposal 正确给出工作推进、次日本地日期、约 60 分钟和非空下一步。确认前该标题在 Today/Calendar 均为 0；点击确认后才出现一条最近决定和次日日历任务，刷新后二者仍保留。
+- 明确 someday 的一次显式重试约 15.0 秒安全超时；精确多意图案例约 15.0 秒安全超时。两条均未切 Mock、未增加自动 retry、未修改 15 秒 deadline。
+- 本窗口共 6 次请求：3 次成功、3 次上游响应超时。成功草案中严重编造为 0；正式写入只发生在独立明确日期案例的显式 UserDecision 之后。
+- 结束后 8081/8787 无监听，浏览器标签与本轮服务均已关闭，`diagnostics=false`，`CONTRIBUTING.md` 无差异，`git diff --check` 通过。
+- 窗口结束后的完整本地门禁再次通过：typecheck、lint、Jest 72/72、Gateway 45/45、离线 proposal self-test、Playwright 17/17 自然 exit 0、静态导出 7 条路由；E2E runner 完成自有进程清理。
+
+该 DeepSeek 窗口当时的结论为 **FAIL / external latency blocks semantic completion**：Pipeline、安全失败、明确日期、范围日期和确认后持久化已有真实证据；someday 与精确多意图案例仍未在该窗口返回可验收 Proposal。该历史结果不支持修改 Prompt、Schema、retry 或 15 秒 deadline，之后由下方 ChatAnywhere 兼容路径 Trial 补齐语义证据。
+
+#### 2026-08-09 ChatAnywhere 兼容路径 Trial（当前最终模型验证）
+
+- 沿用现有 Responses API、Prompt v6、Schema v4、Normalizer v2、`high` 和 15 秒 deadline，仅通过被 Git 忽略的本地 `OPENAI_*` 配置切换到 ChatAnywhere / `gpt-5.6-terra`；没有修改 tracked Provider 架构，也没有删除 DeepSeek 支持。
+- 固定六条真实 Web Smoke 每条请求一次，结果为 6/6 success、0 timeout。Gateway 平均约 3.49 秒，范围约 2.71～5.15 秒，没有超过 12 秒的边缘请求。
+- “参赛材料”保持 unknown 和 nullable 执行字段；“这周末”“下个月”不猜具体日期且不回退 today；“以后有空”进入 someday；多意图保留全部行动并提示拆开；明确次日加一小时正确返回本地次日和 60 分钟。
+- 严重编造为 0，所有 Draft 通过严格 Schema 与领域组合校验。确认前正式数据零增量；只有用户明确确认后才创建 Task、Decision 和 TaskPlanEvent，刷新后保留。
+- Gateway 45/45 和离线 Proposal self-test 通过；本地 API Key、Provider 配置和 DeepSeek 本地备份均被 Git 忽略，诊断最终关闭，测试服务与端口已清理。
+
+### 当前下一步：PR Review
+
+当前阶段只允许整理最终 diff、运行完整门禁、提交并推送当前功能分支，然后进入 PR Review。合并前以 CI 结果和 reviewer 对完整 diff 的审查为准；不要自动开始长期真实试用或新的产品方向。
 
 ### Step 3：改善安全错误分类
 
@@ -541,7 +588,7 @@ Agent 不得自行恢复公网部署工作。
 7. **真实模型先评测再接入。** P0 的重复困难案例、Prompt 注入和版本记录避免了凭少量成功样本做判断。
 8. **Nullable 字段要诚实展示。** “未估计”和“待补充”优于用默认文案伪装成 AI 结果。
 9. **错误信息既要安全，也要可行动。** 当前额度不足被折叠成通用错误，说明安全映射仍需保留足够的用户可操作性。
-10. **部署分支必须与开发分支一致。** Pages 曾只监听 `lsc`，现已改为 `v1` 并验证官方部署。
+10. **部署分支必须与稳定分支一致。** Pages 曾先后监听 `lsc` 和 `v1`；当前 CI 与 Pages 均以 `main` 为稳定分支，功能分支通过 PR 合入后才发布。
 11. **真实使用问题应先累计再修。** 单个样本不能证明 Prompt 有系统性缺陷。
 12. **每次只改变一个变量。** Prompt、Schema、后处理和 UI 同时变化会让评测结果无法归因。
 
