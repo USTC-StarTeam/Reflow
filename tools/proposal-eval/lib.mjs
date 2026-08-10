@@ -78,6 +78,7 @@ function weekdayDate(text, referenceDate) {
     : match[1].startsWith('本') || match[1].startsWith('这')
       ? target - current
       : (target - current + 7) % 7;
+  if ((match[1] === '本周' || match[1] === '这周') && delta < 0) return null;
   return addLocalDays(referenceDate, delta);
 }
 
@@ -147,7 +148,7 @@ function hasHighConfidenceMultipleActions(text) {
   const semicolonClauses = text.split(/[；;]/u).filter(hasSubstantiveClause);
   if (semicolonClauses.length >= 2) return true;
 
-  for (const match of text.matchAll(/(?:然后|接着|随后|再(?:把|去))/gu)) {
+  for (const match of text.matchAll(/(?:然后|接着|随后|再把)/gu)) {
     const before = text.slice(0, match.index);
     const after = text.slice((match.index ?? 0) + match[0].length);
     if (hasSubstantiveClause(before) && hasSubstantiveClause(after)) return true;

@@ -80,6 +80,10 @@ async function main() {
   assert(inferDeterministicSuggestedDate('明天下午整理说明', '2026-07-24') === '2026-07-25', '明天日期归一化失败。');
   assert(inferDeterministicSuggestedDate('下个月3号整理说明', '2026-12-20') === '2027-01-03', '下个月具体日期归一化失败。');
   assert(inferDeterministicSuggestedDate('下个月第一个周一去银行更新预留手机号', '2026-07-24') === '2026-08-03', '下个月第一个周一归一化失败。');
+  assert(inferDeterministicSuggestedDate('下周三整理材料', '2026-07-24') === '2026-07-29', '下周三必须解析为唯一的未来日期。');
+  for (const rawText of ['本周三整理材料', '这周三整理材料']) {
+    assert(inferDeterministicSuggestedDate(rawText, '2026-07-24') === null, `${rawText} 在周五不应生成过去的 planning date。`);
+  }
   assert(inferDeterministicSuggestedDate('这周末整理说明', '2026-07-24') === null, '周末不应臆测具体日期。');
   assert(inferDeterministicSuggestedDate('月底整理说明', '2028-02-10') === null, '月底不应臆测具体日期。');
 
@@ -98,12 +102,22 @@ async function main() {
   assert(someday.suggestedBucket === 'someday' && someday.suggestedDate === null, '明确以后有空应为 someday。');
   const explicitSomeday = postprocessDraft({ ...baseTask, suggestedBucket: 'someday' }, { rawText: '以后有空整理项目说明', referenceDate: '2026-07-24' });
   assert(explicitSomeday.suggestedBucket === 'someday' && explicitSomeday.suggestedDate === null, '明确延后应保留 someday。');
+  const deferredRevisit = postprocessDraft(baseTask, { rawText: '以后再去医院复查', referenceDate: '2026-07-24' });
+  assert(deferredRevisit.category === baseTask.category
+    && deferredRevisit.suggestedBucket === 'someday'
+    && deferredRevisit.suggestedDate === null,
+  '以后再去医院复查是单一明确延期，不应被多意图 safeguard 改写。');
   for (const rawText of ['哪天再弄一下个人主页', '个人主页暂时不急', '回头再整理项目说明']) {
     const deferred = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
     assert(deferred.suggestedBucket === 'someday' && deferred.suggestedDate === null, `${rawText} 应识别为明确延期。`);
   }
   const rangedRetry = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-25' }, { rawText: '下周再整理项目说明', referenceDate: '2026-07-24' });
   assert(rangedRetry.suggestedBucket === null && rangedRetry.suggestedDate === null, '下周再整理仍是无具体日期的范围，不应变成 someday。');
+  const nextWednesdayBank = postprocessDraft(baseTask, { rawText: '下周三再去银行', referenceDate: '2026-07-24' });
+  assert(nextWednesdayBank.category === baseTask.category
+    && nextWednesdayBank.suggestedBucket === 'today'
+    && nextWednesdayBank.suggestedDate === '2026-07-29',
+  '下周三再去银行是单一明确日期，不应被多意图 safeguard 拦截。');
   const monthRangeWithModelSomeday = postprocessDraft({ ...baseTask, suggestedBucket: 'someday' }, { rawText: '下个月把个人主页重新整理一下', referenceDate: '2026-07-24' });
   assert(monthRangeWithModelSomeday.suggestedBucket === null && monthRangeWithModelSomeday.suggestedDate === null, '下个月不能因模型误给 someday 而变成稍后。');
   const knowledge = {
@@ -166,7 +180,11 @@ async function main() {
     assert(trailingSemicolonMulti.category === 'unknown' && trailingSemicolonMulti.title === rawText && trailingSemicolonMulti.reason.includes('拆开'), `${rawText} 必须忽略尾随分号后仍识别多个独立行动。`);
   }
   const highConfidenceMulti = postprocessDraft(baseTask, { rawText: '周末把 Agent 资料整理一下，再把排协网站首页也重新整理一下', referenceDate: '2026-07-24' });
-  assert(highConfidenceMulti.category === 'unknown' && highConfidenceMulti.title.includes('Agent 资料') && highConfidenceMulti.title.includes('排协网站首页'), '高置信度顺序结构必须保留全部行动并提示拆分。');
+  assert(highConfidenceMulti.category === 'unknown'
+    && highConfidenceMulti.title.includes('Agent 资料')
+    && highConfidenceMulti.title.includes('排协网站首页')
+    && highConfidenceMulti.reason.includes('拆开'),
+  '再把这一高置信度顺序结构必须保留全部行动并提示拆分。');
   for (const rawText of ['下载并安装软件', '整理并提交申请材料', '了解报名时间以及要求', '阅读论文并做笔记']) {
     const coherentTask = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
     assert(coherentTask.category === baseTask.category
