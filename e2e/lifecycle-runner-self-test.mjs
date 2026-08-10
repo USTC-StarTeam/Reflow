@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createServer } from 'node:http';
-import { once } from 'node:events';
 import { cleanupServices, runE2ELifecycle } from './lifecycle-runner.mjs';
 
 function fakeChild(pid) {
