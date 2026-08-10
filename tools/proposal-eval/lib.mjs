@@ -73,12 +73,13 @@ function weekdayDate(text, referenceDate) {
   const [year, month, day] = referenceDate.split('-').map(Number);
   const rawWeekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
   const current = rawWeekday === 0 ? 7 : rawWeekday;
+  const isCurrentWeek = match[1].startsWith('本') || match[1].startsWith('这');
   const delta = match[1].startsWith('下')
     ? 7 - current + target
-    : match[1].startsWith('本') || match[1].startsWith('这')
+    : isCurrentWeek
       ? target - current
       : (target - current + 7) % 7;
-  if ((match[1] === '本周' || match[1] === '这周') && delta < 0) return null;
+  if (isCurrentWeek && delta < 0) return null;
   return addLocalDays(referenceDate, delta);
 }
 
@@ -148,7 +149,7 @@ function hasHighConfidenceMultipleActions(text) {
   const semicolonClauses = text.split(/[；;]/u).filter(hasSubstantiveClause);
   if (semicolonClauses.length >= 2) return true;
 
-  for (const match of text.matchAll(/(?:然后|接着|随后|再把)/gu)) {
+  for (const match of text.matchAll(/(?:然后|接着|随后)/gu)) {
     const before = text.slice(0, match.index);
     const after = text.slice((match.index ?? 0) + match[0].length);
     if (hasSubstantiveClause(before) && hasSubstantiveClause(after)) return true;
