@@ -5,7 +5,8 @@ Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
 当前版本以 Web 为主要验收平台，桌面浏览器和手机浏览器都可以直接使用。项目保留 Expo / React Native 的跨端结构，但暂未发布原生安装包。
 
 - 在线 Demo：[https://ustc-starteam.github.io/Reflow/](https://ustc-starteam.github.io/Reflow/)
-- 当前版本分支：[USTC-StarTeam/Reflow · v1](https://github.com/USTC-StarTeam/Reflow/tree/v1)
+- 稳定版本分支：[USTC-StarTeam/Reflow · main](https://github.com/USTC-StarTeam/Reflow/tree/main)
+- 当前 Cloud Proposal 开发分支：`fix/cloud-proposal-conservative-semantics`
 - 当前产品版本：V1，本地时间规划 MVP
 
 > 当前开发环境已支持通过本地 Gateway 调用真实云端模型生成 Proposal；公开在线 Demo 仍默认使用确定性的本地规则，不会发起第三方 AI 请求。账号、云同步和第三方平台集成尚未实现。
@@ -85,6 +86,8 @@ Capture → ProposalService → AIProposal → UserDecision
 - `CloudProposalService`：通过本地 Gateway 调用真实云端模型，并把严格校验后的 Draft 映射为同一种 `AIProposal`。
 
 Cloud 模式仍然复用相同的 Inbox、UserDecision、Reducer 和任务执行逻辑，不会让模型越过用户确认边界。
+
+Gateway 的 tracked 默认配置仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度；同时保留 `OPENAI_*` 兼容配置。当前合同使用 Prompt `reflow-proposal-conservative-v7`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v3`。2026-08-09 使用当时的 v6/v4/v2 合同和被 Git 忽略的本地配置完成了 ChatAnywhere / `gpt-5.6-terra` / `high` 六条 Web Smoke，结果为 6/6 成功、0 timeout；这不会改变公开 Demo 默认使用 Mock，也不会把本地 Provider 配置写入仓库。
 
 当前版本不包含 ReAct 循环、自主工具选择、多 Agent、长期自主运行或通用 Agent Runtime。
 
@@ -177,7 +180,7 @@ Cloud 模式需要同时运行本地 Gateway 和 Expo Web。模型 API Key 只�
 Copy-Item gateway/.dev.vars.example gateway/.dev.vars
 ```
 
-在被 Git 忽略的 `gateway/.dev.vars` 中填写 `OPENAI_API_KEY`，然后启动 Gateway：
+在被 Git 忽略的 `gateway/.dev.vars` 中填写 `DEEPSEEK_API_KEY`。Gateway 默认使用 DeepSeek 官方 Responses API、`deepseek-v4-flash` 和 `high` 推理强度；旧 `OPENAI_*` 配置仍兼容。然后启动 Gateway：
 
 ```powershell
 npm run gateway
@@ -217,7 +220,7 @@ npm run web
 1. 打开左上角品牌入口并重置 Demo 数据。
 2. 在“今天”输入一条事项，例如“整理下周汇报提纲”。
 3. 前往“收件箱”，查看整理后的标题、分类、预计耗时和下一步行动。
-4. 修改内容或分类，然后确认加入今天。
+4. 修改内容或分类；没有建议日期时，先明确选择计划日期，再确认加入对应日期。
 5. 回到“今天”，点击未排期任务并安排日期、开始时间和时长。
 6. 如有冲突，确认系统不会自动修改其他任务，再选择取消或“仍然安排”。
 7. 开始任务，在“进行中”记录进展、耗时和打断，然后完成任务。
@@ -233,13 +236,13 @@ npm run typecheck
 # ESLint
 npm run lint
 
-# 61 个 Jest 单元测试
+# 72 个 Jest 单元测试
 npm test
 
-# 8 个本地 Gateway 单元测试
+# 45 个本地 Gateway 单元测试
 npm run test:gateway
 
-# 10 条 Web 核心流程
+# 17 条 Web 核心流程
 npm run test:e2e
 
 # 导出静态 Web，产物位于 dist/
@@ -290,11 +293,11 @@ python -m http.server 4173 -d dist
 
 然后访问 `http://localhost:4173`。
 
-`v1` 分支的 push 会触发 GitHub Actions 验证：
+面向 `main` 的 Pull Request 和 `main` 分支的 push 会触发 GitHub Actions 验证：
 
 - 类型检查、lint、Jest、Gateway 单元测试、Playwright E2E 和静态导出。
 
-官方仓库使用 GitHub Actions 发布 Pages。`v1` 分支 push 后会分别触发完整验证和静态站点部署，在线 Demo 始终保持本地规则（Mock）为默认模式，不会因为部署最新前端而自动调用云端模型。
+官方仓库使用 GitHub Actions 发布 Pages。改动通过 PR 合入 `main` 后，`main` 的 push 会触发完整验证和静态站点部署；功能分支本身不会直接发布。在线 Demo 始终保持本地规则（Mock）为默认模式，不会因为部署最新前端而自动调用云端模型。
 
 ## 数据与隐私
 
@@ -332,12 +335,12 @@ python -m http.server 4173 -d dist
 
 ## 开发与协作
 
-- 当前版本分支为 `v1`；
+- 稳定版本分支为 `main`，当前 Cloud Proposal 开发分支为 `fix/cloud-proposal-conservative-semantics`；
 - 不 force push，不重写 `main` 历史；
 - 不删除已有产品参考文件；
 - 新功能优先保证核心流程稳定、可追踪、可撤销；
 - 提交前应运行与改动相关的检查；
-- `v1` 推送后由 GitHub Actions 自动验证。
+- 面向 `main` 的 PR 由 GitHub Actions 自动验证，合入 `main` 后再部署 Pages。
 
 更详细的实施里程碑和领域约束见 [docs/implementation-plan.md](docs/implementation-plan.md)。
 

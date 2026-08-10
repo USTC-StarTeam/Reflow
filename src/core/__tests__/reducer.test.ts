@@ -10,7 +10,7 @@ describe('domain reducer', () => {
   it('creates formal tasks only after an explicit user decision and can undo it', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
     const beforeTaskCount = seed.tasks.length;
-    const transition = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-contract', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', edited: taskEdit } });
+    const transition = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-contract', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', plannedDate: '2026-07-17', edited: taskEdit } });
     expect(transition).toMatchObject({ status: 'success' });
     if (transition.status !== 'success') throw new Error('expected success');
     expect(transition.data.tasks).toHaveLength(beforeTaskCount + 1);
@@ -109,6 +109,22 @@ describe('domain reducer', () => {
     });
   });
 
+  it('does not infer today when a confirmed task omitted its planned date', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const beforeTaskCount = seed.tasks.length;
+    const result = reduceDomain(seed, {
+      type: 'submitUserDecision',
+      decisionId: 'decision-no-today-fallback',
+      at: now,
+      decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', edited: taskEdit },
+    });
+    expect(result).toMatchObject({
+      status: 'failure',
+      failure: { code: 'invalid_schedule' },
+    });
+    expect(result.data.tasks).toHaveLength(beforeTaskCount);
+  });
+
   it('creates a knowledge outcome without creating a task', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
     const capture = { id: 'capture-knowledge', rawText: '沉淀报价原则', source: 'webText' as const, createdAt: now, pipelineState: 'proposed' as const };
@@ -141,7 +157,7 @@ describe('domain reducer', () => {
 
   it('trims whitespace from accepted task title and next action', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00'));
-    const created = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-trim-create', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', edited: { title: '  审阅新版合同  ', category: 'work', estimatedMinutes: 35, nextAction: ' 标记风险条款 ' } } });
+    const created = reduceDomain(seed, { type: 'submitUserDecision', decisionId: 'decision-trim-create', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', plannedDate: '2026-07-17', edited: { title: '  审阅新版合同  ', category: 'work', estimatedMinutes: 35, nextAction: ' 标记风险条款 ' } } });
     expect(created).toMatchObject({ status: 'success' });
     expect(created.data.tasks.find((task) => task.id === 'task-decision-trim-create-0'))
       .toMatchObject({ title: '审阅新版合同', nextAction: '标记风险条款' });
@@ -177,7 +193,7 @@ describe('domain reducer', () => {
 
     const asTask = reduceDomain(seed, {
       type: 'submitUserDecision', decisionId: 'decision-as-task', at: now,
-      decision: { kind: 'accept', proposalId: 'proposal-knowledge', bucket: 'today', edited: { title: '整理报价原则', category: 'learning', estimatedMinutes: 20, nextAction: '形成行动清单', visibleClassification: 'learning' } },
+      decision: { kind: 'accept', proposalId: 'proposal-knowledge', bucket: 'today', plannedDate: '2026-07-17', edited: { title: '整理报价原则', category: 'learning', estimatedMinutes: 20, nextAction: '形成行动清单', visibleClassification: 'learning' } },
     });
     expect(asTask.data.tasks.find((task) => task.title === '整理报价原则')).toMatchObject({ category: 'learning', bucket: 'today' });
     expect(asTask.data.decisions[0]).toMatchObject({ outcome: 'task', edited: { visibleClassification: 'learning' } });
@@ -198,7 +214,7 @@ describe('domain reducer', () => {
     expect(reduceDomain(seed, { type: 'recordTime', taskId: 'task-reflow-demo', minutes: 0, at: now })).toMatchObject({ status: 'failure', failure: { code: 'invalid_time' } });
     expect(reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-reflow-demo', startAt: now, endAt: now, at: now })).toMatchObject({ status: 'failure', failure: { code: 'invalid_schedule' } });
 
-    const accepted = domainReducer(seed, { type: 'submitUserDecision', decisionId: 'decision-exec', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', edited: taskEdit } });
+    const accepted = domainReducer(seed, { type: 'submitUserDecision', decisionId: 'decision-exec', at: now, decision: { kind: 'accept', proposalId: 'proposal-contract', bucket: 'today', plannedDate: '2026-07-17', edited: taskEdit } });
     const createdTask = accepted.tasks.find((task) => task.title === taskEdit.title);
     if (!createdTask) throw new Error('expected created task');
     const executed = domainReducer(accepted, { type: 'recordTime', taskId: createdTask.id, minutes: 15, at: now });

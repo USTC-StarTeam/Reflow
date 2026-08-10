@@ -63,7 +63,6 @@ describe('persistence v4', () => {
       kind: 'create' as const,
       status: 'pending' as const,
       nextAction: null,
-      suggestedBucket: 'today' as const,
       waitingDetails: null,
       knowledgeSummary: null,
       provider: 'cloud' as const,

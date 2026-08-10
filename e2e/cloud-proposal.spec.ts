@@ -74,6 +74,162 @@ test('Cloud Knowledge Proposal 只在用户确认后创建知识卡片', async (
   await expect(page.getByText('评审前先确认验收口径，可以减少返工。')).toBeVisible();
 });
 
+test('Cloud UI 保留 Gateway 返回的模糊 Proposal，补充后仍需主动选择日期', async ({ page }) => {
+  const input = '竞赛展示材料';
+  const editedTitle = '整理竞赛展示材料';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+
+  let proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await expect(proposal).toContainText('未识别');
+  await expect(proposal).toContainText('未提取具体日期');
+  await expect(proposal).toContainText('待补充');
+  await expect(proposal.getByRole('button', { name: '确认并加入今天' })).toHaveCount(0);
+
+  // Pending Proposal 尚未转成正式任务。
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText('待补充的事项', { exact: true })).toHaveCount(0);
+  await page.getByTestId('nav-收件箱').click();
+
+  proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await proposal.getByRole('button', { name: '补充信息' }).click();
+  const dateInput = proposal.locator('[data-testid^="proposal-date-"]');
+  await expect(dateInput).toHaveValue('');
+  await expect(dateInput).toHaveAttribute('placeholder', 'YYYY-MM-DD');
+
+  await proposal.locator('[data-testid^="proposal-classification-"]').click();
+  await page.getByTestId('classification-option-work').click();
+  await proposal.locator('[data-testid^="proposal-title-"]').fill(editedTitle);
+  await proposal.locator('[data-testid^="proposal-minutes-"]').fill('30');
+  await proposal.locator('[data-testid^="proposal-next-action-"]').fill('确认背景并完成处理');
+  await expect(dateInput).toHaveValue('');
+  await expect(proposal.getByRole('button', { name: '选择计划日期' })).toBeVisible();
+  const tomorrow = await browserLocalDateAfter(page, 1);
+  await dateInput.fill(tomorrow);
+  await proposal.getByRole('button', { name: `确认并安排到 ${tomorrow}` }).click();
+
+  await page.getByTestId('nav-日历').click();
+  await page.getByTestId(`calendar-day-${tomorrow}`).click();
+  await expect(page.locator('[data-testid^="calendar-entry-"]', { hasText: editedTitle })).toBeVisible();
+});
+
+test('Cloud 清晰无日期任务不默认 today，选择日期前不创建 Task', async ({ page }) => {
+  const input = '整理项目复盘提纲';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+
+  let proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await expect(proposal).toContainText('工作推进');
+  await expect(proposal).toContainText('待选择计划日期');
+  await expect(proposal.getByRole('button', { name: '选择计划日期' })).toBeVisible();
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText(input, { exact: true })).toHaveCount(0);
+  await page.getByTestId('nav-收件箱').click();
+
+  proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await proposal.getByRole('button', { name: '选择计划日期' }).click();
+  const dateInput = proposal.locator('[data-testid^="proposal-date-"]');
+  await expect(dateInput).toHaveValue('');
+  const tomorrow = await browserLocalDateAfter(page, 1);
+  await dateInput.fill(tomorrow);
+  await proposal.getByRole('button', { name: `确认并安排到 ${tomorrow}` }).click();
+  await page.getByTestId('nav-日历').click();
+  await page.getByTestId(`calendar-day-${tomorrow}`).click();
+  await expect(page.locator('[data-testid^="calendar-entry-"]', { hasText: input })).toBeVisible();
+});
+
+test('Cloud 明确今天使用本地今天并可确认', async ({ page }) => {
+  const input = '今天整理项目周报';
+  await page.goto('/');
+  await resetDemo(page);
+  const today = await browserLocalDateAfter(page, 0);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await expect(proposal).toContainText(today);
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText('整理项目周报', { exact: true })).toBeVisible();
+});
+
+test('Cloud 模糊未来范围不补具体日期，确认前不创建 Task', async ({ page }) => {
+  const input = '这周末梳理学习笔记';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await expect(proposal).toContainText('未提取具体日期');
+  await expect(proposal).toContainText('待选择计划日期');
+  await expect(proposal.getByRole('button', { name: '确认并加入今天' })).toHaveCount(0);
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText(input, { exact: true })).toHaveCount(0);
+});
+
+test('Cloud UI 展示 Gateway 返回的多意图拆分提示且确认前不创建任务', async ({ page }) => {
+  const input = '周末把 Agent 资料整理一下，再把排协网站首页也重新整理一下';
+  await page.goto('/');
+  await resetDemo(page);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: input });
+  await expect(proposal).toHaveCount(1);
+  await expect(proposal).toContainText('请拆开');
+  await expect(proposal).toContainText('未识别');
+  await expect(proposal.getByRole('button', { name: '确认并加入今天' })).toHaveCount(0);
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText('Agent 资料', { exact: false })).toHaveCount(0);
+  await expect(page.getByText('排协网站首页', { exact: false })).toHaveCount(0);
+});
+
+test('Cloud 下个月不是稍后，明确以后有空才保存到稍后', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+
+  await page.getByTestId('quick-capture-input').fill('下个月把个人主页重新整理一下');
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  let proposal = page.locator('[data-testid^="proposal-"]', { hasText: '下个月把个人主页重新整理一下' });
+  await expect(proposal).toContainText('未提取具体日期');
+  await expect(proposal).toContainText('待选择计划日期');
+  await expect(proposal.getByRole('button', { name: '保存到稍后' })).toHaveCount(0);
+
+  await page.getByTestId('nav-今天').click();
+  await page.getByTestId('quick-capture-input').fill('以后有空把个人主页重新弄一下');
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  proposal = page.locator('[data-testid^="proposal-"]', { hasText: '个人主页重新弄一下' });
+  await expect(proposal).toContainText('稍后处理');
+  await expect(proposal).toContainText('60 分钟');
+  await expect(proposal.getByRole('button', { name: '保存到稍后' })).toBeVisible();
+});
+
+test('Cloud 明天加明确 60 分钟保留日期、时长与可编辑确认边界', async ({ page }) => {
+  const input = '明天下午把 Reflow 目前的进度整理一下，准备一份给师兄看的简要汇报，大概一个小时';
+  await page.goto('/');
+  await resetDemo(page);
+  const tomorrow = await browserLocalDateAfter(page, 1);
+  await page.getByTestId('quick-capture-input').fill(input);
+  await page.getByTestId('quick-capture-submit').click();
+  await page.getByTestId('nav-收件箱').click();
+  const proposal = page.locator('[data-testid^="proposal-"]', { hasText: '整理 Reflow 进度' });
+  await expect(proposal).toContainText(tomorrow);
+  await expect(proposal).toContainText('60 分钟');
+  await expect(proposal).toContainText('汇总当前进度');
+  await expect(proposal.getByRole('button', { name: `确认并安排到 ${tomorrow}` })).toBeVisible();
+  await page.getByTestId('nav-今天').click();
+  await expect(page.getByText('整理 Reflow 进度并准备简要汇报', { exact: true })).toHaveCount(0);
+});
+
 test('Cloud 失败保留 Capture，用户明确选择本地规则后恢复', async ({ page }) => {
   const input = '云端失败测试事项';
   await page.goto('/');

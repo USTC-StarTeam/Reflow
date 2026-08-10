@@ -8,6 +8,16 @@ async function resetDemo(page: Page) {
   await expect(page.getByTestId('reset-demo')).toBeHidden();
 }
 
+async function selectTodayForProposal(page: Page, proposal: ReturnType<Page['locator']>) {
+  const today = await page.evaluate(() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+  await proposal.getByRole('button', { name: '选择计划日期' }).click();
+  await proposal.locator('[data-testid^="proposal-date-"]').fill(today);
+  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+}
+
 test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新后保持可追踪', async ({ page }) => {
   await page.goto('/');
   await resetDemo(page);
@@ -19,7 +29,7 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await page.getByTestId('nav-收件箱').click();
   const proposal = page.locator('[data-testid^="proposal-"]', { hasText: taskText });
   await expect(proposal).toHaveCount(1);
-  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await selectTodayForProposal(page, proposal);
   await expect(page.getByTestId('undo-decision')).toBeVisible();
 
   // UserDecision 是领域数据，接受后立即刷新仍应保留并可撤销。
@@ -29,7 +39,7 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   // 决策事件持久化前，允许撤销并恢复同一条 Proposal。
   await page.getByTestId('undo-decision').click();
   await expect(proposal).toHaveCount(1);
-  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await selectTodayForProposal(page, proposal);
 
   await page.getByTestId('nav-日历').click();
   const calendarEntry = page.locator('[data-testid^="calendar-entry-"]', { hasText: taskText });
@@ -119,7 +129,7 @@ test('点击排期先阻止冲突，用户明确确认后才写入并刷新保�
   await page.getByTestId('quick-capture-submit').click();
   await page.getByTestId('nav-收件箱').click();
   const proposal = page.locator('[data-testid^="proposal-"]', { hasText: text });
-  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await selectTodayForProposal(page, proposal);
   await page.getByTestId('nav-今天').click();
   const task = page.locator('[data-testid^="task-"]', { hasText: text });
   await task.getByRole('button', { name: '安排时间' }).click();

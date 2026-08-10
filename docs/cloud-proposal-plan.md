@@ -1,5 +1,7 @@
 # Reflow 云端 Proposal：P0/P1 实施记录
 
+> 历史边界：本文保留 2026-07-24 的 P0/P1 实施记录及 ChatAnywhere 评测事实；其中的 Provider、模型、版本、Smoke 和测试数量不是当前状态。当前本地 Cloud 默认是 DeepSeek 官方 API / `deepseek-v4-flash` / `high`，并使用 Prompt v7、Schema v4、后处理 v3；以 README、Gateway 文档和当前测试为准。
+
 ## 当前状态
 
 截至 2026-07-24：

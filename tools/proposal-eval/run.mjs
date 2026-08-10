@@ -18,6 +18,8 @@ import {
   validateDraft,
   validateSuite,
 } from './lib.mjs';
+import { readEvaluationProviderConfig } from './config.mjs';
+import { loadDevVars } from '../../gateway/config.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(directory, '..', '..');
@@ -38,32 +40,25 @@ function numberOption(name, fallback) {
   return parsed;
 }
 
-function resolveResponsesUrl() {
-  const direct = args['responses-url'] ?? process.env.OPENAI_RESPONSES_URL;
-  if (direct) return String(direct);
-  const base = args['base-url']
-    ?? process.env.OPENAI_BASE_URL
-    ?? process.env.OPENAI_API_BASE;
-  if (!base) return 'https://api.openai.com/v1/responses';
-  return `${String(base).replace(/\/+$/, '')}/responses`;
-}
-
-function safeApiError(status, body) {
-  const code = typeof body?.error?.code === 'string' ? body.error.code : `http_${status}`;
-  const type = typeof body?.error?.type === 'string' ? body.error.type : 'api_error';
+function safeApiError(status) {
+  const code = `http_${status}`;
+  const type = 'api_error';
   const messages = {
-    400: 'OpenAI 拒绝了评测请求，请检查请求格式。',
-    401: 'OpenAI 认证失败，请检查本地 API Key。',
+    400: '模型服务拒绝了评测请求，请检查请求格式。',
+    401: '模型服务认证失败，请检查本地 API Key。',
+    402: '模型服务账户余额不足。',
     403: '当前 API Key 无权访问所请求的模型或接口。',
     404: '未找到所请求的模型或接口。',
-    409: 'OpenAI 请求发生冲突，请稍后重试。',
-    429: 'OpenAI 请求达到速率或配额限制。',
-    500: 'OpenAI 服务暂时异常。',
-    502: 'OpenAI 上游网关暂时异常。',
-    503: 'OpenAI 服务暂时不可用。',
-    504: 'OpenAI 请求超时。',
+    408: '模型服务请求超时。',
+    409: '模型服务请求发生冲突，请稍后重试。',
+    422: '模型服务拒绝了请求参数，请检查本地配置。',
+    429: '模型服务请求达到速率限制。',
+    500: '模型服务暂时异常。',
+    502: '模型服务上游网关暂时异常。',
+    503: '模型服务暂时不可用。',
+    504: '模型服务请求超时。',
   };
-  const message = messages[status] ?? 'OpenAI API 请求失败。';
+  const message = messages[status] ?? '模型服务 API 请求失败。';
   return { code, type, message };
 }
 
@@ -122,6 +117,7 @@ function assertCompatibleManifest(existing, current) {
 }
 
 async function main() {
+  await loadDevVars();
   const [suite, schema, prompt] = await Promise.all([
     readJson(suitePath),
     readJson(schemaPath),
@@ -140,17 +136,18 @@ async function main() {
   if (args.limit) jobs = jobs.slice(0, numberOption('limit', allJobs.length));
   if (!jobs.length) throw new Error('没有匹配的评测任务。');
 
-  const model = String(args.model ?? process.env.OPENAI_MODEL ?? 'gpt-5.6-terra');
-  const reasoningEffort = String(args.reasoning ?? process.env.OPENAI_REASONING_EFFORT ?? 'high');
+  const providerConfig = readEvaluationProviderConfig({ args, env: process.env });
+  const model = providerConfig.model;
+  const reasoningEffort = providerConfig.reasoningEffort;
   const timeoutMs = numberOption('timeout-ms', 30_000);
   const maxOutputTokens = numberOption('max-output-tokens', 4_096);
-  const inputPrice = numberOption('input-price', 5);
-  const outputPrice = numberOption('output-price', 30);
-  const apiUrl = resolveResponsesUrl();
+  const inputPrice = providerConfig.pricingPerMillionTokens.input;
+  const outputPrice = providerConfig.pricingPerMillionTokens.output;
+  const apiUrl = providerConfig.responsesUrl;
   const apiHost = new URL(apiUrl).host;
   const apiProvider = String(
     args.provider
-      ?? process.env.REFLOW_EVAL_PROVIDER
+      ?? (providerConfig.provider === 'deepseek' ? 'deepseek' : process.env.REFLOW_EVAL_PROVIDER)
       ?? (apiHost === 'api.openai.com' ? 'openai' : 'third-party-compatible'),
   );
   const costCurrency = String(
@@ -192,9 +189,9 @@ async function main() {
     return;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = providerConfig.apiKey;
   if (!apiKey) {
-    throw new Error('缺少 OPENAI_API_KEY。请只在本地环境变量中配置，不要写入仓库或对话。');
+    throw new Error('缺少 DEEPSEEK_API_KEY（或兼容的 OPENAI_API_KEY）。请只在本地环境变量中配置，不要写入仓库或对话。');
   }
 
   const outputDirectory = resolve(root, String(args.output ?? `artifacts/proposal-eval/${timestampForPath()}`));
@@ -299,7 +296,7 @@ async function main() {
           costCurrency,
           resultStatus: 'api_error',
           apiStatus: response.status,
-          error: safeApiError(response.status, body),
+          error: safeApiError(response.status),
           usage: body?.usage ?? null,
           estimatedCost: calculateCost(body?.usage, inputPrice, outputPrice),
         };

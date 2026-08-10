@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-export const PROMPT_VERSION = 'reflow-proposal-final-v5';
-export const SCHEMA_VERSION = 'reflow-cloud-proposal-draft-v3';
+export const PROMPT_VERSION = 'reflow-proposal-conservative-v7';
+export const SCHEMA_VERSION = 'reflow-cloud-proposal-draft-v4';
 export const SUITE_VERSION = 'reflow-proposal-cases-v1';
-export const POSTPROCESS_VERSION = 'reflow-proposal-date-normalizer-v1';
+export const POSTPROCESS_VERSION = 'reflow-proposal-conservative-normalizer-v3';
 
 export const CATEGORIES = ['work', 'communication', 'learning', 'life', 'health', 'unknown'];
 export const OUTCOMES = ['task', 'knowledge'];
@@ -59,30 +59,186 @@ function formatLocalDate(year, month, day) {
   ].join('-');
 }
 
+function addLocalDays(referenceDate, amount) {
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day + amount));
+  return formatLocalDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+}
+
+function weekdayDate(text, referenceDate) {
+  const match = text.match(/(下周|下星期|本周|这周|本星期|这星期|星期|周)([一二三四五六日天])/u);
+  if (!match) return null;
+  const weekdays = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+  const target = weekdays[match[2]];
+  const [year, month, day] = referenceDate.split('-').map(Number);
+  const rawWeekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const current = rawWeekday === 0 ? 7 : rawWeekday;
+  const isCurrentWeek = match[1].startsWith('本') || match[1].startsWith('这');
+  const delta = match[1].startsWith('下')
+    ? 7 - current + target
+    : isCurrentWeek
+      ? target - current
+      : (target - current + 7) % 7;
+  if (isCurrentWeek && delta < 0) return null;
+  return addLocalDays(referenceDate, delta);
+}
+
+function nextMonthDate(text, referenceDate) {
+  const match = text.match(/下个月(?:的)?(\d{1,2})[日号]/u);
+  if (!match) return null;
+  const [year, month] = referenceDate.split('-').map(Number);
+  const value = new Date(Date.UTC(year, month, Number(match[1])));
+  const candidate = formatLocalDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+  return Number(match[1]) === value.getUTCDate() ? candidate : null;
+}
+
+function nextMonthNthWeekday(text, referenceDate) {
+  const match = text.match(/下个月第([一二三四五六七八九十\d]+)个?(?:周|星期)([一二三四五六日天])/u);
+  if (!match) return null;
+  const ordinalNames = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  const ordinal = /^\d+$/u.test(match[1]) ? Number(match[1]) : ordinalNames[match[1]];
+  const weekdays = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+  const target = weekdays[match[2]];
+  if (!Number.isInteger(ordinal) || ordinal < 1 || !target) return null;
+
+  const [year, month] = referenceDate.split('-').map(Number);
+  const firstOfNextMonth = new Date(Date.UTC(year, month, 1));
+  const firstWeekday = firstOfNextMonth.getUTCDay() || 7;
+  const day = 1 + ((target - firstWeekday + 7) % 7) + ((ordinal - 1) * 7);
+  const candidate = new Date(Date.UTC(year, month, day));
+  if (candidate.getUTCMonth() !== firstOfNextMonth.getUTCMonth()) return null;
+  return formatLocalDate(candidate.getUTCFullYear(), candidate.getUTCMonth() + 1, candidate.getUTCDate());
+}
+
 export function inferDeterministicSuggestedDate(rawText, referenceDate) {
   if (typeof rawText !== 'string' || !isLocalDate(referenceDate)) return null;
   const text = rawText.trim();
-  const [year, month] = referenceDate.split('-').map(Number);
-
-  if (/(?:今天|今晚|今早|今晨|今儿|上午|中午|下午)/u.test(text)) {
-    return referenceDate;
+  const isoDate = text.match(/(?:^|\D)(\d{4}-\d{2}-\d{2})(?:\D|$)/u)?.[1];
+  if (isoDate && isLocalDate(isoDate)) return isoDate;
+  const chineseDate = text.match(/(?:(\d{4})年)?(\d{1,2})月(\d{1,2})[日号]/u);
+  if (chineseDate) {
+    const referenceYear = Number(referenceDate.slice(0, 4));
+    const month = Number(chineseDate[2]);
+    const day = Number(chineseDate[3]);
+    let year = chineseDate[1] ? Number(chineseDate[1]) : referenceYear;
+    let candidate = formatLocalDate(year, month, day);
+    if (!isLocalDate(candidate)) return null;
+    if (!chineseDate[1] && candidate < referenceDate) candidate = formatLocalDate(year + 1, month, day);
+    return isLocalDate(candidate) ? candidate : null;
   }
-  if (/(?:本月)?月底(?:前|之前)?/u.test(text)) {
-    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    return formatLocalDate(year, month, lastDay);
-  }
+  const nextMonthOrdinalWeekday = nextMonthNthWeekday(text, referenceDate);
+  if (nextMonthOrdinalWeekday) return nextMonthOrdinalWeekday;
+  const nextMonth = nextMonthDate(text, referenceDate);
+  if (nextMonth) return nextMonth;
+  if (/明天/u.test(text)) return addLocalDays(referenceDate, 1);
+  if (/(?:今天|今晚|今早|今晨|今儿)/u.test(text)) return referenceDate;
+  const weekday = weekdayDate(text, referenceDate);
+  if (weekday) return weekday;
   return null;
 }
 
+function hasHighConfidenceMultipleActions(text) {
+  const hasSubstantiveClause = (value) => value
+    .replace(/[\s，,。！？!?、]/gu, '')
+    .length >= 2;
+
+  // This is intentionally a limited, high-confidence safeguard rather than a
+  // general Chinese multi-intent parser. A trailing semicolon is punctuation,
+  // and conjunctions such as “并” or “以及” can join steps or objects inside one
+  // task. Fuzzy intent boundaries remain the model's responsibility.
+  const semicolonClauses = text.split(/[；;]/u).filter(hasSubstantiveClause);
+  if (semicolonClauses.length >= 2) return true;
+
+  for (const match of text.matchAll(/(?:然后|接着|随后)/gu)) {
+    const before = text.slice(0, match.index);
+    const after = text.slice((match.index ?? 0) + match[0].length);
+    if (hasSubstantiveClause(before) && hasSubstantiveClause(after)) return true;
+  }
+  return false;
+}
+
+function conservativeUnknownDraft(draft, title, reason) {
+  return {
+    ...draft,
+    title: title.slice(0, 80),
+    category: 'unknown',
+    outcome: 'task',
+    suggestedBucket: null,
+    suggestedDate: null,
+    estimatedMinutes: null,
+    nextAction: null,
+    waitingDetails: null,
+    knowledgeSummary: null,
+    confidence: Math.min(typeof draft.confidence === 'number' ? draft.confidence : 0.35, 0.35),
+    reason,
+  };
+}
+
+function hasBroadFutureRange(text, referenceDate) {
+  return /(?:这周末|本周末|周末|下周(?![一二三四五六日天])|下星期(?![一二三四五六日天])|月底)/u.test(text)
+    || (/下个月/u.test(text) && nextMonthDate(text, referenceDate) === null && nextMonthNthWeekday(text, referenceDate) === null);
+}
+
+function isExplicitlyDeferred(text) {
+  return /(?:以后有空|以后再|有空再|有时间再|将来再说|稍后再|暂缓|哪天再|回头再|暂时不急)/u.test(text);
+}
+
+function hasExplicitFollowUpIntent(text) {
+  return /(?:提醒(?:我)?|跟进|催(?:一下)?|再联系|再问)/u.test(text);
+}
+
+function normalizeWaitingFollowUpDate(draft, text, referenceDate) {
+  if (!isPlainObject(draft.waitingDetails)) return draft;
+  // A date attached to the other party's expected reply is not automatically
+  // the user's follow-up date. Preserve or derive one only when the capture
+  // explicitly asks the user to follow up and has a uniquely resolvable day.
+  const followUpDate = hasExplicitFollowUpIntent(text)
+    ? inferDeterministicSuggestedDate(text, referenceDate)
+    : null;
+  return {
+    ...draft,
+    waitingDetails: { ...draft.waitingDetails, followUpDate },
+  };
+}
+
 export function postprocessDraft(draft, { rawText, referenceDate } = {}) {
-  if (!isPlainObject(draft)
-    || draft.outcome !== 'task'
-    || draft.suggestedBucket !== 'today'
-    || draft.suggestedDate !== null) {
+  if (!isPlainObject(draft) || typeof rawText !== 'string') return draft;
+  if (!OUTCOMES.includes(draft.outcome)
+    || !CATEGORIES.includes(draft.category)
+    || !(draft.suggestedBucket === null || BUCKETS.includes(draft.suggestedBucket))
+    || !(draft.suggestedDate === null || isLocalDate(draft.suggestedDate))) {
     return draft;
   }
-  const suggestedDate = inferDeterministicSuggestedDate(rawText, referenceDate);
-  return suggestedDate ? { ...draft, suggestedDate } : draft;
+  const text = rawText.trim();
+  // Knowledge may describe a sequence of explanatory steps; it is not a
+  // collection of task actions and must remain intact.
+  if (draft.outcome === 'knowledge') return draft;
+  if (hasHighConfidenceMultipleActions(text)) {
+    return conservativeUnknownDraft(draft, text || '多个事项待拆分', '检测到多个独立行动，请拆开后逐条输入，避免遗漏其中任一事项。');
+  }
+  // A single waiting item is already a valid workflow state. Only preserve it
+  // after the multi-action safeguard, so a later action is never silently
+  // discarded because a model chose waiting for the first clause.
+  if (draft.suggestedBucket === 'waiting') return normalizeWaitingFollowUpDate(draft, text, referenceDate);
+  if (draft.category === 'unknown') return conservativeUnknownDraft(draft, draft.title, draft.reason);
+  if (isExplicitlyDeferred(text)) {
+    return { ...draft, suggestedBucket: 'someday', suggestedDate: null };
+  }
+  const inferredDate = inferDeterministicSuggestedDate(text, referenceDate);
+  if (hasBroadFutureRange(text, referenceDate) && !inferredDate) {
+    return { ...draft, suggestedBucket: null, suggestedDate: null };
+  }
+  if (draft.suggestedBucket === 'someday') {
+    return inferredDate
+      ? { ...draft, suggestedBucket: 'today', suggestedDate: inferredDate }
+      : { ...draft, suggestedBucket: null, suggestedDate: null };
+  }
+  if (inferredDate) {
+    return { ...draft, suggestedBucket: 'today', suggestedDate: inferredDate };
+  }
+  return draft.suggestedBucket === 'today'
+    ? { ...draft, suggestedBucket: null, suggestedDate: null }
+    : draft;
 }
 
 function hasExactKeys(value, keys) {
@@ -97,62 +253,86 @@ function nullableNonEmptyString(value, maxLength) {
 
 export function validateDraft(value) {
   const errors = [];
-  if (!isPlainObject(value)) return { valid: false, schemaValid: false, domainValid: false, errors: ['Draft 必须是对象。'] };
-  if (!hasExactKeys(value, draftKeys)) errors.push('Draft 字段集合与 Schema 不一致。');
-  if (typeof value.title !== 'string' || !value.title.trim() || value.title.length > 80) errors.push('title 必须是 1–80 字符的非空字符串。');
-  if (!CATEGORIES.includes(value.category)) errors.push('category 非法。');
-  if (!OUTCOMES.includes(value.outcome)) errors.push('outcome 非法。');
-  if (!(value.suggestedBucket === null || BUCKETS.includes(value.suggestedBucket))) errors.push('suggestedBucket 非法。');
-  if (!(value.suggestedDate === null || isLocalDate(value.suggestedDate))) errors.push('suggestedDate 必须是合法 LocalDate 或 null。');
-  if (!(value.estimatedMinutes === null || (Number.isInteger(value.estimatedMinutes) && value.estimatedMinutes >= 5 && value.estimatedMinutes <= 480))) errors.push('estimatedMinutes 必须是 5–480 的整数或 null。');
-  if (!nullableNonEmptyString(value.nextAction, 240)) errors.push('nextAction 必须是非空字符串或 null。');
-  if (!nullableNonEmptyString(value.knowledgeSummary, 600)) errors.push('knowledgeSummary 必须是非空字符串或 null。');
-  if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) errors.push('confidence 必须位于 0–1。');
-  if (typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 240) errors.push('reason 必须是 1–240 字符的非空字符串。');
+  const schemaIssues = [];
+  const addSchemaIssue = (path, code, expected, message) => {
+    schemaIssues.push({ path, code, expected });
+    errors.push(message);
+  };
+  if (!isPlainObject(value)) {
+    return {
+      valid: false,
+      schemaValid: false,
+      domainValid: false,
+      errors: ['Draft 必须是对象。'],
+      issues: [{ path: '$', code: 'object_required', expected: 'object' }],
+    };
+  }
+  if (!hasExactKeys(value, draftKeys)) addSchemaIssue('$', 'exact_field_set', 'exact Cloud Proposal Draft fields', 'Draft 字段集合与 Schema 不一致。');
+  if (typeof value.title !== 'string' || !value.title.trim() || value.title.length > 80) addSchemaIssue('$.title', 'non_empty_string_1_80', 'non-empty string with 1–80 characters', 'title 必须是 1–80 字符的非空字符串。');
+  if (!CATEGORIES.includes(value.category)) addSchemaIssue('$.category', 'category_enum', 'work | communication | learning | life | health | unknown', 'category 非法。');
+  if (!OUTCOMES.includes(value.outcome)) addSchemaIssue('$.outcome', 'outcome_enum', 'task | knowledge', 'outcome 非法。');
+  if (!(value.suggestedBucket === null || BUCKETS.includes(value.suggestedBucket))) addSchemaIssue('$.suggestedBucket', 'bucket_enum_or_null', 'today | waiting | someday | null', 'suggestedBucket 非法。');
+  if (!(value.suggestedDate === null || isLocalDate(value.suggestedDate))) addSchemaIssue('$.suggestedDate', 'local_date_or_null', 'YYYY-MM-DD local date or null', 'suggestedDate 必须是合法 LocalDate 或 null。');
+  if (!(value.estimatedMinutes === null || (Number.isInteger(value.estimatedMinutes) && value.estimatedMinutes >= 5 && value.estimatedMinutes <= 480))) addSchemaIssue('$.estimatedMinutes', 'integer_5_480_or_null', 'integer from 5 to 480 or null', 'estimatedMinutes 必须是 5–480 的整数或 null。');
+  if (!nullableNonEmptyString(value.nextAction, 240)) addSchemaIssue('$.nextAction', 'non_empty_string_240_or_null', 'non-empty string up to 240 characters or null', 'nextAction 必须是非空字符串或 null。');
+  if (!nullableNonEmptyString(value.knowledgeSummary, 600)) addSchemaIssue('$.knowledgeSummary', 'non_empty_string_600_or_null', 'non-empty string up to 600 characters or null', 'knowledgeSummary 必须是非空字符串或 null。');
+  if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) addSchemaIssue('$.confidence', 'number_0_1', 'finite number from 0 to 1', 'confidence 必须位于 0–1。');
+  if (typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 240) addSchemaIssue('$.reason', 'non_empty_string_1_240', 'non-empty string with 1–240 characters', 'reason 必须是 1–240 字符的非空字符串。');
 
   if (value.waitingDetails !== null) {
     if (!isPlainObject(value.waitingDetails) || !hasExactKeys(value.waitingDetails, waitingKeys)) {
-      errors.push('waitingDetails 必须是 null 或包含全部三个键的对象。');
+      addSchemaIssue('$.waitingDetails', 'waiting_details_shape_or_null', 'null or object with waitingFor, waitingOn, and followUpDate', 'waitingDetails 必须是 null 或包含全部三个键的对象。');
     } else {
-      if (!nullableNonEmptyString(value.waitingDetails.waitingFor, 120)) errors.push('waitingFor 必须是非空字符串或 null。');
-      if (!nullableNonEmptyString(value.waitingDetails.waitingOn, 240)) errors.push('waitingOn 必须是非空字符串或 null。');
-      if (!(value.waitingDetails.followUpDate === null || isLocalDate(value.waitingDetails.followUpDate))) errors.push('followUpDate 必须是合法 LocalDate 或 null。');
+      if (!nullableNonEmptyString(value.waitingDetails.waitingFor, 120)) addSchemaIssue('$.waitingDetails.waitingFor', 'non_empty_string_120_or_null', 'non-empty string up to 120 characters or null', 'waitingFor 必须是非空字符串或 null。');
+      if (!nullableNonEmptyString(value.waitingDetails.waitingOn, 240)) addSchemaIssue('$.waitingDetails.waitingOn', 'non_empty_string_240_or_null', 'non-empty string up to 240 characters or null', 'waitingOn 必须是非空字符串或 null。');
+      if (!(value.waitingDetails.followUpDate === null || isLocalDate(value.waitingDetails.followUpDate))) addSchemaIssue('$.waitingDetails.followUpDate', 'local_date_or_null', 'YYYY-MM-DD local date or null', 'followUpDate 必须是合法 LocalDate 或 null。');
     }
   }
 
   const schemaValid = errors.length === 0;
   const domainErrors = [];
+  const domainIssues = [];
+  const addDomainIssue = (path, code, expected, message) => {
+    domainIssues.push({ path, code, expected });
+    domainErrors.push(message);
+  };
   if (schemaValid) {
-    const visibleValues = [
-      value.title,
-      value.nextAction,
-      value.reason,
-      value.knowledgeSummary,
-      value.waitingDetails?.waitingFor,
-      value.waitingDetails?.waitingOn,
+    const visibleFields = [
+      ['$.title', value.title],
+      ['$.nextAction', value.nextAction],
+      ['$.reason', value.reason],
+      ['$.knowledgeSummary', value.knowledgeSummary],
+      ['$.waitingDetails.waitingFor', value.waitingDetails?.waitingFor],
+      ['$.waitingDetails.waitingOn', value.waitingDetails?.waitingOn],
     ];
-    if (visibleValues.some(containsInternalTerm)) {
-      domainErrors.push('用户可见字段包含内部 Schema、类型或字段名称。');
+    const internalField = visibleFields.find(([, fieldValue]) => containsInternalTerm(fieldValue));
+    if (internalField) {
+      addDomainIssue(internalField[0], 'internal_term_forbidden', 'user-visible text without internal schema or protocol terms', '用户可见字段包含内部 Schema、类型或字段名称。');
     }
     if (value.outcome === 'knowledge') {
-      if (value.suggestedBucket !== null) domainErrors.push('knowledge 的 suggestedBucket 必须是 null。');
-      if (value.suggestedDate !== null) domainErrors.push('knowledge 的 suggestedDate 必须是 null。');
-      if (value.estimatedMinutes !== null) domainErrors.push('knowledge 的 estimatedMinutes 必须是 null。');
-      if (value.nextAction !== null) domainErrors.push('knowledge 的 nextAction 必须是 null。');
-      if (value.waitingDetails !== null) domainErrors.push('knowledge 的 waitingDetails 必须是 null。');
-      if (value.knowledgeSummary === null) domainErrors.push('knowledge 必须提供 knowledgeSummary。');
+      if (value.suggestedBucket !== null) addDomainIssue('$.suggestedBucket', 'knowledge_bucket_null', 'null when outcome is knowledge', 'knowledge 的 suggestedBucket 必须是 null。');
+      if (value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'knowledge_date_null', 'null when outcome is knowledge', 'knowledge 的 suggestedDate 必须是 null。');
+      if (value.estimatedMinutes !== null) addDomainIssue('$.estimatedMinutes', 'knowledge_estimate_null', 'null when outcome is knowledge', 'knowledge 的 estimatedMinutes 必须是 null。');
+      if (value.nextAction !== null) addDomainIssue('$.nextAction', 'knowledge_next_action_null', 'null when outcome is knowledge', 'knowledge 的 nextAction 必须是 null。');
+      if (value.waitingDetails !== null) addDomainIssue('$.waitingDetails', 'knowledge_waiting_details_null', 'null when outcome is knowledge', 'knowledge 的 waitingDetails 必须是 null。');
+      if (value.knowledgeSummary === null) addDomainIssue('$.knowledgeSummary', 'knowledge_summary_required', 'non-empty string when outcome is knowledge', 'knowledge 必须提供 knowledgeSummary。');
     } else {
-      if (value.suggestedBucket === null) domainErrors.push('task 必须提供 suggestedBucket。');
-      if (value.knowledgeSummary !== null) domainErrors.push('task 的 knowledgeSummary 必须是 null。');
+      if (value.knowledgeSummary !== null) addDomainIssue('$.knowledgeSummary', 'task_knowledge_summary_null', 'null when outcome is task', 'task 的 knowledgeSummary 必须是 null。');
+      if (value.suggestedBucket === null && value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'undecided_task_date_null', 'null when task destination is undecided', '未决定去向的 task 日期必须为 null。');
+      if (value.suggestedBucket === 'today' && value.suggestedDate === null) addDomainIssue('$.suggestedDate', 'today_date_required', 'valid local date when suggestedBucket is today', 'today 必须包含合法 suggestedDate。');
+      if (value.category === 'unknown'
+        && (value.suggestedBucket !== null || value.suggestedDate !== null || value.estimatedMinutes !== null || value.nextAction !== null || value.waitingDetails !== null || value.confidence > 0.5)) {
+        addDomainIssue('$', 'unknown_task_conservative', 'unknown task with null workflow/execution fields and low confidence', 'unknown task 必须保守并保持执行字段为空。');
+      }
     }
     if (value.suggestedBucket === 'waiting') {
-      if (value.suggestedDate !== null) domainErrors.push('waiting 的 suggestedDate 必须是 null。');
-      if (value.waitingDetails === null) domainErrors.push('waiting 必须返回完整 nullable waitingDetails 对象。');
+      if (value.suggestedDate !== null) addDomainIssue('$.suggestedDate', 'waiting_date_null', 'null when suggestedBucket is waiting', 'waiting 的 suggestedDate 必须是 null。');
+      if (value.waitingDetails === null) addDomainIssue('$.waitingDetails', 'waiting_details_required', 'complete nullable object when suggestedBucket is waiting', 'waiting 必须返回完整 nullable waitingDetails 对象。');
     } else if (value.waitingDetails !== null) {
-      domainErrors.push('非 waiting Proposal 的 waitingDetails 必须是 null。');
+      addDomainIssue('$.waitingDetails', 'non_waiting_details_null', 'null unless suggestedBucket is waiting', '非 waiting Proposal 的 waitingDetails 必须是 null。');
     }
     if (value.suggestedBucket === 'someday' && value.suggestedDate !== null) {
-      domainErrors.push('someday 的 suggestedDate 必须是 null。');
+      addDomainIssue('$.suggestedDate', 'someday_date_null', 'null when suggestedBucket is someday', 'someday 的 suggestedDate 必须是 null。');
     }
   }
   const domainValid = schemaValid && domainErrors.length === 0;
@@ -161,6 +341,7 @@ export function validateDraft(value) {
     schemaValid,
     domainValid,
     errors: [...errors, ...domainErrors],
+    issues: [...schemaIssues, ...domainIssues],
   };
 }
 
@@ -232,7 +413,23 @@ export function buildJobs(suite) {
 
 export function schemaForOpenAI(schema) {
   const { $schema: _schema, $id: _id, ...supported } = schema;
-  return supported;
+  const normalize = (value) => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value === null || typeof value !== 'object') return value;
+    const normalized = Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, normalize(child)]),
+    );
+    const enumValues = Array.isArray(normalized.enum) ? normalized.enum : null;
+    const nonNullEnumValues = enumValues?.filter((item) => item !== null) ?? [];
+    if (normalized.type === undefined
+      && enumValues?.includes(null)
+      && nonNullEnumValues.length > 0
+      && nonNullEnumValues.every((item) => typeof item === 'string')) {
+      normalized.type = ['string', 'null'];
+    }
+    return normalized;
+  };
+  return normalize(supported);
 }
 
 export function extractResponseText(response) {

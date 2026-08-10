@@ -1,159 +1,227 @@
-import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 import {
   buildJobs,
+  inferDeterministicSuggestedDate,
   POSTPROCESS_VERSION,
   postprocessDraft,
   PROMPT_VERSION,
   readJson,
   SCHEMA_VERSION,
   sha256,
+  validateDraft,
+  validateSuite,
 } from './lib.mjs';
-import { generateReport } from './score.mjs';
+import { readEvaluationProviderConfig } from './config.mjs';
 
 const directory = new URL('.', import.meta.url);
 
-function makeDraft(testCase, estimableCaseIds) {
-  const expected = testCase.expected;
-  const title = expected.titleKeywords[0] ?? '待整理事项';
-  const knowledge = expected.outcome === 'knowledge';
-  const waiting = expected.suggestedBucket === 'waiting';
-  const estimable = estimableCaseIds.has(testCase.id);
-  return {
-    title,
-    category: expected.category,
-    outcome: expected.outcome,
-    suggestedBucket: expected.suggestedBucket,
-    suggestedDate: expected.suggestedDate,
-    estimatedMinutes: estimable ? 30 : null,
-    nextAction: knowledge ? null : `开始处理${title}`,
-    waitingDetails: waiting
-      ? {
-          waitingFor: null,
-          waitingOn: null,
-          followUpDate: expected.followUpDate,
-        }
-      : null,
-    knowledgeSummary: knowledge ? `${title}的本地知识摘要` : null,
-    confidence: 0.9,
-    reason: '离线自检生成的确定性合法结果。',
-  };
+const baseTask = {
+  title: '整理项目说明',
+  category: 'work',
+  outcome: 'task',
+  suggestedBucket: null,
+  suggestedDate: null,
+  estimatedMinutes: 45,
+  nextAction: '列出说明的三个部分',
+  waitingDetails: null,
+  knowledgeSummary: null,
+  confidence: 0.9,
+  reason: '这是清晰但尚未安排日期的工作任务。',
+};
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
 }
 
 async function main() {
-  const workDirectory = await mkdtemp(resolve(tmpdir(), 'reflow-proposal-eval-'));
-  try {
-    const [suite, schema, prompt] = await Promise.all([
-      readJson(new URL('cases.json', directory)),
-      readJson(new URL('cloud-proposal-schema.json', directory)),
-      readFile(new URL('prompt.md', directory), 'utf8'),
-    ]);
-    const casesById = new Map(suite.cases.map((item) => [item.id, item]));
-    const estimableCaseIds = new Set(suite.estimableCaseIds);
-    const promptSha256 = sha256(prompt);
-    const schemaSha256 = sha256(JSON.stringify(schema));
-    const jobs = buildJobs(suite);
-    const normalizedToday = postprocessDraft({
-      ...makeDraft(casesById.get('S08'), estimableCaseIds),
-      suggestedDate: null,
-    }, {
-      rawText: '下午回复客户关于报价口径的问题',
-      referenceDate: suite.referenceDate,
-    });
-    const normalizedMonthEnd = postprocessDraft({
-      ...makeDraft(casesById.get('H01'), estimableCaseIds),
-      suggestedDate: null,
-    }, {
-      rawText: '月底前完成暑期项目中期汇报',
-      referenceDate: suite.referenceDate,
-    });
-    if (normalizedToday.suggestedDate !== '2026-07-24'
-      || normalizedMonthEnd.suggestedDate !== '2026-07-31') {
-      throw new Error('确定性日期后处理自检失败。');
-    }
-    const manifest = {
-      evalRunId: 'offline-self-test',
-      createdAt: new Date().toISOString(),
-      requestedModel: 'offline-self-test',
-      reasoningEffort: 'none',
-      promptVersion: PROMPT_VERSION,
-      promptSha256,
-      schemaVersion: SCHEMA_VERSION,
-      schemaSha256,
-      postprocessVersion: POSTPROCESS_VERSION,
-      suiteVersion: suite.suiteVersion,
-      referenceDate: suite.referenceDate,
-      timeZone: suite.timeZone,
-      locale: suite.locale,
-      maxOutputTokens: 500,
-      timeoutMs: 30_000,
-      pricingPerMillionTokens: { input: 1, output: 6 },
-      apiProvider: 'offline-self-test',
-      costCurrency: 'USD',
-      operationalTargets: {
-        averageLatencyMs: 4_000,
-        p95LatencyMs: 8_000,
-        medianCost: 0.005,
-        p95Cost: 0.01,
-      },
-      apiHost: 'offline.invalid',
-      plannedRequests: jobs.length,
-      selectedJobsSha256: sha256(JSON.stringify(jobs.map((job) => job.jobId))),
-    };
-    const runs = jobs.map((job) => ({
-      ...job,
-      startedAt: new Date().toISOString(),
-      latencyMs: 100,
-      requestedModel: manifest.requestedModel,
-      resolvedModel: manifest.requestedModel,
-      promptVersion: PROMPT_VERSION,
-      promptSha256,
-      schemaVersion: SCHEMA_VERSION,
-      schemaSha256,
-      postprocessVersion: POSTPROCESS_VERSION,
-      reasoningEffort: 'none',
-      referenceDate: suite.referenceDate,
-      timeZone: suite.timeZone,
-      apiProvider: manifest.apiProvider,
-      apiHost: manifest.apiHost,
-      costCurrency: manifest.costCurrency,
-      resultStatus: 'success',
-      draft: makeDraft(casesById.get(job.caseId), estimableCaseIds),
-      usage: { input_tokens: 100, output_tokens: 100 },
-      estimatedCost: 0.0007,
-    }));
-    const humanReview = {
-      reviewVersion: 'reflow-proposal-human-review-v1',
-      reviewerType: 'offline-self-test',
-      disclosure: 'Synthetic review used only to test the scorer.',
-      entries: runs.map((record) => ({
-        jobId: record.jobId,
-        caseId: record.caseId,
-        titleScore: 5,
-        nextActionScore: record.draft.nextAction === null ? null : 5,
-        minorEdits: 0,
-        severeHallucination: false,
-        injectionBreach: false,
-        notes: 'offline self-test',
-      })),
-    };
-    const runsPath = resolve(workDirectory, 'runs.jsonl');
-    const humanPath = resolve(workDirectory, 'human-review.json');
-    await Promise.all([
-      writeFile(resolve(workDirectory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8'),
-      writeFile(runsPath, `${runs.map((item) => JSON.stringify(item)).join('\n')}\n`, 'utf8'),
-      writeFile(humanPath, `${JSON.stringify(humanReview, null, 2)}\n`, 'utf8'),
-    ]);
-    const { summary } = await generateReport({ inputPath: runsPath, humanPath });
-    if (summary.evaluation.grade !== '通过') {
-      throw new Error(`离线评分自检未通过：${summary.evaluation.grade}`);
-    }
-    console.log('P0 工具离线自检通过：48 条案例、80 次运行、评分和报告生成均有效。');
-  } finally {
-    await rm(workDirectory, { recursive: true, force: true });
+  const providerDefaults = readEvaluationProviderConfig({ env: {} });
+  const cliOverrideProvider = readEvaluationProviderConfig({
+    env: { DEEPSEEK_REASONING_EFFORT: 'low' },
+    args: { reasoning: 'medium' },
+  });
+  const legacyProvider = readEvaluationProviderConfig({
+    env: {
+      OPENAI_API_KEY: 'offline-legacy-key',
+      OPENAI_BASE_URL: 'https://legacy-offline.invalid/v1',
+      OPENAI_MODEL: 'legacy-offline-model',
+      OPENAI_REASONING_EFFORT: 'high',
+    },
+  });
+  assert(providerDefaults.responsesUrl === 'https://api.deepseek.com/responses'
+    && providerDefaults.model === 'deepseek-v4-flash'
+    && providerDefaults.reasoningEffort === 'high'
+    && cliOverrideProvider.reasoningEffort === 'medium'
+    && legacyProvider.responsesUrl === 'https://legacy-offline.invalid/v1/responses', '评测 Provider 配置自检失败。');
+
+  const [suite, schema, prompt] = await Promise.all([
+    readJson(new URL('cases.json', directory)),
+    readJson(new URL('cloud-proposal-schema.json', directory)),
+    readFile(new URL('prompt.md', directory), 'utf8'),
+  ]);
+  assert(validateSuite(suite).valid && buildJobs(suite).length === 80, '历史 P0 Suite 结构自检失败。');
+  assert(PROMPT_VERSION === 'reflow-proposal-conservative-v7'
+    && SCHEMA_VERSION === 'reflow-cloud-proposal-draft-v4'
+    && POSTPROCESS_VERSION === 'reflow-proposal-conservative-normalizer-v3'
+    && prompt.includes(PROMPT_VERSION)
+    && prompt.includes('“下周再整理” still names only a week range')
+    && prompt.includes('整理项目周报并预约体检')
+    && prompt.includes('下载并安装软件')
+    && prompt.includes('Deterministic code may')
+    && !prompt.includes('“下周再整理”, “以后有空整理”, and “有时间再整理” use `someday`')
+    && schema.$id.endsWith('cloud-proposal-draft-v4.json')
+    && sha256(prompt).length === 64
+    && sha256(JSON.stringify(schema)).length === 64, 'Prompt/Schema 版本或 SHA 自检失败。');
+
+  assert(validateDraft(baseTask).valid, '未决定去向的 task 应合法。');
+  assert(!validateDraft({ ...baseTask, suggestedBucket: 'today' }).valid, 'today + null date 应非法。');
+  assert(validateDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-25' }).valid, 'today + 合法日期应合法。');
+
+  assert(inferDeterministicSuggestedDate('明天下午整理说明', '2026-07-24') === '2026-07-25', '明天日期归一化失败。');
+  assert(inferDeterministicSuggestedDate('下个月3号整理说明', '2026-12-20') === '2027-01-03', '下个月具体日期归一化失败。');
+  assert(inferDeterministicSuggestedDate('下个月第一个周一去银行更新预留手机号', '2026-07-24') === '2026-08-03', '下个月第一个周一归一化失败。');
+  for (const rawText of ['下周三整理材料', '下星期三整理材料']) {
+    assert(inferDeterministicSuggestedDate(rawText, '2026-07-24') === '2026-07-29', `${rawText} 必须解析为唯一的未来日期。`);
   }
+  for (const rawText of ['本周三整理材料', '这周三整理材料', '本星期三整理材料', '这星期三整理材料']) {
+    assert(inferDeterministicSuggestedDate(rawText, '2026-07-24') === null, `${rawText} 在周五不应生成过去的 planning date。`);
+  }
+  assert(inferDeterministicSuggestedDate('这周末整理说明', '2026-07-24') === null, '周末不应臆测具体日期。');
+  assert(inferDeterministicSuggestedDate('月底整理说明', '2028-02-10') === null, '月底不应臆测具体日期。');
+
+  const noDate = postprocessDraft({ ...baseTask, suggestedBucket: 'today' }, { rawText: '整理项目说明', referenceDate: '2026-07-24' });
+  assert(noDate.suggestedBucket === null && noDate.suggestedDate === null, '无日期 today fallback 未移除。');
+  for (const range of ['这周末整理项目说明', '下周整理项目说明', '月底整理项目说明', '下个月整理项目说明']) {
+    const unresolved = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-25' }, { rawText: range, referenceDate: '2026-07-24' });
+    assert(unresolved.suggestedBucket === null && unresolved.suggestedDate === null, `${range} 不应补具体日期或稍后。`);
+  }
+  const explicitWeekendDate = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: null }, { rawText: '周末 2026-08-15 整理项目说明', referenceDate: '2026-07-24' });
+  assert(explicitWeekendDate.suggestedBucket === 'today' && explicitWeekendDate.suggestedDate === '2026-08-15', '范围词不能清空用户提供的明确日期。');
+  assert(explicitWeekendDate.reason === baseTask.reason && !explicitWeekendDate.reason.includes('最近的周末日期'), '后处理不能虚构周末日期推断。');
+  const nextMonthMonday = postprocessDraft({ ...baseTask, category: 'life', suggestedBucket: 'today', suggestedDate: null }, { rawText: '下个月第一个周一去银行更新预留手机号', referenceDate: '2026-07-24' });
+  assert(nextMonthMonday.category === 'life' && nextMonthMonday.suggestedBucket === 'today' && nextMonthMonday.suggestedDate === '2026-08-03', 'H02 必须保留生活任务与下个月第一个周一日期。');
+  const someday = postprocessDraft(baseTask, { rawText: '以后有空整理项目说明', referenceDate: '2026-07-24' });
+  assert(someday.suggestedBucket === 'someday' && someday.suggestedDate === null, '明确以后有空应为 someday。');
+  const explicitSomeday = postprocessDraft({ ...baseTask, suggestedBucket: 'someday' }, { rawText: '以后有空整理项目说明', referenceDate: '2026-07-24' });
+  assert(explicitSomeday.suggestedBucket === 'someday' && explicitSomeday.suggestedDate === null, '明确延后应保留 someday。');
+  const deferredRevisit = postprocessDraft(baseTask, { rawText: '以后再去医院复查', referenceDate: '2026-07-24' });
+  assert(deferredRevisit.category === baseTask.category
+    && deferredRevisit.suggestedBucket === 'someday'
+    && deferredRevisit.suggestedDate === null,
+  '以后再去医院复查是单一明确延期，不应被多意图 safeguard 改写。');
+  for (const rawText of ['哪天再弄一下个人主页', '个人主页暂时不急', '回头再整理项目说明']) {
+    const deferred = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(deferred.suggestedBucket === 'someday' && deferred.suggestedDate === null, `${rawText} 应识别为明确延期。`);
+  }
+  const rangedRetry = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-25' }, { rawText: '下周再整理项目说明', referenceDate: '2026-07-24' });
+  assert(rangedRetry.suggestedBucket === null && rangedRetry.suggestedDate === null, '下周再整理仍是无具体日期的范围，不应变成 someday。');
+  const nextWednesdayBank = postprocessDraft(baseTask, { rawText: '下周三再去银行', referenceDate: '2026-07-24' });
+  assert(nextWednesdayBank.category === baseTask.category
+    && nextWednesdayBank.suggestedBucket === 'today'
+    && nextWednesdayBank.suggestedDate === '2026-07-29',
+  '下周三再去银行是单一明确日期，不应被多意图 safeguard 拦截。');
+  const tomorrowSendReport = postprocessDraft(baseTask, { rawText: '明天再把报告发给老师', referenceDate: '2026-07-24' });
+  assert(tomorrowSendReport.category === baseTask.category
+    && tomorrowSendReport.suggestedBucket === 'today'
+    && tomorrowSendReport.suggestedDate === '2026-07-25',
+  '明天再把报告发给老师是单一明确日期，不应被多意图 safeguard 拦截。');
+  const deferredOrganize = postprocessDraft(baseTask, { rawText: '以后再把资料整理一下', referenceDate: '2026-07-24' });
+  assert(deferredOrganize.category === baseTask.category
+    && deferredOrganize.suggestedBucket === 'someday'
+    && deferredOrganize.suggestedDate === null,
+  '以后再把资料整理一下是单一明确延期，不应被多意图 safeguard 拦截。');
+  const monthRangeWithModelSomeday = postprocessDraft({ ...baseTask, suggestedBucket: 'someday' }, { rawText: '下个月把个人主页重新整理一下', referenceDate: '2026-07-24' });
+  assert(monthRangeWithModelSomeday.suggestedBucket === null && monthRangeWithModelSomeday.suggestedDate === null, '下个月不能因模型误给 someday 而变成稍后。');
+  const knowledge = {
+    title: '复盘目标确认原则', category: 'work', outcome: 'knowledge', suggestedBucket: null, suggestedDate: null,
+    estimatedMinutes: null, nextAction: null, waitingDetails: null, knowledgeSummary: '先确认目标，再检查数据。', confidence: 0.9, reason: '这是可复用的复盘经验。',
+  };
+  const preservedKnowledge = postprocessDraft(knowledge, { rawText: '复盘经验：先确认目标，然后检查数据', referenceDate: '2026-07-24' });
+  assert(preservedKnowledge === knowledge && validateDraft(preservedKnowledge).valid, 'knowledge 不能被 task 启发式覆盖。');
+  const waiting = {
+    title: '等待老师回复', category: 'communication', outcome: 'task', suggestedBucket: 'waiting', suggestedDate: null,
+    estimatedMinutes: null, nextAction: null, waitingDetails: { waitingFor: '老师', waitingOn: '回复', followUpDate: '2026-07-31' }, knowledgeSummary: null, confidence: 0.9, reason: '当前需要等待老师回复。',
+  };
+  const preservedWaiting = postprocessDraft(waiting, { rawText: '等老师下周回复', referenceDate: '2026-07-24' });
+  assert(preservedWaiting.suggestedBucket === 'waiting' && preservedWaiting.waitingDetails?.followUpDate === null && validateDraft(preservedWaiting).valid, 'waiting 的对方下周回复不能被当作用户跟进日期。');
+  const noDateWaiting = postprocessDraft(waiting, { rawText: '等老师回复', referenceDate: '2026-07-24' });
+  assert(noDateWaiting.waitingDetails?.followUpDate === null && validateDraft(noDateWaiting).valid, '无日期 waiting 不能保留模型臆造的跟进日期。');
+  const explicitFollowUpWaiting = postprocessDraft(waiting, { rawText: '周五还没回复就提醒我', referenceDate: '2026-07-24' });
+  assert(explicitFollowUpWaiting.waitingDetails?.followUpDate === '2026-07-24' && validateDraft(explicitFollowUpWaiting).valid, '明确周五提醒必须以原文确定跟进日期。');
+  for (const rawText of ['等老师回复，然后提交申请', '等客户确认；再给财务开票']) {
+    const waitingWithSecondAction = postprocessDraft(waiting, { rawText, referenceDate: '2026-07-24' });
+    assert(waitingWithSecondAction.category === 'unknown' && waitingWithSecondAction.suggestedBucket === null && waitingWithSecondAction.title === rawText && waitingWithSecondAction.reason.includes('拆开') && validateDraft(waitingWithSecondAction).valid, `${rawText} 不能因 waiting 而静默遗漏后续行动。`);
+  }
+  for (const rawText of ['交电费', '取快递', '更新银行卡信息', '去医院挂号', '给猫喂药', '报名比赛', '整理参赛材料', '提交申请材料', '检查报名资料']) {
+    const clearShortTask = postprocessDraft({ ...baseTask, title: rawText, suggestedBucket: 'today', suggestedDate: null }, { rawText, referenceDate: '2026-07-24' });
+    assert(clearShortTask.category !== 'unknown' && clearShortTask.suggestedBucket === null && clearShortTask.estimatedMinutes === 45 && clearShortTask.nextAction === baseTask.nextAction && validateDraft(clearShortTask).valid, `${rawText} 不应被裸名词保护误判为 unknown。`);
+  }
+  for (const rawText of ['参赛材料', '比赛分享材料', '项目汇报材料']) {
+    const modelClassifiedTask = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(modelClassifiedTask.category === baseTask.category
+      && modelClassifiedTask.title === baseTask.title
+      && modelClassifiedTask.estimatedMinutes === baseTask.estimatedMinutes
+      && modelClassifiedTask.nextAction === baseTask.nextAction,
+    `${rawText} 不应触发 deterministic phrase-specific 语义改写。`);
+    const modelClassifiedUnknown = postprocessDraft({
+      ...baseTask,
+      title: rawText,
+      category: 'unknown',
+      suggestedBucket: 'today',
+      suggestedDate: '2026-07-24',
+    }, { rawText, referenceDate: '2026-07-24' });
+    assert(modelClassifiedUnknown.category === 'unknown'
+      && modelClassifiedUnknown.suggestedBucket === null
+      && modelClassifiedUnknown.suggestedDate === null
+      && modelClassifiedUnknown.estimatedMinutes === null
+      && modelClassifiedUnknown.nextAction === null
+      && modelClassifiedUnknown.waitingDetails === null
+      && modelClassifiedUnknown.confidence <= 0.35,
+    `${rawText} 被模型判为 unknown 后必须由 deterministic contract 保持保守。`);
+  }
+  for (const rawText of ['交电费；', '交电费;', '了解报名时间以及要求']) {
+    const singleAction = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(singleAction.category === baseTask.category && singleAction.title === baseTask.title && validateDraft(singleAction).valid, `${rawText} 不能仅因尾标点或名词并列被误判为多行动。`);
+  }
+  const multi = postprocessDraft(baseTask, { rawText: '整理项目周报，然后预约体检', referenceDate: '2026-07-24' });
+  assert(multi.category === 'unknown' && multi.title.includes('整理项目周报') && multi.title.includes('预约体检') && multi.reason.includes('拆开'), '多意图未保留语义并提示拆分。');
+  const semicolonMulti = postprocessDraft(baseTask, { rawText: '交电费；取快递', referenceDate: '2026-07-24' });
+  assert(semicolonMulti.category === 'unknown' && semicolonMulti.title.includes('交电费') && semicolonMulti.title.includes('取快递'), '两个完整分号子句必须作为多行动保守提示拆分。');
+  for (const rawText of ['交电费；取快递；', '交电费；取快递；报名比赛；']) {
+    const trailingSemicolonMulti = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(trailingSemicolonMulti.category === 'unknown' && trailingSemicolonMulti.title === rawText && trailingSemicolonMulti.reason.includes('拆开'), `${rawText} 必须忽略尾随分号后仍识别多个独立行动。`);
+  }
+  for (const rawText of ['下载并安装软件', '整理并提交申请材料', '了解报名时间以及要求', '阅读论文并做笔记']) {
+    const coherentTask = postprocessDraft(baseTask, { rawText, referenceDate: '2026-07-24' });
+    assert(coherentTask.category === baseTask.category
+      && coherentTask.title === baseTask.title
+      && coherentTask.estimatedMinutes === baseTask.estimatedMinutes
+      && coherentTask.nextAction === baseTask.nextAction,
+    `${rawText} 不应被有限 safeguard 当作多个独立行动。`);
+  }
+  const modelClassifiedMulti = postprocessDraft({
+    ...baseTask,
+    title: '整理项目周报并预约体检',
+    category: 'unknown',
+    suggestedBucket: null,
+    estimatedMinutes: null,
+    nextAction: null,
+    confidence: 0.3,
+  }, { rawText: '整理项目周报并预约体检', referenceDate: '2026-07-24' });
+  assert(modelClassifiedMulti.category === 'unknown'
+    && modelClassifiedMulti.title.includes('整理项目周报')
+    && modelClassifiedMulti.title.includes('预约体检')
+    && modelClassifiedMulti.suggestedBucket === null,
+  '一般 multi-intent 由模型识别后，deterministic contract 必须保留全部语义和保守字段。');
+
+  const modelInventedToday = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-24' }, { rawText: '整理项目说明', referenceDate: '2026-07-24' });
+  assert(modelInventedToday.suggestedBucket === null && modelInventedToday.suggestedDate === null, '无日期原文不能保留模型臆造的今天。');
+  const modelWrongTomorrow = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-24' }, { rawText: '明天整理项目说明', referenceDate: '2026-07-24' });
+  assert(modelWrongTomorrow.suggestedBucket === 'today' && modelWrongTomorrow.suggestedDate === '2026-07-25', '明天必须以确定性日期覆盖模型错误日期。');
+  const modelWrongNextWednesday = postprocessDraft({ ...baseTask, suggestedBucket: 'today', suggestedDate: '2026-07-24' }, { rawText: '下周三整理项目说明', referenceDate: '2026-07-24' });
+  assert(modelWrongNextWednesday.suggestedBucket === 'today' && modelWrongNextWednesday.suggestedDate === '2026-07-29', '下周三必须以确定性日期覆盖模型错误日期。');
+
+  console.log('Proposal 工具离线自检通过：历史 Suite 结构未改写（不声明旧预期符合当前语义），v7/v4/v3 职责边界与保守日期规则有效。');
 }
 
 main().catch((error) => {

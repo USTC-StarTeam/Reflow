@@ -1,6 +1,6 @@
 # Reflow P0 云端 Proposal 评测工具
 
-该目录只用于验证一个真实 OpenAI 模型通过指定 API Provider 生成 Proposal 的能力，不参与 Reflow 产品运行，不访问浏览器中的任务、日历、日志或备份。
+该目录只用于验证一个真实 Responses API 模型通过指定 API Provider 生成 Proposal 的能力，不参与 Reflow 产品运行，不访问浏览器中的任务、日历、日志或备份。
 
 ## 固定配置
 
@@ -10,11 +10,17 @@
 - 共 80 次请求；
 - 固定日期 `2026-07-24`；
 - 固定时区 `Asia/Shanghai`；
-- 默认模型 `gpt-5.6-terra`；
+- 默认官方 Base URL `https://api.deepseek.com`；
+- 默认模型 `deepseek-v4-flash`；
 - 默认推理强度 `high`；
+- 默认成本估算：非缓存输入 `$0.14`、输出 `$0.28` / 百万 Tokens；
 - Responses API、Structured Outputs、非流式、`store: false`。
 
 Prompt、Schema、模型和推理强度都会写入 `manifest.json` 和每条运行记录。修改 Prompt 或 Schema 时必须同步更新 `lib.mjs` 中的版本号。
+
+> 历史 Suite 的结构仍用于归档评测，但其旧日期预期不等同于当前产品规则：H01 曾将“月底前完成暑期项目中期汇报”期望为月末具体日期，S29 曾将“下周再整理以前的项目归档”期望为 `someday`。当前 Day 1 v7/v4/v3 对这两种只有范围、没有唯一日期的表达均使用 `suggestedBucket=null`、`suggestedDate=null`。v7/v3 进一步明确：模型负责模糊名词和一般 multi-intent 语义，确定性层只负责合同硬约束、唯一日期和有限高置信度 safeguard。`validateSuite` 和 `buildJobs` 只验证历史 Suite 结构及其 80 个作业，不验证旧预期符合当前语义。
+
+DeepSeek 默认价格是当前官方非缓存价格，仅用于本地估算，Provider 可能随时调整。评测当前没有单独建模缓存命中折扣，因此输入统一按非缓存价格做保守估算；正式运行前仍应核对最新价格，并可用 `--input-price` / `--output-price` 显式覆盖。旧 `OPENAI_*` 兼容路径继续保留历史默认 `5` / `30`，避免改变旧评测行为。
 
 ## 安全配置
 
@@ -29,14 +35,24 @@ API Key 只能保存在当前终端环境变量或被 Git 忽略的本地环境�
 PowerShell 当前会话示例：
 
 ```powershell
-$env:OPENAI_API_KEY = '在本机填写'
+$env:DEEPSEEK_API_KEY = '在本机填写'
 ```
 
 关闭终端后，该会话变量即失效。
 
-### ChatAnywhere 配置
+DeepSeek 官方 [Responses API 指南](https://api-docs.deepseek.com/guides/responses_api/) 当前只支持 `deepseek-v4-flash`。不要使用已经退役的 `deepseek-chat` 或 `deepseek-reasoner`，也不要把本评测切到 Chat Completions。可选变量与 Gateway 一致：
 
-当前 P0 使用 ChatAnywhere 的 OpenAI 兼容 Responses API。用户级变量为：
+```powershell
+$env:DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+$env:DEEPSEEK_MODEL = 'deepseek-v4-flash'
+$env:DEEPSEEK_REASONING_EFFORT = 'high'
+```
+
+需要直接覆盖 endpoint 时才设置 `DEEPSEEK_RESPONSES_URL`。只要存在任一 `DEEPSEEK_*` 变量，评测工具就不会混入旧的 `OPENAI_*` 用户环境配置。完全没有 `DEEPSEEK_*` 时，旧 `OPENAI_API_KEY`、`OPENAI_BASE_URL` / `OPENAI_API_BASE`、`OPENAI_RESPONSES_URL`、`OPENAI_MODEL` 和 `OPENAI_REASONING_EFFORT` 仍兼容。
+
+### 历史 ChatAnywhere 配置
+
+2026-07-24 的已归档 P0 使用 ChatAnywhere 的 OpenAI 兼容 Responses API。若需要复现旧评测，且当前环境中不存在任何 `DEEPSEEK_*` 变量，可继续使用原有用户级变量：
 
 ```powershell
 [Environment]::SetEnvironmentVariable('OPENAI_API_BASE', 'https://api.chatanywhere.tech/v1', 'User')
@@ -136,7 +152,7 @@ report.md
 ## 常用参数
 
 ```text
---model gpt-5.6-terra
+--model deepseek-v4-flash
 --reasoning high
 --timeout-ms 30000
 --max-output-tokens 4096
@@ -144,12 +160,12 @@ report.md
 --cases S01,S11,S26,S28,H05,H10,H15
 --limit 5
 --output artifacts/proposal-eval/custom
---input-price 5
---output-price 30
+--input-price 0.14
+--output-price 0.28
 --cost-currency USD
---provider openai
---base-url https://api.openai.com/v1
---responses-url https://api.openai.com/v1/responses
+--provider deepseek
+--base-url https://api.deepseek.com
+--responses-url https://api.deepseek.com/responses
 ```
 
 价格参数单位为“指定货币 / 百万 Tokens”，用于估算，不替代 Provider 实际账单。运行前应根据当前账户价格核对。

@@ -120,7 +120,7 @@ function buildTaskOutcome(input: {
   if (proposal.kind === 'merge') {
     const previousTask = proposal.duplicateTaskId ? findTask(data, proposal.duplicateTaskId) : undefined;
     if (!previousTask) return { code: 'task_not_found', message: '要合并的任务已不存在。', retryable: false };
-    const targetDate = plannedDate ?? (bucket === 'today' ? localDateOf(at) : undefined);
+    const targetDate = plannedDate;
     const keepTimes = Boolean(targetDate && previousTask.plannedDate === targetDate);
     const appliedTask: TaskItem = {
       ...previousTask,
@@ -159,7 +159,7 @@ function buildTaskOutcome(input: {
     sourceSummary: taskSource(capture),
     sortIndex: maxSort + index + 1,
     createdAt: at,
-    plannedDate: plannedDate ?? (bucket === 'today' ? localDateOf(at) : undefined),
+    plannedDate,
     waitingDetails: bucket === 'waiting' ? waitingDetails : undefined,
   }));
   const taskPlanEvents = createdTasks
@@ -344,6 +344,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
         return failure(data, 'invalid_follow_up', '请填写有效的等待对象、等待内容和跟进日期。');
       }
       if (action.decision.plannedDate && !isLocalDate(action.decision.plannedDate)) return failure(data, 'invalid_schedule', '计划日期无效。');
+      if (resolvedBucket === 'today' && !action.decision.plannedDate) return failure(data, 'invalid_schedule', '确认加入今天前请明确选择计划日期。');
       const outcome = buildTaskOutcome({ data, proposal, capture, edit: normalizedEdit, bucket: resolvedBucket, waitingDetails, plannedDate: action.decision.plannedDate, decisionId: action.decisionId, at: action.at });
       if ('code' in outcome) return failure(data, outcome.code, outcome.message, outcome.retryable);
       const decision = decisionBase({
