@@ -33,7 +33,7 @@ export function TodayScreen() {
   return (
     <>
       <Page testID="screen-today">
-        <PageHeader title="今天" subtitle="先决定今天做什么，再安排具体时间" right={<Chip label={formatShortDate(today)} tone="primary" />} />
+        <PageHeader title="今天" subtitle="先决定今天做什么，再安排具体时间" right={<Chip label={formatShortDate(today)} tone="primary" size="header" />} />
         <QuickComposer />
         <View style={styles.summary}>
           <View><Text style={styles.summaryValue}>{sections.scheduled.length}</Text><Text style={styles.summaryLabel}>已排期</Text></View><View style={styles.summaryDivider} />

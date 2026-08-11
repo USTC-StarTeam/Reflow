@@ -313,7 +313,7 @@ export function InboxScreen() {
   const pendingCount = proposals.length + failedCaptures.length;
   return (
     <Page testID="screen-inbox">
-      <PageHeader title="收件箱" subtitle={pendingCount ? `有 ${pendingCount} 项等你处理` : '收件箱已整理完毕'} right={<Chip label="待处理" tone="orange" />} />
+      <PageHeader title="收件箱" subtitle={pendingCount ? `有 ${pendingCount} 项等你处理` : '收件箱已整理完毕'} right={<Chip label="待处理" tone="orange" size="header" />} />
       {lastActionFailure ? <Card style={styles.failure}><Text style={textStyles.cardTitle}>操作未完成</Text><Text style={textStyles.meta}>{lastActionFailure.message}</Text></Card> : null}
       <SectionHeader title="待你确认" meta={`${pendingCount} 条`} />
       {failedCaptures.map((capture) => <FailedCaptureCard key={capture.id} captureId={capture.id} />)}

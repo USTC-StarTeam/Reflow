@@ -76,4 +76,16 @@ describe('AppShell hydration boundary', () => {
     expect(screen.getByTestId('domain-content')).toBeTruthy();
     expect(screen.getByTestId('global-capture')).toBeTruthy();
   });
+
+  it('preserves the five routes, active state, and inbox badge semantics', async () => {
+    mockedUseReflowStore.mockReturnValue(storeValue(true));
+
+    const screen = await render(<AppShell><Text>应用内容</Text></AppShell>);
+
+    for (const label of ['今天', '收件箱', '进行中', '日历', '回顾']) {
+      expect(screen.getByTestId(`nav-${label}`)).toBeTruthy();
+    }
+    expect(screen.getByTestId('nav-收件箱').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId('nav-inbox-badge')).toBeTruthy();
+  });
 });

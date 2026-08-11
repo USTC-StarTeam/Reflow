@@ -25,7 +25,7 @@ export function ActiveScreen() {
 
   return (
     <Page testID="screen-active">
-      <PageHeader title="进行中" subtitle="执行记录与真实时间" right={<Chip label={active ? '记录中' : '空闲'} tone={active ? 'green' : 'neutral'} />} />
+      <PageHeader title="进行中" subtitle="执行记录与真实时间" right={<Chip label={active ? '记录中' : '空闲'} tone={active ? 'green' : 'neutral'} size="header" />} />
       {active ? (
         <>
           <Card accent="active" testID="current-task-card">
