@@ -19,7 +19,7 @@ export function ReviewScreen() {
 
   return (
     <Page testID="screen-review">
-      <PageHeader title="回顾" subtitle="计划历史、实际耗时与明确收尾" right={<Chip label="确定性统计" tone="purple" />} />
+      <PageHeader title="回顾" subtitle="计划历史、实际耗时与明确收尾" right={<Chip label="确定性统计" tone="purple" size="header" />} />
       <SegmentedControl values={[{ value: 'daily', label: '每日' }, { value: 'weekly', label: '每周' }, { value: 'monthly', label: '每月' }]} selected={period} onChange={setPeriod} />
       <View style={styles.metrics}>
         <Card style={styles.metricCard}><Text style={textStyles.metric}>{period === 'daily' ? daily.plannedCompletionRate : review.completionRate}%</Text><Text style={styles.metricLabel}>计划完成率</Text></Card>

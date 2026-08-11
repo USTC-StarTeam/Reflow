@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useReflowStore } from '@/core/store';
-import { colors, radius, shadow } from './theme';
+import { border, colors, radius, shadows, spacing, typography } from './theme';
 
 export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: boolean; onSubmitted?: () => void }) {
   const { capture, capturing, proposalServiceKind } = useReflowStore();
@@ -34,7 +34,7 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
         value={value}
         onChangeText={(text) => { setValue(text); setSubmitted(false); setError(null); }}
         placeholder="准备做什么？"
-        placeholderTextColor="#B6BECA"
+        placeholderTextColor={colors.subtle}
         style={styles.input}
       />
       <View style={styles.toolbar}>
@@ -57,16 +57,16 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
 }
 
 const styles = StyleSheet.create({
-  wrap: { minHeight: 116, borderRadius: radius.large, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, padding: 13, gap: 8, ...shadow },
-  input: { minHeight: 55, color: colors.ink, fontSize: 15, lineHeight: 22, padding: 0, textAlignVertical: 'top' },
+  wrap: { minHeight: 112, borderRadius: radius.large, backgroundColor: colors.card, borderWidth: border.width, borderColor: border.color, padding: spacing.xl, gap: spacing.sm, ...shadows.soft },
+  input: { minHeight: 54, color: colors.ink, fontSize: 15, lineHeight: 22, padding: 0, textAlignVertical: 'top' },
   toolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  tools: { flexDirection: 'row', alignItems: 'center', gap: 13 },
-  toolPrimary: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  tool: { color: '#99A2AF', fontSize: 12, fontWeight: '800' },
-  send: { width: 28, height: 28, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  tools: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  toolPrimary: { color: colors.primary, ...typography.meta, fontWeight: '800' },
+  tool: { color: colors.subtle, fontSize: 12, fontWeight: '800' },
+  send: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   sendActive: { backgroundColor: colors.primary },
-  sendText: { color: '#9AA3B0', fontSize: 14, fontWeight: '900' },
+  sendText: { color: colors.subtle, fontSize: 14, fontWeight: '900' },
   sendTextActive: { color: '#FFFFFF' },
-  success: { color: colors.green, fontSize: 11, lineHeight: 16, fontWeight: '700' },
-  error: { color: colors.danger, fontSize: 11, lineHeight: 16, fontWeight: '700' },
+  success: { color: colors.green, ...typography.meta, fontWeight: '700' },
+  error: { color: colors.danger, ...typography.meta, fontWeight: '700' },
 });
