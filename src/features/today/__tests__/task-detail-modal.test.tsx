@@ -90,6 +90,49 @@ describe('TaskDetailModal', () => {
     expect(screen.queryByText('安排任务时间')).toBeNull();
   });
 
+  it('guards scheduling and closing until the user explicitly discards dirty edits', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    const close = jest.fn();
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={close} />);
+
+    await fireEvent.changeText(screen.getByTestId('task-detail-title'), '尚未保存的标题');
+    await fireEvent.press(screen.getByTestId('open-task-schedule'));
+    expect(screen.getByText('继续操作将放弃这些修改。')).toBeTruthy();
+    expect(screen.queryByTestId('schedule-date')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('continue-editing-task'));
+    expect(screen.getByTestId('task-detail-title')).toHaveProp('value', '尚未保存的标题');
+    await fireEvent.press(screen.getByLabelText('关闭'));
+    expect(close).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('discard-task-changes-and-continue'));
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps independently dirty dates guarded after saving content and executes start once after discard', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    const close = jest.fn();
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={close} />);
+
+    await fireEvent.changeText(screen.getByTestId('task-detail-title'), '已保存的标题');
+    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('save-task-details'));
+    expect(store.updateTaskDetails).toHaveBeenCalledTimes(1);
+
+    await fireEvent.press(screen.getByTestId('start-task-from-detail'));
+    expect(store.startTask).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('discard-task-changes-and-continue'));
+    expect(store.startTask).toHaveBeenCalledTimes(1);
+    expect(store.startTask).toHaveBeenCalledWith(task.id);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/active');
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it('delegates unschedule, someday, start, and completion without adding planning rules', async () => {
     const store = storeValue();
     const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;

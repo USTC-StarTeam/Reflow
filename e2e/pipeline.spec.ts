@@ -135,6 +135,10 @@ test('Today 任务详情可编辑、取消具体时间并开始执行', async ({
   await page.getByTestId('task-detail-title').fill('复核客户报价');
   await page.getByTestId('task-detail-duration').fill('45');
   await page.getByTestId('task-detail-next-action').fill('确认预算口径并回复客户');
+  await page.getByTestId('open-task-schedule').click();
+  await expect(page.getByTestId('discard-task-changes')).toBeVisible();
+  await expect(page.getByTestId('schedule-date')).toBeHidden();
+  await page.getByTestId('continue-editing-task').click();
   await page.getByTestId('save-task-details').click();
 
   await page.getByTestId('open-task-schedule').click();
