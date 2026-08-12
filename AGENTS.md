@@ -1,40 +1,28 @@
 # Reflow Agent Development Guide
 
-This file defines the default development behavior for AI coding agents working on Reflow.
+This file defines the default behavior for AI coding agents working on Reflow.
 
-Keep this document short and stable.
+Keep it short and stable.
 
-Task-specific product requirements belong in the task prompt or relevant product docs, not in this file.
+Task-specific product requirements belong in the task prompt or relevant product docs.
 
 ---
 
-## 1. Development Philosophy
+## 1. Core Principle
 
-### Prefer the smallest sufficient change
+Prefer the smallest sufficient change.
 
 Solve the concrete problem requested.
 
-Do not turn a small bug fix, UI adjustment, or local behavior change into an architectural project.
-
-Do not proactively introduce:
-
-- new abstractions;
-- generalized frameworks;
-- state machines;
-- fallback layers;
-- compatibility layers;
-- defensive infrastructure;
-- future-facing APIs;
-- large validation systems;
-- large edge-case test matrices;
-
-unless the current task actually requires them.
-
-If a simple task starts producing a large diff, stop and reconsider the approach.
+Do not turn a small bug fix, UI adjustment, or local interaction change into an architectural project.
 
 In Reflow:
 
 > Simple and correct beats generalized and theoretically complete.
+
+A small task should usually produce a small diff.
+
+If a simple task unexpectedly requires a large change, stop and explain why before continuing.
 
 ---
 
@@ -48,37 +36,29 @@ Do not:
 - refactor unrelated code;
 - clean up nearby code without need;
 - solve hypothetical future problems;
-- expand product behavior beyond the requested direction;
-- add features just because they seem useful.
+- add abstractions for possible future use;
+- expand product behavior beyond the request.
 
-If you discover an unrelated problem:
+If you discover an unrelated issue:
 
-1. mention it;
-2. record it if useful;
-3. do not fix it unless it blocks the current task.
+- fix it only if it blocks the current task;
+- otherwise mention it and leave it for later.
 
-One task should normally solve one clear problem.
+Do not recursively audit or repair the repository while completing another task.
+
+Stop when the requested problem is solved.
 
 ---
 
 ## 3. Follow the Existing Product Direction
 
-Reflow is a:
+Reflow is a local-first, mobile-first personal execution and planning product.
 
-> local-first, mobile-first personal execution and planning product.
-
-When the user provides:
-
-- a reference image;
-- a page structure;
-- an interaction description;
-- an existing product skeleton;
-
-follow that direction.
+When the user provides a reference image, interaction description, page structure, or existing product skeleton, follow it.
 
 Do not replace it with a newly invented information architecture.
 
-The coding agent is responsible for implementation details, not for redefining the product.
+The coding agent owns implementation details, not product redefinition.
 
 Default UI principle:
 
@@ -90,15 +70,15 @@ Prefer:
 - compact information hierarchy;
 - progressive disclosure;
 - lightweight primary interactions;
-- advanced actions behind secondary interactions.
+- advanced actions in secondary interactions.
 
-Avoid turning pages into dashboards unless explicitly requested.
+Do not turn pages into dashboards unless explicitly requested.
 
 ---
 
-## 4. Architecture Invariants
+## 4. Preserve Architecture Boundaries
 
-Reflow uses an explicit and testable pipeline:
+Reflow follows this explicit pipeline:
 
     Capture
     → ProposalService
@@ -108,19 +88,18 @@ Reflow uses an explicit and testable pipeline:
     → Planning / Execution
     → Review
 
-Preserve these boundaries unless the task explicitly changes them.
+Preserve existing boundaries unless the task explicitly changes them.
 
 Important invariants:
 
-- AI produces proposals.
+- AI produces proposals only.
 - AI must not silently change formal domain state.
-- Formal task changes go through existing Store / Reducer domain actions.
+- Formal task changes go through existing Store / Reducer actions.
 - UI code must not bypass the domain write path.
 - `TaskItem.plannedDate` is the source of truth for current date ownership.
 - Planning history follows existing `TaskPlanEvent` semantics.
 - Deterministic Review facts remain deterministic.
-- Do not silently change persistence formats.
-- Do not casually change core domain types.
+- Do not casually change persistence formats or core domain types.
 
 For ordinary UI work, adapt the presentation to the existing domain model rather than redesigning the domain.
 
@@ -128,7 +107,7 @@ For ordinary UI work, adapt the presentation to the existing domain model rather
 
 ## 5. Reuse Existing Behavior
 
-Before adding a new mechanism, inspect whether the repository already provides one.
+Before creating a new mechanism, check whether the repository already provides one.
 
 Prefer reusing existing:
 
@@ -141,122 +120,91 @@ Prefer reusing existing:
 - validation helpers;
 - existing workflows.
 
-Do not create a second implementation of an existing workflow simply because it is locally convenient.
+Do not create a second implementation of an existing workflow just because it is locally convenient.
 
-Small local components are fine when they keep the implementation simple.
+Small local components are fine.
 
-Do not create a generalized abstraction unless there is a real current need for one.
+Do not create generalized abstractions without a real current need.
 
 ---
 
-## 6. Testing Should Match the Change
+## 6. Verification Discipline
 
-Testing effort should be proportional to the task.
+Verification effort must match the risk of the change.
 
-### Small bug fix
+For small UI changes, narrow bug fixes, and local interaction changes:
 
-Usually:
+1. make the smallest relevant change;
+2. run only the directly relevant test or lightweight check;
+3. review the final diff;
+4. push;
+5. let GitHub CI perform the full repository verification.
 
-- modify the smallest relevant code;
-- add or update one directly relevant test when useful;
-- run the relevant existing tests.
+Do not run the full local test suite by default.
 
-Do not build a large edge-case matrix for a narrow bug.
+In particular:
 
-### Normal feature
+- do not run Gateway tests unless Gateway behavior changed;
+- do not run E2E unless the changed user flow requires it;
+- do not run web export unless build/export behavior changed;
+- do not repeatedly run typecheck, lint, or tests after tiny edits.
 
-Test:
+If a relevant check passed and the related code has not changed afterward, do not run it again.
 
-- the main user path;
-- important existing invariants directly touched by the feature.
+Do not run baseline checks before editing unless there is a concrete reason to suspect the existing code is already broken.
 
-### Core or persistence change
+A full local verification pass is appropriate only for higher-risk changes such as:
 
-More extensive tests are appropriate when modifying:
-
-- persistence;
-- migrations;
-- core domain types;
+- core Domain or Reducer semantics;
+- persistence or migrations;
+- backup format;
 - destructive operations;
 - UserDecision semantics;
 - TaskPlanEvent semantics;
-- AI / Gateway trust boundaries.
+- AI / Gateway trust boundaries;
+- broad cross-module changes.
 
-Do not weaken existing tests merely to make a change pass.
+GitHub CI is the default final full gate for ordinary changes.
 
-During development, prefer targeted checks.
+> A passing relevant check is enough to stop.
 
-Before a PR is ready, use the repository's normal verification process.
-
-Common commands:
-
-~~~bash
-npm run typecheck
-npm run lint
-npm test
-npm run test:gateway
-npm run test:e2e
-npm run export:web
-~~~
-
-Do not repeatedly run every expensive check after every tiny edit.
+Do not seek additional confidence without a concrete reason.
 
 ---
 
-## 7. Core Changes Require Extra Care
+## 7. Avoid Over-Engineering
 
-Most product iteration should stay in the feature or presentation layer.
+Do not automatically introduce:
 
-Changes involving the following deserve additional care:
+- generalized frameworks;
+- new state machines;
+- compatibility layers;
+- fallback systems;
+- defensive infrastructure;
+- speculative APIs;
+- migration systems for future needs;
+- large validation layers;
+- large edge-case test matrices.
 
-- core domain types;
-- persistence schema;
-- migrations;
-- backup format;
-- destructive data behavior;
-- UserDecision semantics;
-- TaskPlanEvent semantics;
-- AI / Gateway trust boundaries.
+Before adding complexity, ask:
 
-Do not modify these simply because doing so would make a UI implementation easier.
+> Is this required to solve the current task?
 
-If a task genuinely requires a core change:
+If not, do not add it.
 
-- keep it explicit;
-- keep it narrow;
-- avoid unrelated refactoring.
-
----
-
-## 8. UI Implementation
-
-When implementing UI from an existing reference:
-
-1. understand the intended product structure;
-2. preserve the information hierarchy;
-3. reuse existing behavior;
-4. implement the smallest solution that reaches the target;
-5. avoid introducing unrelated product behavior.
-
-Visual similarity alone is not enough if interaction semantics are wrong.
-
-Likewise, do not create fake domain behavior merely to make a visual control appear functional.
-
-If a future capability is visible in the design but does not yet have a trustworthy implementation, it is acceptable to leave it clearly unavailable.
+Do not modify core architecture merely because doing so would make one UI implementation easier.
 
 ---
 
-## 9. Product Surface vs Domain Capability
-
-Reflow uses progressive disclosure.
+## 8. Product Surface Rules
 
 The domain may support more information and actions than the first-level UI shows.
 
 That is intentional.
 
-Do not expose every available field just because it exists.
+Do not expose fields simply because they exist.
 
-For example, first-level pages do not automatically need to show:
+First-level pages do not automatically need to show:
 
 - category;
 - next action;
@@ -268,155 +216,107 @@ For example, first-level pages do not automatically need to show:
 
 Keep advanced information in Detail or secondary interactions when appropriate.
 
+Visual similarity is not enough if interaction semantics are wrong.
+
+Likewise, do not create fake domain behavior only to make a visual control appear functional.
+
+---
+
+## 9. Git and PR Workflow
+
+Follow `CONTRIBUTING.md`.
+
+Important defaults:
+
+- never push directly to `main`;
+- work on a feature or fix branch;
+- changes go through PRs;
+- CI must be green before merge;
+- keep PRs focused.
+
+Do not combine unrelated cleanup with the requested task.
+
+When working under a supervising agent or user review workflow:
+
+> Do not merge a PR unless explicitly asked to merge it.
+
+Creating or updating a PR is not permission to merge it.
+
 ---
 
 ## 10. Expo and Cross-Platform Work
 
 Reflow currently uses Expo SDK 57.
 
-For version-sensitive Expo or React Native behavior, consult the exact versioned documentation:
+For version-sensitive Expo or React Native behavior, consult:
 
 https://docs.expo.dev/versions/v57.0.0/
 
 Do not assume behavior from another Expo SDK version.
 
-The project shares code between Web and native platforms.
+Reflow shares code between Web and native platforms.
 
-Avoid introducing Web-only assumptions into shared files unless platform-specific implementations already isolate them, such as:
+Avoid unnecessary Web-only assumptions in shared files.
 
-    *.web.tsx
-
-Web is currently an important development and CI target, but changes should not unnecessarily prevent future Android / iOS use.
+Use platform-specific files such as `*.web.tsx` when the existing architecture calls for them.
 
 ---
 
-## 11. Git and PR Rules
-
-Follow `CONTRIBUTING.md`.
-
-Important rules include:
-
-- never push directly to `main`;
-- work on a feature or fix branch;
-- changes go through PRs;
-- CI must be green before merge.
-
-Keep PRs focused.
-
-Do not combine unrelated cleanup with the requested task.
-
-When working under a supervising agent or user review workflow:
-
-> Do not merge the PR unless explicitly asked to merge it.
-
-Creating or updating the PR is not permission to merge it.
-
----
-
-## 12. Avoid Over-Engineering
-
-Before adding complexity, ask:
-
-> Is this required to solve the current task?
-
-If the answer is no, do not add it.
-
-In particular, do not automatically add:
-
-- additional guards for hypothetical cases;
-- generic state synchronization frameworks;
-- new error-handling layers;
-- generalized utility systems;
-- speculative compatibility code;
-- future migration infrastructure;
-- large amounts of defensive validation.
-
-Existing architecture and CI already provide broad protection.
-
-A small bug should usually produce a small patch.
-
-If a small task unexpectedly requires major architecture changes, stop and report the reason before continuing.
-
----
-
-## 13. Handling Newly Discovered Issues
-
-While implementing a task, you may notice another issue.
-
-Classify it as follows.
-
-### Blocks the current task
-
-Fix it with the smallest necessary change.
-
-### Does not block the current task
-
-Do not fix it.
-
-Mention it separately for possible future work.
-
-Do not recursively inspect and fix every nearby issue.
-
-The goal is to complete the requested task, not continuously audit the repository.
-
----
-
-## 14. Default Task Workflow
+## Default Task Workflow
 
 For most tasks:
 
 1. Read the request.
-2. Inspect the relevant code.
-3. Inspect nearby existing patterns.
-4. Identify the smallest sufficient solution.
-5. Implement it.
-6. Add or update only directly useful tests.
-7. Run relevant checks.
-8. Review the diff for accidental scope growth.
-9. Stop when the requested problem is solved.
+2. Inspect only the relevant code and nearby existing patterns.
+3. Identify the smallest sufficient solution.
+4. Implement it.
+5. Add or update only directly useful tests.
+6. Run the smallest relevant verification.
+7. Review the diff for accidental scope growth.
+8. Stop.
 
 Do not continue improving unrelated parts of the repository afterward.
 
 ---
 
-## 15. Decision Rule
+## Decision Rule
 
-When multiple implementations are valid, prefer the one that:
+When several implementations are valid, prefer the one that:
 
 1. changes less code;
 2. reuses more existing behavior;
 3. introduces fewer new concepts;
 4. is easier to understand;
 5. is easier to revise later;
-6. directly matches the requested product behavior.
+6. directly matches the requested behavior.
 
 Do not optimize prematurely for hypothetical future requirements.
 
 ---
 
-## 16. Repository References
+## Repository References
 
-Use these files for additional context when necessary:
+Read additional documentation only when relevant:
 
-- `README.md` — current product and architecture overview;
+- `README.md` — current product and architecture;
 - `CONTRIBUTING.md` — Git and collaboration rules;
-- `gateway/README.md` — AI Gateway behavior and configuration;
-- relevant files under `docs/` — feature-specific or historical design information.
+- `gateway/README.md` — AI Gateway behavior;
+- relevant files under `docs/` — feature-specific context.
 
 Do not read every document before every task.
-
-Read only what is relevant to the current work.
 
 ---
 
 ## Final Principle
 
-Reflow is currently under active product iteration.
+Reflow is under active product iteration.
 
 The priority is:
 
-> make the intended product work clearly, incrementally, and with minimal unnecessary complexity.
+> Build the simplest correct version that matches the intended product and existing architecture.
 
-Do not try to make every small change architecturally perfect.
+Do not make every small change architecturally perfect.
 
-Build the simplest correct version that fits the existing product and architecture.
+Do not maximize verification evidence.
+
+Solve the requested problem, verify the affected path, and stop.
