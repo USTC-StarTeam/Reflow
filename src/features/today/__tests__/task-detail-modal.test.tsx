@@ -56,7 +56,11 @@ describe('TaskDetailModal', () => {
 
   it('saves the three editable fields and a valid plan date through explicit actions', async () => {
     const store = storeValue();
-    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    const task = {
+      ...store.data.tasks.find((item) => item.id === 'task-client-quote')!,
+      plannedStartAt: undefined,
+      plannedEndAt: undefined,
+    };
     mockedUseReflowStore.mockReturnValue(store);
     const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
 
@@ -73,6 +77,70 @@ describe('TaskDetailModal', () => {
     await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
     await fireEvent.press(screen.getByTestId('save-task-date'));
     expect(store.planTaskForDate).toHaveBeenCalledWith(task.id, '2026-07-18');
+  });
+
+  it('requires explicit confirmation before a cross-date change clears an exact time', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('save-task-date'));
+
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('confirm-task-date-change')).toBeTruthy();
+    expect(screen.queryByTestId('today-task-detail')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('continue-editing-task-date'));
+    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('task-detail-time')).toHaveTextContent('16:00–16:30');
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('save-task-date'));
+    await fireEvent.press(screen.getByTestId('confirm-unscheduled-date-change'));
+    expect(store.planTaskForDate).toHaveBeenCalledTimes(1);
+    expect(store.planTaskForDate).toHaveBeenCalledWith(task.id, '2026-07-18');
+  });
+
+  it('reopens scheduling with the draft date and existing exact duration', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('save-task-date'));
+    await fireEvent.press(screen.getByTestId('reschedule-task-date'));
+
+    expect(screen.queryByTestId('confirm-task-date-change')).toBeNull();
+    expect(screen.queryByTestId('today-task-detail')).toBeNull();
+    expect(screen.getByTestId('schedule-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('schedule-time')).toHaveProp('value', '16:00');
+    expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '30');
+
+    await fireEvent.press(screen.getByTestId('confirm-schedule'));
+    expect(store.scheduleTask).toHaveBeenCalledTimes(1);
+    expect(store.scheduleTask).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining('2026-07-18T16:00:00'),
+      expect.stringContaining('2026-07-18T16:30:00'),
+    );
+    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
+    await fireEvent.press(screen.getByTestId('start-task-from-detail'));
+    expect(screen.queryByTestId('discard-task-changes')).toBeNull();
+  });
+
+  it('treats saving an unchanged exact-time date as a no-op', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.press(screen.getByTestId('save-task-date'));
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('confirm-task-date-change')).toBeNull();
+    expect(screen.getByTestId('task-detail-time')).toHaveTextContent('16:00–16:30');
   });
 
   it('keeps Detail and Schedule modals mutually exclusive and returns after closing schedule', async () => {
@@ -109,7 +177,7 @@ describe('TaskDetailModal', () => {
     expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
     expect(screen.getByTestId('task-detail-time')).toHaveTextContent('14:00–14:45');
     await fireEvent.press(screen.getByTestId('save-task-date'));
-    expect(store.planTaskForDate).toHaveBeenCalledWith(task.id, '2026-07-18');
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByTestId('start-task-from-detail'));
     expect(screen.queryByTestId('discard-task-changes')).toBeNull();
   });

@@ -33,6 +33,8 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
   });
   const [savedDate, setSavedDate] = useState(task.plannedDate ?? '');
   const [pendingAction, setPendingAction] = useState<GuardedAction>();
+  const [confirmDateChange, setConfirmDateChange] = useState(false);
+  const [scheduleDateOverride, setScheduleDateOverride] = useState<LocalDate>();
   const planningIdentity = `${task.plannedDate ?? ''}|${task.plannedStartAt ?? ''}|${task.plannedEndAt ?? ''}`;
   const [previousPlanningIdentity, setPreviousPlanningIdentity] = useState(planningIdentity);
 
@@ -70,8 +72,37 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
       setError('请输入 YYYY-MM-DD 格式的有效日期。');
       return;
     }
+    if (plannedDate === savedDate) {
+      setError('');
+      return;
+    }
+    if (task.plannedStartAt && task.plannedEndAt) {
+      setConfirmDateChange(true);
+      setError('');
+      return;
+    }
     store.planTaskForDate(task.id, plannedDate);
     setSavedDate(plannedDate);
+    setError('');
+  }
+
+  function confirmUnscheduledDateChange() {
+    store.planTaskForDate(task.id, plannedDate as LocalDate);
+    setSavedDate(plannedDate);
+    setConfirmDateChange(false);
+    setError('');
+  }
+
+  function rescheduleDateChange() {
+    setScheduleDateOverride(plannedDate as LocalDate);
+    setConfirmDateChange(false);
+    setScheduleOpen(true);
+  }
+
+  function scheduledOn(date: LocalDate) {
+    setPlannedDate(date);
+    setSavedDate(date);
+    setScheduleDateOverride(undefined);
     setError('');
   }
 
@@ -111,7 +142,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
 
   return (
     <>
-      {!scheduleOpen && !pendingAction ? (
+      {!scheduleOpen && !pendingAction && !confirmDateChange ? (
         <ModalSurface
           visible={visible}
           title="任务详情"
@@ -184,13 +215,38 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
         </ModalSurface>
       ) : null}
 
+      {confirmDateChange ? (
+        <ModalSurface
+          visible
+          title="修改计划日期会取消当前具体时间"
+          subtitle="你可以取消具体时间后改到新日期，或保留原时间与时长并重新安排。"
+          onClose={() => setConfirmDateChange(false)}
+          placement="center"
+          testID="confirm-task-date-change"
+        >
+          <View style={styles.confirmActions}>
+            <ActionButton testID="continue-editing-task-date" label="继续编辑" variant="primary" onPress={() => setConfirmDateChange(false)} />
+            <ActionButton testID="reschedule-task-date" label="重新安排时间" onPress={rescheduleDateChange} />
+            <ActionButton testID="confirm-unscheduled-date-change" label="取消具体时间并改日期" variant="danger" onPress={confirmUnscheduledDateChange} />
+          </View>
+        </ModalSurface>
+      ) : null}
+
       {scheduleOpen ? (
         <ScheduleTaskModal
-          key={`${task.id}-${task.plannedDate ?? 'none'}-${task.plannedStartAt ?? 'unscheduled'}`}
+          key={`${task.id}-${task.plannedDate ?? 'none'}-${task.plannedStartAt ?? 'unscheduled'}-${scheduleDateOverride ?? 'canonical'}`}
           task={task}
           initialDate={(task.plannedDate ?? plannedDate) as LocalDate}
+          initialDateOverride={scheduleDateOverride}
+          initialDurationMinutes={task.plannedStartAt && task.plannedEndAt
+            ? Math.round((new Date(task.plannedEndAt).getTime() - new Date(task.plannedStartAt).getTime()) / 60_000)
+            : undefined}
           visible
-          onClose={() => setScheduleOpen(false)}
+          onScheduled={scheduledOn}
+          onClose={() => {
+            setScheduleOpen(false);
+            setScheduleDateOverride(undefined);
+          }}
         />
       ) : null}
     </>
