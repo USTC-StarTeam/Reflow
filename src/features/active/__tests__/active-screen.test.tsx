@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
-import { toZonedISOString } from '@/core/date-utils';
+import { addDays, addLocalDays, dateKey, toZonedISOString } from '@/core/date-utils';
 import { useReflowStore, type ReflowStoreValue } from '@/core/store';
 import type { DomainData } from '@/core/types';
 import { ShellContext } from '@/features/shared/shell-context';
@@ -91,9 +91,16 @@ describe('ActiveScreen presentation', () => {
     expect(store.deleteTask).not.toHaveBeenCalled();
   });
 
-  it('shows at most three candidates only when idle and marks the latest paused task to continue', async () => {
+  it('keeps a cross-day paused task first, deduplicates it from today, and limits candidates to three', async () => {
     const data = createSeedData();
-    data.tasks = data.tasks.map((task) => task.id === 'task-reflow-demo' ? { ...task, status: 'notStarted' } : task);
+    const today = dateKey(new Date());
+    data.tasks = data.tasks.map((task) => task.id === 'task-reflow-demo' ? {
+      ...task,
+      status: 'notStarted',
+      plannedDate: addLocalDays(today, -1),
+      plannedStartAt: undefined,
+      plannedEndAt: undefined,
+    } : task);
     data.progressLogs = [
       ...data.progressLogs,
       {
@@ -101,7 +108,7 @@ describe('ActiveScreen presentation', () => {
         taskId: 'task-reflow-demo',
         kind: 'pause',
         text: '暂停任务',
-        createdAt: toZonedISOString(new Date()),
+        createdAt: toZonedISOString(addDays(new Date(), -1)),
       },
     ];
     const store = storeValue(data);
@@ -109,10 +116,39 @@ describe('ActiveScreen presentation', () => {
 
     expect(screen.getByTestId('active-empty-state')).toBeTruthy();
     expect(screen.getByText('完成 Reflow Demo 页面结构（已暂停）')).toBeTruthy();
+    expect(screen.getByText(/暂停 · 预计 90 分钟/)).toBeTruthy();
     expect(screen.getByLabelText('继续')).toBeTruthy();
     expect(screen.getAllByTestId(/^active-candidate-/)).toHaveLength(3);
+    expect(screen.getAllByTestId('active-candidate-task-reflow-demo')).toHaveLength(1);
 
     await fireEvent.press(screen.getByLabelText('继续'));
     expect(store.startTask).toHaveBeenCalledWith('task-reflow-demo');
+  });
+
+  it.each(['completed', 'deleted'] as const)('does not surface a %s historical pause', async (state) => {
+    const data = createSeedData();
+    data.tasks = data.tasks.map((task) => task.id === 'task-reflow-demo' ? {
+      ...task,
+      status: state === 'completed' ? 'completed' : 'notStarted',
+      deletedAt: state === 'deleted' ? toZonedISOString(new Date()) : undefined,
+      plannedDate: addLocalDays(dateKey(new Date()), -1),
+      plannedStartAt: undefined,
+      plannedEndAt: undefined,
+    } : task);
+    data.progressLogs = [
+      ...data.progressLogs,
+      {
+        id: `log-pause-${state}`,
+        taskId: 'task-reflow-demo',
+        kind: 'pause',
+        text: '暂停任务',
+        createdAt: toZonedISOString(new Date()),
+      },
+    ];
+
+    const screen = await renderActive(storeValue(data));
+
+    expect(screen.queryByTestId('active-candidate-task-reflow-demo')).toBeNull();
+    expect(screen.getAllByTestId(/^active-candidate-/)).toHaveLength(2);
   });
 });

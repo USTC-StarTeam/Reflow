@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { dateKey, formatTime } from '@/core/date-utils';
+import { dateKey, formatShortDate, formatTime } from '@/core/date-utils';
 import { selectCurrentTask, selectTaskMinutes } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { ProgressLog, TaskItem } from '@/core/types';
@@ -14,12 +14,15 @@ function executionSummary(logs: ProgressLog[], minutes: number): string {
   return `本次执行 ${minutes} 分 · 暂停 ${pauses} 次 · 被打断 ${interruptions} 次`;
 }
 
-function CandidateRow({ task, onStart, isPaused }: { task: TaskItem; onStart: () => void; isPaused: boolean }) {
+function CandidateRow({ task, onStart, pausedAt, today }: { task: TaskItem; onStart: () => void; pausedAt?: string; today: string }) {
+  const isPaused = Boolean(pausedAt);
+  const pausedLabel = pausedAt && dateKey(pausedAt) !== today ? `${formatShortDate(pausedAt)}暂停` : undefined;
+  const metadata = [pausedLabel, task.estimatedMinutes ? `预计 ${task.estimatedMinutes} 分钟` : undefined].filter(Boolean).join(' · ');
   return (
     <View testID={`active-candidate-${task.id}`} style={styles.candidate}>
       <View style={styles.candidateCopy}>
         <Text style={textStyles.cardTitle}>{task.title}{isPaused ? '（已暂停）' : ''}</Text>
-        {task.estimatedMinutes ? <Text style={textStyles.meta}>预计 {task.estimatedMinutes} 分钟</Text> : null}
+        {metadata ? <Text style={textStyles.meta}>{metadata}</Text> : null}
       </View>
       <ActionButton label={isPaused ? '继续' : '开始'} variant="primary" onPress={onStart} />
     </View>
@@ -31,15 +34,20 @@ export function ActiveScreen() {
   const { data } = store;
   const active = selectCurrentTask(data);
   const [progress, setProgress] = useState('');
-  const lastPausedTaskId = [...data.progressLogs]
+  const today = dateKey(new Date());
+  const latestPause = [...data.progressLogs]
     .filter((log) => log.kind === 'pause')
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.taskId;
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .find((log) => data.tasks.some((task) => task.id === log.taskId && !task.deletedAt && task.status === 'notStarted'));
+  const pausedTask = latestPause ? data.tasks.find((task) => task.id === latestPause.taskId) : undefined;
   const activeLogs = active ? data.progressLogs.filter((log) => log.taskId === active.id) : [];
   const recentProgress = [...activeLogs].filter((log) => log.kind === 'progress').sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 2);
   const activeMinutes = active ? selectTaskMinutes(data, active.id) : 0;
-  const available = data.tasks
-    .filter((task) => !task.deletedAt && task.plannedDate === dateKey(new Date()) && task.status === 'notStarted')
-    .sort((left, right) => left.id === lastPausedTaskId ? -1 : right.id === lastPausedTaskId ? 1 : left.sortIndex - right.sortIndex)
+  const todayCandidates = data.tasks
+    .filter((task) => !task.deletedAt && task.plannedDate === today && task.status === 'notStarted')
+    .sort((left, right) => left.sortIndex - right.sortIndex);
+  const available = [pausedTask, ...todayCandidates]
+    .filter((task, index, tasks): task is TaskItem => Boolean(task) && tasks.findIndex((candidate) => candidate?.id === task?.id) === index)
     .slice(0, 3);
 
   function submitProgress() {
@@ -84,7 +92,7 @@ export function ActiveScreen() {
       ) : (
         <Card testID="active-empty-state" style={styles.emptyCard}>
           <EmptyState title="当前没有进行中的任务" detail="从今天的事项中选择一项开始，系统会保持一次只专注一个任务。" />
-          {available.map((task) => <CandidateRow key={task.id} task={task} isPaused={task.id === lastPausedTaskId} onStart={() => store.startTask(task.id)} />)}
+          {available.map((task) => <CandidateRow key={task.id} task={task} pausedAt={task.id === pausedTask?.id ? latestPause?.createdAt : undefined} today={today} onStart={() => store.startTask(task.id)} />)}
         </Card>
       )}
     </Page>
