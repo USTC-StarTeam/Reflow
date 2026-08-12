@@ -59,8 +59,14 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await expect(page.getByTestId('current-task-card')).toContainText(taskText);
   await page.getByTestId('progress-input').fill('已核对预算假设');
   await page.getByTestId('record-progress').click();
-  await page.getByTestId('record-time').click();
+  await page.getByTestId('pause-task').click();
+  const pausedCandidate = page.locator('[data-testid^="active-candidate-"]', { hasText: taskText });
+  await expect(pausedCandidate).toContainText('已暂停');
+  await pausedCandidate.getByRole('button', { name: '继续' }).click();
+  await expect(page.getByTestId('current-task-card')).toContainText(taskText);
   await page.getByTestId('complete-task').click();
+  await expect(page.getByTestId('active-empty-state')).toBeVisible();
+  await expect(page.locator('[data-testid^="active-candidate-"]', { hasText: taskText })).toHaveCount(0);
 
   await page.getByTestId('nav-日历').click();
   await expect(calendarEntry).toContainText('实际完成');
