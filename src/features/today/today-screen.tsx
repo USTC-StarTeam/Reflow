@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -21,13 +20,13 @@ function TodayEmptyRow({ children }: { children: string }) {
   return <View style={styles.emptyRow}><Text style={styles.emptyText}>{children}</Text></View>;
 }
 
+const unavailableSuggestionAction = () => undefined;
+
 export function TodayScreen() {
-  const router = useRouter();
   const store = useReflowStore();
   const today = useMemo(() => dateKey(new Date()), []);
   const sections = selectTodaySections(store.data, today);
   const suggestion = todaySuggestion(sections.scheduled.length, sections.unscheduled.length, sections.completed.length);
-  const suggestedTaskIds = [...sections.scheduled, ...sections.unscheduled].map((task) => task.id);
 
   return (
     <>
@@ -39,8 +38,8 @@ export function TodayScreen() {
           <Card testID="today-suggestion" accent="ai" style={styles.suggestionCard}>
             <View style={styles.suggestionCopy}><Text style={styles.suggestionAI}>AI:</Text><Text style={styles.suggestionText}>{suggestion}</Text></View>
             <View style={styles.suggestionActions}>
-              <ActionButton testID="accept-today-order" label="接受排序" variant="green" disabled={!suggestedTaskIds.length} onPress={() => store.reorderTasks(suggestedTaskIds)} />
-              <ActionButton testID="manual-adjust-today" label="手动调整" onPress={() => router.replace('/calendar')} />
+              <ActionButton testID="accept-today-order" label="接受排序" variant="green" disabled onPress={unavailableSuggestionAction} />
+              <ActionButton testID="manual-adjust-today" label="手动调整" disabled onPress={unavailableSuggestionAction} />
             </View>
           </Card>
         </View>

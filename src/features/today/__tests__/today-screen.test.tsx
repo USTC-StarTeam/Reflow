@@ -8,12 +8,6 @@ import type { TaskItem } from '@/core/types';
 import { ShellContext } from '../../shared/shell-context';
 import { TodayScreen } from '../today-screen';
 
-const mockReplace = jest.fn();
-
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace }),
-}));
-
 jest.mock('@/core/store', () => ({
   useReflowStore: jest.fn(),
 }));
@@ -76,7 +70,6 @@ async function renderToday() {
 describe('TodayScreen information hierarchy', () => {
   afterEach(() => {
     jest.useRealTimers();
-    mockReplace.mockReset();
   });
 
   it('keeps Quick Capture and separates exact-time, date-only, and completed tasks', async () => {
@@ -146,32 +139,20 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.queryByLabelText('暂停 整理本周实验报告')).toBeNull();
   });
 
-  it('applies the deterministic Today order only after confirmation', async () => {
+  it('keeps suggestion actions visibly unavailable without domain writes', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
     const store = storeValue();
     mockedUseReflowStore.mockReturnValue(store);
 
     const screen = await renderToday();
+    const accept = screen.getByTestId('accept-today-order');
+    const adjust = screen.getByTestId('manual-adjust-today');
+
+    expect(accept.props.accessibilityState).toEqual({ disabled: true });
+    expect(adjust.props.accessibilityState).toEqual({ disabled: true });
+    fireEvent.press(accept);
+    fireEvent.press(adjust);
+
     expect(store.reorderTasks).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByTestId('accept-today-order'));
-
-    expect(store.reorderTasks).toHaveBeenCalledTimes(1);
-    expect(store.reorderTasks).toHaveBeenCalledWith([
-      'task-reflow-demo',
-      'task-client-quote',
-      'task-pickup-medicine',
-      'task-today-date-only',
-    ]);
-  });
-
-  it('uses Calendar as the existing manual adjustment entry', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
-    mockedUseReflowStore.mockReturnValue(storeValue());
-
-    const screen = await renderToday();
-    fireEvent.press(screen.getByTestId('manual-adjust-today'));
-
-    expect(mockReplace).toHaveBeenCalledTimes(1);
-    expect(mockReplace).toHaveBeenCalledWith('/calendar');
   });
 });
