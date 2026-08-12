@@ -13,11 +13,9 @@ async function selectTodayForProposal(page: Page, proposal: ReturnType<Page['loc
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   });
-  await proposal.getByRole('button', { name: '修改', exact: true }).click();
-  const titleInput = page.locator('[data-testid^="proposal-title-"]:visible');
-  await page.locator('[data-testid^="proposal-date-"]:visible').fill(today);
-  await page.getByRole('button', { name: '保存修改' }).last().click();
-  await expect(titleInput).toBeHidden();
+  await proposal.getByRole('button', { name: '选择日期', exact: true }).click();
+  await page.getByTestId(`proposal-date-option-${today}`).click();
+  await expect(page.getByTestId('proposal-date-picker')).toBeHidden();
   await proposal.getByRole('button', { name: '确认', exact: true }).click();
 }
 

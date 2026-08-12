@@ -9,6 +9,7 @@ import { useReflowStore } from '@/core/store';
 import { type AIProposal, type ProposalEdit, type TaskCategory, type VisibleClassification, visibleClassificationLabels, type WaitingDetails, type WorkflowBucket } from '@/core/types';
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
+import { LocalDatePicker } from './local-date-picker';
 
 const visibleClassifications: VisibleClassification[] = ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown'];
 
@@ -55,6 +56,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   const [classification, setClassification] = useState<VisibleClassification>(originalClassification);
   const [editing, setEditing] = useState(false);
   const [classificationOpen, setClassificationOpen] = useState(false);
+  const [datePickerContext, setDatePickerContext] = useState<'firstLevel' | 'editor' | null>(null);
   const initialWaitingDetails = editableWaitingDetails(proposal);
   const [formError, setFormError] = useState('');
   const [title, setTitle] = useState(proposal.title);
@@ -161,12 +163,13 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
           {isWaiting ? <ActionButton testID={`accept-waiting-${proposal.id}`} label="放入等待列表" variant="primary" onPress={() => acceptTask('waiting')} /> : null}
           {isSomeday ? <ActionButton testID={`accept-someday-${proposal.id}`} label="保存到稍后" variant="primary" onPress={() => acceptTask('someday')} /> : null}
           {isUnknown ? <ActionButton label="补充信息" variant="primary" onPress={() => setEditing(true)} /> : null}
-          {!isKnowledge && !isWaiting && !isSomeday && !isUnknown ? <ActionButton testID={`accept-${proposal.id}`} label="确认" variant="primary" onPress={() => acceptTask('today')} /> : null}
+          {!isKnowledge && !isWaiting && !isSomeday && !isUnknown && plannedDate ? <ActionButton testID={`accept-${proposal.id}`} label="确认" variant="primary" onPress={() => acceptTask('today')} /> : null}
+          {!isKnowledge && !isWaiting && !isSomeday && !isUnknown && !plannedDate ? <ActionButton testID={`select-date-${proposal.id}`} label="选择日期" variant="primary" onPress={() => setDatePickerContext('firstLevel')} /> : null}
           {!isUnknown ? <ActionButton label="修改" onPress={() => setEditing(true)} /> : <ActionButton label="忽略" variant="danger" onPress={ignoreProposal} />}
         </View>
       </View>
 
-      <Sheet visible={editing && !classificationOpen} onClose={() => setEditing(false)} title="修改整理结果">
+      <Sheet visible={editing && !classificationOpen && datePickerContext !== 'editor'} onClose={() => setEditing(false)} title="修改整理结果">
         <ScrollView contentContainerStyle={styles.editor} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={styles.fieldLabel}>{isKnowledge ? '标题' : '任务标题'}</Text>
           <TextInput testID={`proposal-title-${proposal.id}`} value={title} onChangeText={setTitle} style={styles.input} />
@@ -183,7 +186,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
               <TextInput testID={`proposal-minutes-${proposal.id}`} value={minutes} onChangeText={setMinutes} keyboardType="number-pad" style={styles.input} />
               <Text style={styles.fieldLabel}>下一步行动</Text>
               <TextInput testID={`proposal-next-action-${proposal.id}`} value={nextAction} onChangeText={setNextAction} style={styles.input} />
-              {!isWaiting && !isSomeday ? <><Text style={styles.fieldLabel}>计划日期</Text><TextInput testID={`proposal-date-${proposal.id}`} value={plannedDate} onChangeText={setPlannedDate} placeholder="YYYY-MM-DD" style={styles.input} /></> : null}
+              {!isWaiting && !isSomeday ? <><Text style={styles.fieldLabel}>计划日期</Text><Pressable testID={`proposal-date-${proposal.id}`} accessibilityRole="button" accessibilityLabel={plannedDate ? `计划日期 ${formatShortDate(plannedDate)}，点击修改` : '计划日期尚未选择，点击选择'} onPress={() => setDatePickerContext('editor')} style={({ pressed }) => [styles.dateButton, pressed && styles.dateButtonPressed]}><Text style={[styles.dateButtonText, !plannedDate && styles.dateButtonPlaceholder]}>{plannedDate ? formatShortDate(plannedDate) : '选择日期'}</Text><Text style={styles.disclosure}>选择</Text></Pressable></> : null}
               {isWaiting ? <><Text style={styles.fieldLabel}>等待对象</Text><TextInput testID={`proposal-waiting-for-${proposal.id}`} value={waitingDetails.waitingFor} onChangeText={(waitingFor) => setWaitingDetails((current) => ({ ...current, waitingFor }))} style={styles.input} /><Text style={styles.fieldLabel}>等待内容</Text><TextInput testID={`proposal-waiting-on-${proposal.id}`} value={waitingDetails.waitingOn} onChangeText={(waitingOn) => setWaitingDetails((current) => ({ ...current, waitingOn }))} style={styles.input} /><Text style={styles.fieldLabel}>跟进日期</Text><TextInput testID={`follow-up-date-${proposal.id}`} value={waitingDetails.followUpDate} onChangeText={(followUpDate) => setWaitingDetails((current) => ({ ...current, followUpDate }))} placeholder="YYYY-MM-DD" style={styles.input} /></> : null}
             </>
           )}
@@ -194,6 +197,8 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
           </View>
         </ScrollView>
       </Sheet>
+
+      {datePickerContext ? <LocalDatePicker value={plannedDate || undefined} onClose={() => setDatePickerContext(null)} onSelect={(date) => { setPlannedDate(date); setFormError(''); setDatePickerContext(null); }} /> : null}
 
       <Sheet visible={classificationOpen} onClose={() => setClassificationOpen(false)} title="选择 AI 归类结果">
         <ScrollView contentContainerStyle={styles.optionList}>
@@ -265,6 +270,7 @@ const styles = StyleSheet.create({
   classificationButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, minHeight: 34 }, disclosure: { color: colors.primary, fontSize: 11, fontWeight: '800' },
   proposalCard: { padding: 12 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, reorderMark: { width: 18, alignItems: 'center' }, reorderGlyph: { color: colors.subtle, fontSize: 18, lineHeight: 20 }, proposalCopy: { flex: 1, minWidth: 0, gap: 3 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 6 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   editor: { gap: 6, padding: 10, backgroundColor: colors.surface, borderRadius: radius.medium }, input: { minHeight: 42, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 }, summaryInput: { minHeight: 74, paddingTop: 9, textAlignVertical: 'top' }, inputError: { color: colors.danger, fontSize: 11, fontWeight: '700' },
+  dateButton: { minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, dateButtonPressed: { opacity: 0.72 }, dateButtonText: { color: colors.ink, fontSize: 13, fontWeight: '800' }, dateButtonPlaceholder: { color: colors.muted },
   modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(24, 32, 45, 0.34)', padding: 14 }, sheet: { width: '100%', maxWidth: 452, gap: 10, maxHeight: '84%', borderRadius: radius.large, backgroundColor: colors.card, padding: 14 }, sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, optionList: { gap: 8 }, editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   recentCard: { paddingVertical: 9 }, recentTop: { flexDirection: 'row', alignItems: 'center', gap: 9 }, recentIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }, recentIconText: { color: colors.muted, fontSize: 16 }, recentCopy: { flex: 1, minWidth: 0 }, failure: { borderLeftWidth: 4, borderLeftColor: colors.danger },
 });

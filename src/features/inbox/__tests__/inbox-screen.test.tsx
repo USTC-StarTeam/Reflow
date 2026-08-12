@@ -2,6 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, within } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
+import { addLocalDays, dateKey, formatShortDate } from '@/core/date-utils';
 import { useReflowStore, type ReflowStoreValue } from '@/core/store';
 import { ShellContext } from '@/features/shared/shell-context';
 import { InboxScreen } from '../inbox-screen';
@@ -29,12 +30,14 @@ async function renderInbox(store: ReflowStoreValue) {
 
 describe('InboxScreen first-level presentation', () => {
   it('shows compact proposal rows and hides diagnostic metadata until editing', async () => {
-    const screen = await renderInbox(storeValue());
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const data = { ...seed, proposals: seed.proposals.map((proposal) => proposal.id === 'proposal-contract' ? { ...proposal, suggestedDate: '2026-07-20' } : proposal) };
+    const screen = await renderInbox(storeValue(data));
     const proposal = screen.getByTestId('proposal-proposal-contract');
 
     const row = within(proposal);
     expect(row.getByText('审阅合同付款条款')).toBeTruthy();
-    expect(row.getByText('工作推进 · 预计 45 分')).toBeTruthy();
+    expect(row.getByText('7月20日 · 工作推进 · 预计 45 分')).toBeTruthy();
     expect(row.queryByText(/合同条款今晚前审阅/)).toBeNull();
     expect(row.queryByText('本地规则')).toBeNull();
     expect(row.queryByText(/识别到明确截止时间/)).toBeNull();
@@ -42,6 +45,26 @@ describe('InboxScreen first-level presentation', () => {
     expect(row.queryByText('AI 归类结果')).toBeNull();
     expect(row.getByText('确认')).toBeTruthy();
     expect(row.getByText('修改')).toBeTruthy();
+  });
+
+  it('selects a missing date locally before confirmation writes the decision', async () => {
+    const store = storeValue();
+    const screen = await renderInbox(store);
+    const proposal = screen.getByTestId('proposal-proposal-contract');
+    const target = addLocalDays(dateKey(new Date()), 1);
+
+    expect(within(proposal).getByText('选择日期')).toBeTruthy();
+    await fireEvent.press(within(proposal).getByText('选择日期'));
+    expect(screen.getByTestId('proposal-date-picker')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId(`proposal-date-option-${target}`));
+
+    expect(screen.queryByTestId('proposal-date-picker')).toBeNull();
+    expect(within(proposal).getByText(new RegExp(formatShortDate(target)))).toBeTruthy();
+    expect(within(proposal).getByText('确认')).toBeTruthy();
+    expect(store.submitUserDecision).not.toHaveBeenCalled();
+    await fireEvent.press(within(proposal).getByText('确认'));
+    expect(store.submitUserDecision).toHaveBeenCalledTimes(1);
+    expect(store.submitUserDecision).toHaveBeenCalledWith(expect.objectContaining({ proposalId: 'proposal-contract', plannedDate: target }));
   });
 
   it('opens the existing edit fields in a secondary sheet', async () => {
@@ -53,6 +76,26 @@ describe('InboxScreen first-level presentation', () => {
     expect(screen.getByTestId('proposal-title-proposal-contract')).toHaveProp('value', '审阅合同付款条款');
     expect(screen.getByTestId('proposal-next-action-proposal-contract')).toHaveProp('value', '先标出付款周期风险点');
     expect(screen.getByTestId('proposal-classification-proposal-contract')).toBeTruthy();
+  });
+
+  it('returns to the edit sheet after changing its date and stays pending until confirmation', async () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const data = { ...seed, proposals: seed.proposals.map((proposal) => proposal.id === 'proposal-contract' ? { ...proposal, suggestedDate: '2026-07-20' } : proposal) };
+    const store = storeValue(data);
+    const screen = await renderInbox(store);
+    const proposal = screen.getByTestId('proposal-proposal-contract');
+
+    await fireEvent.press(within(proposal).getByText('修改'));
+    await fireEvent.press(screen.getByTestId('proposal-date-proposal-contract'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-07-25'));
+
+    expect(screen.getByText('修改整理结果')).toBeTruthy();
+    expect(screen.getByText('7月25日')).toBeTruthy();
+    expect(store.submitUserDecision).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByText('保存修改'));
+    expect(screen.getByTestId('proposal-proposal-contract')).toBeTruthy();
+    expect(within(proposal).getByText(/7月25日/)).toBeTruthy();
+    expect(store.submitUserDecision).not.toHaveBeenCalled();
   });
 
   it('keeps failed capture raw text visible and recent decisions lightweight', async () => {
