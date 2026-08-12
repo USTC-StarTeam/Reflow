@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { dateKey } from '@/core/date-utils';
@@ -7,6 +7,12 @@ import { useReflowStore, type ReflowStoreValue } from '@/core/store';
 import type { TaskItem } from '@/core/types';
 import { ShellContext } from '../../shared/shell-context';
 import { TodayScreen } from '../today-screen';
+
+const mockReplace = jest.fn();
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ replace: mockReplace }),
+}));
 
 jest.mock('@/core/store', () => ({
   useReflowStore: jest.fn(),
@@ -70,6 +76,7 @@ async function renderToday() {
 describe('TodayScreen information hierarchy', () => {
   afterEach(() => {
     jest.useRealTimers();
+    mockReplace.mockReset();
   });
 
   it('keeps Quick Capture and separates exact-time, date-only, and completed tasks', async () => {
@@ -79,18 +86,22 @@ describe('TodayScreen information hierarchy', () => {
     const screen = await renderToday();
 
     expect(screen.getByTestId('quick-capture-input')).toBeTruthy();
+    expect(screen.getByText('轻量捕捉与今日重点')).toBeTruthy();
+    expect(screen.getByText('AI')).toBeTruthy();
     expect(screen.getByText(/今天有 3 个明确时间事项/)).toBeTruthy();
+    expect(screen.getByTestId('accept-today-order')).toBeTruthy();
+    expect(screen.getByTestId('manual-adjust-today')).toBeTruthy();
     expect(screen.getByText('时间安排')).toBeTruthy();
     expect(screen.getByText('今天要做')).toBeTruthy();
-    expect(screen.getByText('已完成')).toBeTruthy();
+    expect(screen.getAllByText('已完成')).toHaveLength(2);
     expect(screen.getByTestId('task-task-reflow-demo')).toBeTruthy();
     expect(screen.getByText('10:00–11:30')).toBeTruthy();
     expect(screen.getByTestId('task-task-today-date-only')).toBeTruthy();
     expect(screen.getByText('整理本周实验报告')).toBeTruthy();
     expect(screen.getByText('预计 60 分')).toBeTruthy();
     expect(screen.getByTestId('today-completed-task-inbox-cleanup')).toBeTruthy();
-    expect(screen.getByLabelText('进行中')).toBeTruthy();
-    expect(screen.getAllByLabelText('待开始')).toHaveLength(3);
+    expect(screen.getByLabelText('完成 完成 Reflow Demo 页面结构')).toBeTruthy();
+    expect(screen.getByLabelText('完成 整理本周实验报告')).toBeTruthy();
   });
 
   it('keeps first-level rows scan-only without execution controls or task metadata', async () => {
@@ -119,5 +130,48 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.queryByLabelText('暂停 整理本周实验报告')).toBeNull();
     expect(screen.queryByLabelText('开始 晨间整理收件箱')).toBeNull();
     expect(screen.queryByLabelText('暂停 晨间整理收件箱')).toBeNull();
+  });
+
+  it('completes the selected unfinished task through the one-tap status control', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    fireEvent.press(screen.getByLabelText('完成 整理本周实验报告'));
+
+    expect(store.completeTask).toHaveBeenCalledTimes(1);
+    expect(store.completeTask).toHaveBeenCalledWith('task-today-date-only');
+    expect(screen.queryByLabelText('开始 整理本周实验报告')).toBeNull();
+    expect(screen.queryByLabelText('暂停 整理本周实验报告')).toBeNull();
+  });
+
+  it('applies the deterministic Today order only after confirmation', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    expect(store.reorderTasks).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('accept-today-order'));
+
+    expect(store.reorderTasks).toHaveBeenCalledTimes(1);
+    expect(store.reorderTasks).toHaveBeenCalledWith([
+      'task-reflow-demo',
+      'task-client-quote',
+      'task-pickup-medicine',
+      'task-today-date-only',
+    ]);
+  });
+
+  it('uses Calendar as the existing manual adjustment entry', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    mockedUseReflowStore.mockReturnValue(storeValue());
+
+    const screen = await renderToday();
+    fireEvent.press(screen.getByTestId('manual-adjust-today'));
+
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledWith('/calendar');
   });
 });

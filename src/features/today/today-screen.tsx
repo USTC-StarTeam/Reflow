@@ -1,12 +1,13 @@
+import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { dateKey, formatShortDate } from '@/core/date-utils';
+import { dateKey } from '@/core/date-utils';
 import { selectTodaySections } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { QuickComposer } from '../shared/quick-composer';
 import { colors, spacing, typography } from '../shared/theme';
-import { Chip, Page, PageHeader, SectionLabel } from '../shared/ui';
+import { ActionButton, Card, Page, PageHeader, SectionLabel } from '../shared/ui';
 import { TodayTaskRow } from './today-task-row';
 
 function todaySuggestion(scheduledCount: number, dateOnlyCount: number, completedCount: number): string {
@@ -21,35 +22,55 @@ function TodayEmptyRow({ children }: { children: string }) {
 }
 
 export function TodayScreen() {
+  const router = useRouter();
   const store = useReflowStore();
   const today = useMemo(() => dateKey(new Date()), []);
   const sections = selectTodaySections(store.data, today);
   const suggestion = todaySuggestion(sections.scheduled.length, sections.unscheduled.length, sections.completed.length);
+  const suggestedTaskIds = [...sections.scheduled, ...sections.unscheduled].map((task) => task.id);
 
   return (
     <>
       <Page testID="screen-today">
-        <PageHeader title="今天" subtitle="先决定今天做什么，再安排具体时间" right={<Chip label={formatShortDate(today)} tone="primary" size="header" />} />
+        <PageHeader title="今天" subtitle="轻量捕捉与今日重点" />
         <QuickComposer />
-        <View testID="today-suggestion" style={styles.suggestion}><Text style={styles.suggestionLabel}>今日建议</Text><Text style={styles.suggestionText}>{suggestion}</Text></View>
+        <View style={styles.sectionGroup}>
+          <SectionLabel title="今日建议" />
+          <Card testID="today-suggestion" accent="ai" style={styles.suggestionCard}>
+            <View style={styles.suggestionCopy}><Text style={styles.suggestionAI}>AI:</Text><Text style={styles.suggestionText}>{suggestion}</Text></View>
+            <View style={styles.suggestionActions}>
+              <ActionButton testID="accept-today-order" label="接受排序" variant="green" disabled={!suggestedTaskIds.length} onPress={() => store.reorderTasks(suggestedTaskIds)} />
+              <ActionButton testID="manual-adjust-today" label="手动调整" onPress={() => router.replace('/calendar')} />
+            </View>
+          </Card>
+        </View>
 
-        <SectionLabel title="时间安排" meta={`${sections.scheduled.length} 项`} />
-        {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
+        <View style={styles.sectionGroup}>
+          <SectionLabel title="时间安排" meta={`${sections.scheduled.length} 项`} />
+          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
+        </View>
 
-        <SectionLabel title="今天要做" meta={`${sections.unscheduled.length} 项`} />
-        {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
+        <View style={styles.sectionGroup}>
+          <SectionLabel title="今天要做" meta={`${sections.unscheduled.length} 项`} />
+          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
+        </View>
 
-        <SectionLabel title="已完成" meta={`${sections.completed.length} 项`} />
-        {sections.completed.length ? sections.completed.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
+        <View style={styles.sectionGroup}>
+          <SectionLabel title="已完成" meta={`${sections.completed.length} 项`} />
+          {sections.completed.length ? sections.completed.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
+        </View>
       </Page>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  suggestion: { gap: spacing.xxs, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.line },
-  suggestionLabel: { color: colors.orange, ...typography.label },
-  suggestionText: { color: colors.muted, ...typography.meta },
+  sectionGroup: { gap: spacing.md },
+  suggestionCard: { padding: spacing.xl, gap: spacing.lg },
+  suggestionCopy: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  suggestionAI: { color: colors.orange, flexShrink: 0, fontSize: 15, lineHeight: 21, fontWeight: '900' },
+  suggestionText: { color: colors.muted, flex: 1, fontSize: 13, lineHeight: 21, fontWeight: '500' },
+  suggestionActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   emptyRow: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md },
   emptyText: { color: colors.subtle, ...typography.meta },
 });
