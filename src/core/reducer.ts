@@ -15,6 +15,7 @@ export type DomainAction =
   | { type: 'startTask'; taskId: string; at: string }
   | { type: 'pauseTask'; taskId: string; at: string }
   | { type: 'completeTask'; taskId: string; at: string }
+  | { type: 'updateTaskDetails'; taskId: string; title: string; estimatedMinutes: number; nextAction: string }
   | { type: 'moveTask'; taskId: string; bucket: WorkflowBucket; at: string }
   | { type: 'recordTime'; taskId: string; minutes: number; at: string }
   | { type: 'recordProgress'; taskId: string; text: string; kind: ProgressKind; at: string }
@@ -391,6 +392,23 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId ? { ...item, status: 'completed', completedAt: action.at } : item),
         progressLogs: appendLog(data, action.taskId, '完成任务', 'complete', action.at),
+      }, action.type);
+    }
+    case 'updateTaskDetails': {
+      const task = findTask(data, action.taskId);
+      if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可修改的任务。');
+      const title = action.title.trim();
+      const nextAction = action.nextAction.trim();
+      if (!title) return failure(data, 'invalid_decision', '任务标题不能为空。');
+      if (!Number.isInteger(action.estimatedMinutes) || action.estimatedMinutes < 5 || action.estimatedMinutes > 480) {
+        return failure(data, 'invalid_time', '预计耗时必须是 5～480 分钟的整数。');
+      }
+      if (!nextAction) return failure(data, 'invalid_decision', '下一步行动不能为空。');
+      return success({
+        ...data,
+        tasks: data.tasks.map((item) => item.id === task.id
+          ? { ...item, title, estimatedMinutes: action.estimatedMinutes, nextAction }
+          : item),
       }, action.type);
     }
     case 'moveTask': {

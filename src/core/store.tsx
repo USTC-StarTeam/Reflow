@@ -41,6 +41,7 @@ export interface ReflowStoreValue {
   startTask(taskId: string): void;
   pauseTask(taskId: string): void;
   completeTask(taskId: string): void;
+  updateTaskDetails(taskId: string, details: { title: string; estimatedMinutes: number; nextAction: string }): void;
   moveTask(taskId: string, bucket: WorkflowBucket): void;
   recordTime(taskId: string, minutes: number): void;
   recordProgress(taskId: string, text: string): void;
@@ -212,6 +213,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       startTask(taskId) { perform({ type: 'startTask', taskId, at: now() }); },
       pauseTask(taskId) { perform({ type: 'pauseTask', taskId, at: now() }); },
       completeTask(taskId) { perform({ type: 'completeTask', taskId, at: now() }); },
+      updateTaskDetails(taskId, details) { perform({ type: 'updateTaskDetails', taskId, ...details }); },
       moveTask(taskId, bucket) { perform({ type: 'moveTask', taskId, bucket, at: now() }); },
       recordTime(taskId, minutes) { perform({ type: 'recordTime', taskId, minutes, at: now() }); },
       recordProgress(taskId, text) { perform({ type: 'recordProgress', taskId, text, kind: 'progress', at: now() }); },

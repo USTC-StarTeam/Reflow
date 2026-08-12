@@ -8,6 +8,24 @@ import type { TaskItem } from '@/core/types';
 import { ShellContext } from '../../shared/shell-context';
 import { TodayScreen } from '../today-screen';
 
+const mockPush = jest.fn();
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
+jest.mock('../task-detail-modal', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const ReactNative = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    TaskDetailModal: ({ task, visible, onClose }: { task: TaskItem; visible: boolean; onClose: () => void }) => visible
+      ? React.createElement(ReactNative.View, { testID: 'today-task-detail' },
+        React.createElement(ReactNative.Text, null, task.title),
+        React.createElement(ReactNative.Pressable, { accessibilityLabel: '关闭任务详情', onPress: onClose }))
+      : null,
+  };
+});
+
 jest.mock('@/core/store', () => ({
   useReflowStore: jest.fn(),
 }));
@@ -43,6 +61,7 @@ function storeValue(): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
     recordTime: jest.fn(),
     recordProgress: jest.fn(),
@@ -70,6 +89,7 @@ async function renderToday() {
 describe('TodayScreen information hierarchy', () => {
   afterEach(() => {
     jest.useRealTimers();
+    mockPush.mockReset();
   });
 
   it('keeps Quick Capture and separates exact-time, date-only, and completed tasks', async () => {
@@ -137,6 +157,26 @@ describe('TodayScreen information hierarchy', () => {
     expect(store.completeTask).toHaveBeenCalledWith('task-today-date-only');
     expect(screen.queryByLabelText('开始 整理本周实验报告')).toBeNull();
     expect(screen.queryByLabelText('暂停 整理本周实验报告')).toBeNull();
+  });
+
+  it('opens task detail from the row body without coupling the completion control', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    await fireEvent.press(screen.getByTestId('open-today-task-task-today-date-only'));
+
+    const detail = screen.getByTestId('today-task-detail');
+    expect(detail).toBeTruthy();
+    expect(detail).toHaveTextContent('整理本周实验报告');
+    expect(store.completeTask).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByLabelText('关闭任务详情'));
+    expect(screen.queryByTestId('today-task-detail')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('完成 整理本周实验报告'));
+    expect(store.completeTask).toHaveBeenCalledWith('task-today-date-only');
+    expect(screen.queryByTestId('today-task-detail')).toBeNull();
   });
 
   it('keeps suggestion actions visibly unavailable without domain writes', async () => {

@@ -32,6 +32,7 @@ function storeValue(hydrated: boolean): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
     recordTime: jest.fn(),
     recordProgress: jest.fn(),

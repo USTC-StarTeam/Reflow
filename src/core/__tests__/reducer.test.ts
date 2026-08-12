@@ -286,6 +286,38 @@ describe('domain reducer', () => {
     expect(someday.taskPlanEvents.at(-1)).toMatchObject({ kind: 'movedToSomeday', after: { plannedDate: undefined } });
   });
 
+  it('updates only editable task details through an explicit domain action', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const before = seed.tasks.find((task) => task.id === 'task-client-quote')!;
+    const result = reduceDomain(seed, {
+      type: 'updateTaskDetails',
+      taskId: before.id,
+      title: '  确认客户报价终稿  ',
+      estimatedMinutes: 45,
+      nextAction: '  核对付款条款  ',
+    });
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') throw new Error('expected success');
+    expect(result.data.tasks.find((task) => task.id === before.id)).toEqual({
+      ...before,
+      title: '确认客户报价终稿',
+      estimatedMinutes: 45,
+      nextAction: '核对付款条款',
+    });
+    expect(result.data.taskPlanEvents).toEqual(seed.taskPlanEvents);
+  });
+
+  it.each([
+    ['missing task', { taskId: 'missing', title: '有效标题', estimatedMinutes: 30, nextAction: '执行下一步' }, 'task_not_found'],
+    ['empty title', { taskId: 'task-client-quote', title: ' ', estimatedMinutes: 30, nextAction: '执行下一步' }, 'invalid_decision'],
+    ['invalid duration', { taskId: 'task-client-quote', title: '有效标题', estimatedMinutes: 0, nextAction: '执行下一步' }, 'invalid_time'],
+    ['empty next action', { taskId: 'task-client-quote', title: '有效标题', estimatedMinutes: 30, nextAction: ' ' }, 'invalid_decision'],
+  ])('rejects %s task detail edits without changing data', (_name, details, code) => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const result = reduceDomain(seed, { type: 'updateTaskDetails', ...details });
+    expect(result).toMatchObject({ status: 'failure', data: seed, failure: { code } });
+  });
+
   it('deletes tasks logically and preserves their execution and plan history', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
     const result = domainReducer(seed, { type: 'deleteTask', taskId: 'task-reflow-demo', at: now });

@@ -126,6 +126,37 @@ test('已排期任务完成后在同一天合并展示计划与实际完成', as
   await expect(calendarEntry.getByText('已完成')).toBeVisible();
 });
 
+test('Today 任务详情可编辑、取消具体时间并开始执行', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+  await page.getByTestId('task-detail-title').fill('复核客户报价');
+  await page.getByTestId('task-detail-duration').fill('45');
+  await page.getByTestId('task-detail-next-action').fill('确认预算口径并回复客户');
+  await page.getByTestId('save-task-details').click();
+
+  await page.getByTestId('open-task-schedule').click();
+  await expect(page.getByTestId('today-task-detail')).toBeHidden();
+  await expect(page.getByTestId('schedule-date')).toBeVisible();
+  await page.getByLabel('关闭排期').click();
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+
+  await page.getByTestId('unschedule-task').click();
+  await expect(page.getByTestId('task-detail-time')).toContainText('尚未安排具体时间');
+  await page.getByRole('button', { name: '关闭' }).click();
+  const dateOnlyTask = page.getByTestId('task-task-client-quote');
+  await expect(dateOnlyTask).toContainText('复核客户报价');
+  await expect(dateOnlyTask).toContainText('预计 45 分');
+  await expect(dateOnlyTask).not.toContainText('16:00');
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await page.getByTestId('start-task-from-detail').click();
+  await expect(page).toHaveURL(/\/active$/);
+  await expect(page.getByTestId('current-task-card')).toContainText('复核客户报价');
+});
+
 test('点击排期先阻止冲突，用户明确确认后才写入并刷新保留', async ({ page }) => {
   const text = '推进时间规划验收说明';
   await page.goto('/');

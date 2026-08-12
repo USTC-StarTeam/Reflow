@@ -93,10 +93,10 @@ export function SegmentedControl<T extends string>({ values, selected, onChange 
   );
 }
 
-export function ModalSurface({ visible, title, subtitle, onClose, children, testID }: PropsWithChildren<{ visible: boolean; title: string; subtitle?: string; onClose: () => void; testID?: string }>) {
+export function ModalSurface({ visible, title, subtitle, onClose, children, testID, placement = 'bottom' }: PropsWithChildren<{ visible: boolean; title: string; subtitle?: string; onClose: () => void; testID?: string; placement?: 'bottom' | 'center' }>) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable style={[styles.overlay, placement === 'center' && styles.overlayCenter]} onPress={onClose}>
         <Pressable testID={testID} accessibilityViewIsModal style={styles.modalSurface} onPress={(event) => event.stopPropagation()}>
           <View style={styles.modalHeader}>
             <View style={styles.modalCopy}>
@@ -184,6 +184,7 @@ const styles = StyleSheet.create({
   segmentText: { color: colors.muted, ...typography.meta, fontWeight: '800' },
   segmentTextSelected: { color: colors.primary },
   overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end', alignItems: 'center', padding: spacing.xxl },
+  overlayCenter: { justifyContent: 'center' },
   modalSurface: { width: '100%', maxWidth: 452, maxHeight: '88%', borderRadius: radius.sheet, backgroundColor: colors.card, padding: spacing.xxxl, gap: spacing.xl, ...shadows.floating },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.xl },
   modalCopy: { flex: 1, minWidth: 0, gap: spacing.xxs },
