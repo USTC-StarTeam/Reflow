@@ -270,6 +270,11 @@ describe('domain reducer', () => {
     expect(sameSchedule.status).toBe('success');
     const sameDate = reduceDomain(seed, { type: 'planTaskForDate', taskId: 'task-client-quote', date: '2026-07-17', at: now });
     expect(sameDate).toMatchObject({ status: 'success', data: seed });
+    expect(sameDate.data.tasks.find((task) => task.id === 'task-client-quote')).toMatchObject({
+      plannedDate: '2026-07-17',
+      plannedStartAt: '2026-07-17T16:00:00.000+08:00',
+      plannedEndAt: '2026-07-17T16:30:00.000+08:00',
+    });
   });
 
   it('appends events for unscheduling and both defer destinations', () => {

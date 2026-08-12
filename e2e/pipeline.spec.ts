@@ -161,6 +161,30 @@ test('Today 任务详情可编辑、取消具体时间并开始执行', async ({
   await expect(page.getByTestId('current-task-card')).toContainText('复核客户报价');
 });
 
+test('Today 跨日期排期返回详情后保存日期不会清除具体时间', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+  const tomorrow = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await page.getByTestId('open-task-schedule').click();
+  await page.getByTestId('schedule-date').fill(tomorrow);
+  await page.getByTestId('schedule-time').fill('14:00');
+  await page.getByTestId('schedule-duration').fill('45');
+  await page.getByTestId('confirm-schedule').click();
+
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+  await expect(page.getByTestId('task-detail-date')).toHaveValue(tomorrow);
+  await expect(page.getByTestId('task-detail-time')).toContainText('14:00–14:45');
+  await page.getByTestId('save-task-date').click();
+  await expect(page.getByTestId('task-detail-time')).toContainText('14:00–14:45');
+  await expect(page.getByTestId('discard-task-changes')).toBeHidden();
+});
+
 test('点击排期先阻止冲突，用户明确确认后才写入并刷新保留', async ({ page }) => {
   const text = '推进时间规划验收说明';
   await page.goto('/');

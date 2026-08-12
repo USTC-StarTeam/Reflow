@@ -90,6 +90,47 @@ describe('TaskDetailModal', () => {
     expect(screen.queryByText('安排任务时间')).toBeNull();
   });
 
+  it('adopts a canonical cross-date schedule without making the returned date dirty', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.press(screen.getByTestId('open-task-schedule'));
+    const scheduledTask = {
+      ...task,
+      plannedDate: '2026-07-18' as const,
+      plannedStartAt: '2026-07-18T14:00:00+08:00',
+      plannedEndAt: '2026-07-18T14:45:00+08:00',
+    };
+    await screen.rerender(<TaskDetailModal task={scheduledTask} visible onClose={jest.fn()} />);
+    await fireEvent.press(screen.getByLabelText('关闭排期'));
+
+    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('task-detail-time')).toHaveTextContent('14:00–14:45');
+    await fireEvent.press(screen.getByTestId('save-task-date'));
+    expect(store.planTaskForDate).toHaveBeenCalledWith(task.id, '2026-07-18');
+    await fireEvent.press(screen.getByTestId('start-task-from-detail'));
+    expect(screen.queryByTestId('discard-task-changes')).toBeNull();
+  });
+
+  it('does not overwrite a locally dirty date when canonical planning changes elsewhere', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-19');
+    await screen.rerender(<TaskDetailModal task={{
+      ...task,
+      plannedDate: '2026-07-18',
+      plannedStartAt: '2026-07-18T14:00:00+08:00',
+      plannedEndAt: '2026-07-18T14:45:00+08:00',
+    }} visible onClose={jest.fn()} />);
+
+    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-19');
+  });
+
   it('guards scheduling and closing until the user explicitly discards dirty edits', async () => {
     const store = storeValue();
     const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;

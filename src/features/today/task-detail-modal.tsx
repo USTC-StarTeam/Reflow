@@ -33,12 +33,23 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
   });
   const [savedDate, setSavedDate] = useState(task.plannedDate ?? '');
   const [pendingAction, setPendingAction] = useState<GuardedAction>();
+  const planningIdentity = `${task.plannedDate ?? ''}|${task.plannedStartAt ?? ''}|${task.plannedEndAt ?? ''}`;
+  const [previousPlanningIdentity, setPreviousPlanningIdentity] = useState(planningIdentity);
 
   const detailsDirty = title !== savedDetails.title
     || estimatedMinutes !== savedDetails.estimatedMinutes
     || nextAction !== savedDetails.nextAction;
   const dateDirty = plannedDate !== savedDate;
   const dirty = detailsDirty || dateDirty;
+
+  if (previousPlanningIdentity !== planningIdentity) {
+    setPreviousPlanningIdentity(planningIdentity);
+    if (!dateDirty) {
+      const canonicalDate = task.plannedDate ?? '';
+      setPlannedDate(canonicalDate);
+      setSavedDate(canonicalDate);
+    }
+  }
 
   function saveDetails() {
     const minutes = Number(estimatedMinutes);
