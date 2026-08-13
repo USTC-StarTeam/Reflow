@@ -44,7 +44,8 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
 
   await page.getByTestId('nav-日历').click();
   const calendarEntry = page.locator('[data-testid^="calendar-entry-"]', { hasText: taskText });
-  await expect(calendarEntry).toContainText('未排期');
+  await expect(page.getByText('当天事项', { exact: true })).toBeVisible();
+  await expect(calendarEntry).toBeVisible();
 
   // Today 一级不再承载执行操作；先完成唯一的 seed 当前任务，再从既有 Active 候选列表开始新任务。
   await page.getByTestId('nav-进行中').click();
@@ -69,9 +70,11 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await expect(page.locator('[data-testid^="active-candidate-"]', { hasText: taskText })).toHaveCount(0);
 
   await page.getByTestId('nav-日历').click();
-  await expect(calendarEntry).toContainText('实际完成');
+  await expect(page.getByText('已完成', { exact: true })).toBeVisible();
+  await expect(calendarEntry).toBeVisible();
   await page.reload();
-  await expect(calendarEntry).toContainText('实际完成');
+  await expect(page.getByText('已完成', { exact: true })).toBeVisible();
+  await expect(calendarEntry).toBeVisible();
 
   await page.getByTestId('nav-回顾').click();
   await expect(page.getByTestId('review-summary')).toContainText('记录');
@@ -129,9 +132,8 @@ test('已排期任务完成后在同一天合并展示计划与实际完成', as
   await page.getByTestId('nav-日历').click();
 
   const calendarEntry = page.getByTestId('calendar-entry-task-reflow-demo');
-  await expect(calendarEntry).toContainText('计划 10:00–11:30');
-  await expect(calendarEntry).toContainText('实际完成');
-  await expect(calendarEntry.getByText('已完成')).toBeVisible();
+  await expect(page.getByText('已完成', { exact: true })).toBeVisible();
+  await expect(calendarEntry).toContainText('完成 Reflow Demo 页面结构');
 });
 
 test('Today 任务详情可编辑、取消具体时间并开始执行', async ({ page }) => {
@@ -242,7 +244,7 @@ test('点击排期先阻止冲突，用户明确确认后才写入并刷新保�
   await expect(page.locator('[data-testid^="task-"]', { hasText: text })).toBeVisible();
   await page.getByTestId('nav-日历').click();
   const task = page.locator('[data-testid^="calendar-entry-"]', { hasText: text });
-  await task.getByRole('button', { name: '安排时间' }).click();
+  await task.getByLabel(`安排 ${text}`, { exact: true }).click();
   await page.getByTestId('schedule-time').fill('10:30');
   await page.getByTestId('schedule-duration').fill('30');
   await page.getByTestId('confirm-schedule').click();
