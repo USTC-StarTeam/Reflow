@@ -77,7 +77,7 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await expect(calendarEntry).toBeVisible();
 
   await page.getByTestId('nav-回顾').click();
-  await expect(page.getByTestId('review-summary')).toContainText('记录');
+  await expect(page.getByTestId('review-nightly')).toContainText('记录时间');
 
   await page.reload();
   await page.getByTestId('nav-今天').click();
@@ -283,12 +283,29 @@ test('顺延后原日期回顾保留历史结果并在刷新后稳定', async ({
   await page.goto('/review');
   await resetDemo(page);
   await page.getByTestId('nav-回顾').click();
-  const outcome = page.getByTestId('review-outcome-task-client-quote');
-  await expect(outcome).toContainText('未完成');
-  await page.getByTestId('defer-tomorrow-task-client-quote').click();
-  await expect(outcome).toContainText('顺延到');
+  const nightlySummary = page.getByTestId('review-nightly').getByText(/^回顾今天：/);
+  const originalSummary = await nightlySummary.innerText();
+  const tomorrow = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+
+  await page.getByTestId('nav-今天').click();
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await page.getByTestId('task-detail-date').fill(tomorrow);
+  await page.getByTestId('save-task-date').click();
+  await page.getByTestId('confirm-unscheduled-date-change').click();
+  await page.getByRole('button', { name: '关闭' }).click();
+
+  await page.getByTestId('nav-日历').click();
+  await page.getByTestId(`calendar-day-${tomorrow}`).click();
+  await expect(page.getByTestId('calendar-entry-task-client-quote')).toBeVisible();
+
+  await page.getByTestId('nav-回顾').click();
+  await expect(page.getByTestId('review-nightly').getByText(originalSummary, { exact: true })).toBeVisible();
   await page.reload();
-  await expect(outcome).toContainText('顺延到');
+  await expect(page.getByTestId('review-nightly').getByText(originalSummary, { exact: true })).toBeVisible();
 });
 
 test('Mock 模式不会请求 Cloud Gateway', async ({ page }) => {
