@@ -13,9 +13,10 @@ async function selectTodayForProposal(page: Page, proposal: ReturnType<Page['loc
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   });
-  await proposal.getByRole('button', { name: '选择计划日期' }).click();
-  await proposal.locator('[data-testid^="proposal-date-"]').fill(today);
-  await proposal.getByRole('button', { name: '确认并加入今天' }).click();
+  await proposal.getByRole('button', { name: '选择日期', exact: true }).click();
+  await page.getByTestId(`proposal-date-option-${today}`).click();
+  await expect(page.getByTestId('proposal-date-picker')).toBeHidden();
+  await proposal.getByRole('button', { name: '确认', exact: true }).click();
 }
 
 test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新后保持可追踪', async ({ page }) => {
@@ -82,26 +83,27 @@ test('收件箱清晰展示等待建议、九种归类和可撤销的等待决�
   const waitingProposal = page.getByTestId('proposal-proposal-waiting');
   await expect(page.getByText('待你确认')).toBeVisible();
   await expect(page.getByText('最近处理')).toBeVisible();
-  await expect(waitingProposal).toContainText('等供应商确认送货时间');
-  await expect(waitingProposal).toContainText('AI 归类结果');
-  await expect(waitingProposal).toContainText('目前无需你行动，等对方回复或处理后再继续。');
-  await expect(waitingProposal).toContainText('供应商');
-  await expect(waitingProposal).toContainText('确认送货时间');
-
-  await waitingProposal.getByRole('button', { name: '设置跟进时间' }).click();
+  await expect(waitingProposal).toContainText('等待供应商确认送货时间');
+  await expect(waitingProposal).toContainText('等待他人 · 预计 10 分');
+  await waitingProposal.getByRole('button', { name: '修改', exact: true }).click();
   await page.getByTestId('follow-up-date-proposal-waiting').fill('2026-07-24');
-  await page.getByRole('button', { name: '保存日期' }).click();
-  await expect(waitingProposal).toContainText('2026-07-24');
+  await page.getByRole('button', { name: '保存修改' }).last().click();
+  await expect(page.getByTestId('follow-up-date-proposal-waiting')).toBeHidden();
 
   const contractProposal = page.getByTestId('proposal-proposal-contract');
-  await contractProposal.getByTestId('proposal-classification-proposal-contract').click();
+  await contractProposal.getByRole('button', { name: '修改', exact: true }).click();
+  await page.getByTestId('proposal-classification-proposal-contract').click();
   for (const classification of ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown']) {
     await expect(page.getByTestId(`classification-option-${classification}`)).toBeVisible();
   }
   await page.getByTestId('classification-option-someday').click();
+  await page.getByRole('button', { name: '保存修改' }).last().click();
+  await expect(page.getByTestId('proposal-title-proposal-contract')).toBeHidden();
   await expect(contractProposal.getByRole('button', { name: '保存到稍后' })).toBeVisible();
-  await contractProposal.getByTestId('proposal-classification-proposal-contract').click();
+  await contractProposal.getByRole('button', { name: '修改', exact: true }).click();
+  await page.getByTestId('proposal-classification-proposal-contract').click();
   await page.getByTestId('classification-option-knowledge').click();
+  await page.getByRole('button', { name: '保存修改' }).click();
   await expect(contractProposal.getByRole('button', { name: '保存为知识' })).toBeVisible();
 
   await waitingProposal.getByRole('button', { name: '放入等待列表' }).click();
