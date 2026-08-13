@@ -54,8 +54,8 @@ test('Cloud Capture 进入收件箱，编辑确认后建议日期写入任务并
   await expect(page.getByTestId('undo-decision')).toBeVisible();
   await page.getByTestId('nav-日历').click();
   await page.getByTestId(`calendar-day-${tomorrow}`).click();
-  await expect(page.locator('[data-testid^="calendar-entry-"]', { hasText: editedTitle }))
-    .toContainText(tomorrow);
+  await expect(page.getByText(`选中 · ${tomorrowLabel}`, { exact: true })).toBeVisible();
+  await expect(page.locator('[data-testid^="calendar-entry-"]', { hasText: editedTitle })).toBeVisible();
 });
 
 test('Cloud Knowledge Proposal 只在用户确认后创建知识卡片', async ({ page }) => {
