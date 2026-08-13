@@ -244,7 +244,7 @@ test('点击排期先阻止冲突，用户明确确认后才写入并刷新保�
   await expect(page.locator('[data-testid^="task-"]', { hasText: text })).toBeVisible();
   await page.getByTestId('nav-日历').click();
   const task = page.locator('[data-testid^="calendar-entry-"]', { hasText: text });
-  await task.getByRole('button', { name: `安排 ${text}`, exact: true }).click();
+  await task.getByLabel(`安排 ${text}`, { exact: true }).click();
   await page.getByTestId('schedule-time').fill('10:30');
   await page.getByTestId('schedule-duration').fill('30');
   await page.getByTestId('confirm-schedule').click();
