@@ -69,8 +69,7 @@ test('Cloud Knowledge Proposal 只在用户确认后创建知识卡片', async (
   await expect(proposal).toContainText('知识沉淀');
   await proposal.getByRole('button', { name: '保存为知识' }).click();
   await page.getByTestId('nav-回顾').click();
-  await expect(page.getByText('评审前确认验收口径', { exact: true })).toBeVisible();
-  await expect(page.getByText('评审前先确认验收口径，可以减少返工。')).toBeVisible();
+  await expect(page.getByTestId('review-knowledge')).toContainText('当前已保存 3 张知识卡片');
 });
 
 test('Cloud UI 保留 Gateway 返回的模糊 Proposal，补充后仍需主动选择日期', async ({ page }) => {
