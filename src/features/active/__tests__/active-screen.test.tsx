@@ -26,6 +26,7 @@ function storeValue(data: DomainData): ReflowStoreValue {
     retryCaptureWithLocalRules: jest.fn(),
     submitUserDecision: jest.fn(),
     undoLastDecision: jest.fn(),
+    updateTaskDetails: jest.fn(),
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
