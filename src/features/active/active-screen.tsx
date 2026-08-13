@@ -1,21 +1,54 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { dateKey, formatTime } from '@/core/date-utils';
+import { dateKey, formatShortDate, formatTime } from '@/core/date-utils';
 import { selectCurrentTask, selectTaskMinutes } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
-import { categoryLabels } from '@/core/types';
+import type { ProgressLog, TaskItem } from '@/core/types';
 import { colors, radius } from '../shared/theme';
-import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
+import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, textStyles } from '../shared/ui';
+
+function executionSummary(logs: ProgressLog[], minutes: number): string {
+  const pauses = logs.filter((log) => log.kind === 'pause').length;
+  const interruptions = logs.filter((log) => log.kind === 'interrupt').length;
+  return `本次执行 ${minutes} 分 · 暂停 ${pauses} 次 · 被打断 ${interruptions} 次`;
+}
+
+function CandidateRow({ task, onStart, pausedAt, today }: { task: TaskItem; onStart: () => void; pausedAt?: string; today: string }) {
+  const isPaused = Boolean(pausedAt);
+  const pausedLabel = pausedAt && dateKey(pausedAt) !== today ? `${formatShortDate(pausedAt)}暂停` : undefined;
+  const metadata = [pausedLabel, task.estimatedMinutes ? `预计 ${task.estimatedMinutes} 分钟` : undefined].filter(Boolean).join(' · ');
+  return (
+    <View testID={`active-candidate-${task.id}`} style={styles.candidate}>
+      <View style={styles.candidateCopy}>
+        <Text style={textStyles.cardTitle}>{task.title}{isPaused ? '（已暂停）' : ''}</Text>
+        {metadata ? <Text style={textStyles.meta}>{metadata}</Text> : null}
+      </View>
+      <ActionButton label={isPaused ? '继续' : '开始'} variant="primary" onPress={onStart} />
+    </View>
+  );
+}
 
 export function ActiveScreen() {
   const store = useReflowStore();
   const { data } = store;
   const active = selectCurrentTask(data);
   const [progress, setProgress] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const logs = [...data.progressLogs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const available = data.tasks.filter((task) => !task.deletedAt && task.plannedDate === dateKey(new Date()) && task.status === 'notStarted');
+  const today = dateKey(new Date());
+  const latestPause = [...data.progressLogs]
+    .filter((log) => log.kind === 'pause')
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .find((log) => data.tasks.some((task) => task.id === log.taskId && !task.deletedAt && task.status === 'notStarted'));
+  const pausedTask = latestPause ? data.tasks.find((task) => task.id === latestPause.taskId) : undefined;
+  const activeLogs = active ? data.progressLogs.filter((log) => log.taskId === active.id) : [];
+  const recentProgress = [...activeLogs].filter((log) => log.kind === 'progress').sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 2);
+  const activeMinutes = active ? selectTaskMinutes(data, active.id) : 0;
+  const todayCandidates = data.tasks
+    .filter((task) => !task.deletedAt && task.plannedDate === today && task.status === 'notStarted')
+    .sort((left, right) => left.sortIndex - right.sortIndex);
+  const available = [pausedTask, ...todayCandidates]
+    .filter((task, index, tasks): task is TaskItem => Boolean(task) && tasks.findIndex((candidate) => candidate?.id === task?.id) === index)
+    .slice(0, 3);
 
   function submitProgress() {
     if (!active || !progress.trim()) return;
@@ -23,46 +56,55 @@ export function ActiveScreen() {
     setProgress('');
   }
 
+  function pauseActive() {
+    if (!active) return;
+    store.pauseTask(active.id);
+  }
+
   return (
     <Page testID="screen-active">
-      <PageHeader title="进行中" subtitle="执行记录与真实时间" right={<Chip label={active ? '记录中' : '空闲'} tone={active ? 'green' : 'neutral'} size="header" />} />
+      <PageHeader title="进行中" subtitle="专注当下，持续推进" right={<Chip label={active ? '进行中' : '空闲'} tone={active ? 'green' : 'neutral'} size="header" />} />
       {active ? (
         <>
-          <Card accent="active" testID="current-task-card">
-            <View style={styles.activeTop}><View style={styles.activeCopy}><Text style={styles.currentLabel}>当前任务</Text><Text style={styles.activeTitle}>{active.title}</Text><Text style={textStyles.meta}>{categoryLabels[active.category]} · 已记录 {selectTaskMinutes(data, active.id)} / 预计 {active.estimatedMinutes} 分钟</Text></View><View style={styles.timer}><Text style={styles.timerValue}>{selectTaskMinutes(data, active.id)}</Text><Text style={styles.timerUnit}>分钟</Text></View></View>
-            <View style={styles.next}><Text style={styles.nextLabel}>下一步</Text><Text style={styles.nextText}>{active.nextAction}</Text></View>
-            <TextInput testID="progress-input" value={progress} onChangeText={setProgress} placeholder="追加一句进展…" placeholderTextColor="#A7AFBC" style={styles.progressInput} />
-            <View style={styles.actions}>
-              <ActionButton testID="record-progress" label="记进展" variant="green" onPress={submitProgress} disabled={!progress.trim()} />
-              <ActionButton testID="record-time" label="+15 分钟" onPress={() => store.recordTime(active.id, 15)} />
-              <ActionButton label="记录打断" variant="orange" onPress={() => store.recordInterruption(active.id, '突发事项打断当前任务')} />
-              <ActionButton label="暂停" onPress={() => store.pauseTask(active.id)} />
-              <ActionButton testID="complete-task" label="完成" variant="primary" onPress={() => store.completeTask(active.id)} />
-              <ActionButton label="删除" variant="danger" onPress={() => setConfirmDelete(true)} />
-            </View>
+          <Card testID="current-task-card" style={styles.currentCard}>
+            <View style={styles.titleRow}><View style={styles.statusDot} /><View style={styles.titleCopy}><Text style={styles.activeTitle}>{active.title}</Text><Text style={textStyles.meta}>已执行 {activeMinutes} 分{active.estimatedMinutes ? ` · 预计 ${active.estimatedMinutes} 分钟` : ''}</Text></View></View>
+            {active.estimatedMinutes ? <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, Math.round((activeMinutes / active.estimatedMinutes) * 100))}%` }]} /></View> : null}
           </Card>
-          <Card><Text style={textStyles.cardTitle}>本地进度估算</Text><Text style={textStyles.meta}>按预计时长还剩约 {Math.max(0, active.estimatedMinutes - selectTaskMinutes(data, active.id))} 分钟。该数字只来自任务预计时长和已记录耗时。</Text></Card>
+
+          {active.nextAction ? <Card style={styles.nextCard}><Text style={styles.nextLabel}>下一步</Text><Text style={styles.nextText}>{active.nextAction}</Text></Card> : null}
+
+          <Card style={styles.recordCard}>
+            <TextInput testID="progress-input" value={progress} onChangeText={setProgress} placeholder="记录一下进展…" placeholderTextColor={colors.subtle} style={styles.progressInput} />
+            <ActionButton testID="record-progress" label="记录进展" variant="green" onPress={submitProgress} disabled={!progress.trim()} />
+          </Card>
+
+          <View style={styles.primaryActions}>
+            <View style={styles.primaryAction}><ActionButton testID="pause-task" label="暂停" onPress={pauseActive} /></View>
+            <View style={styles.primaryAction}><ActionButton testID="complete-task" label="完成" variant="primary" onPress={() => store.completeTask(active.id)} /></View>
+          </View>
+
+          <Card testID="execution-summary" style={styles.summaryCard}>
+            <Text style={textStyles.cardTitle}>本次执行</Text>
+            <Text style={styles.summaryText}>{executionSummary(activeLogs, activeMinutes)}</Text>
+            {recentProgress.length ? <View style={styles.recentProgress}><Text style={styles.recentTitle}>最近进展</Text>{recentProgress.map((log) => <View key={log.id} style={styles.progressRow}><View style={styles.progressDot} /><Text style={styles.progressTime}>{formatTime(log.createdAt)}</Text><Text style={styles.progressText}>{log.text}</Text></View>)}</View> : null}
+          </Card>
         </>
       ) : (
-        <Card><EmptyState title="当前没有进行中的任务" detail="从今天的任务中选择一项开始，系统会确保同时只有一个当前任务。" />{available.slice(0, 3).map((task) => <View key={task.id} testID={`active-candidate-${task.id}`} style={styles.available}><View style={styles.availableCopy}><Text style={textStyles.cardTitle}>{task.title}</Text><Text style={textStyles.meta}>{categoryLabels[task.category]} · {task.estimatedMinutes} 分钟</Text></View><ActionButton label="开始" variant="primary" onPress={() => store.startTask(task.id)} /></View>)}</Card>
+        <Card testID="active-empty-state" style={styles.emptyCard}>
+          <EmptyState title="当前没有进行中的任务" detail="从今天的事项中选择一项开始，系统会保持一次只专注一个任务。" />
+          {available.map((task) => <CandidateRow key={task.id} task={task} pausedAt={task.id === pausedTask?.id ? latestPause?.createdAt : undefined} today={today} onStart={() => store.startTask(task.id)} />)}
+        </Card>
       )}
-      <SectionHeader title="执行时间线" meta={`${logs.length} 条`} />
-      <View style={styles.timeline}>{logs.map((log) => { const task = data.tasks.find((item) => item.id === log.taskId); return <View key={log.id} style={styles.log}><View style={[styles.dot, log.kind === 'interrupt' && styles.dotInterrupt, log.kind === 'complete' && styles.dotDone]} /><View style={styles.logTime}><Text style={styles.timeText}>{formatTime(log.createdAt)}</Text></View><View style={styles.logCard}><Text style={textStyles.cardTitle}>{log.text}</Text><Text style={textStyles.meta}>{task?.title ?? '已删除任务'}</Text></View></View>; })}</View>
-
-      <Modal visible={confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
-        <Pressable style={styles.overlay} onPress={() => setConfirmDelete(false)}><Pressable style={styles.confirm} onPress={(event) => event.stopPropagation()}><Text style={styles.confirmTitle}>删除当前任务？</Text><Text style={textStyles.meta}>任务会从当前页面移除，但计划事件和执行事实会保留，用于历史回顾和引用完整性。</Text><View style={styles.actions}><ActionButton label="取消" onPress={() => setConfirmDelete(false)} /><ActionButton label="确认删除" variant="danger" onPress={() => { if (active) store.deleteTask(active.id); setConfirmDelete(false); }} /></View></Pressable></Pressable>
-      </Modal>
     </Page>
   );
 }
 
 const styles = StyleSheet.create({
-  activeTop: { flexDirection: 'row', gap: 12, alignItems: 'center' }, activeCopy: { flex: 1, gap: 4 }, currentLabel: { color: colors.green, fontSize: 10, fontWeight: '900' }, activeTitle: { color: colors.ink, fontSize: 17, lineHeight: 23, fontWeight: '900' },
-  timer: { width: 62, height: 62, borderRadius: 31, backgroundColor: colors.greenSoft, alignItems: 'center', justifyContent: 'center' }, timerValue: { color: colors.green, fontSize: 20, lineHeight: 22, fontWeight: '900' }, timerUnit: { color: colors.green, fontSize: 9, fontWeight: '700' },
-  next: { padding: 10, borderRadius: radius.small, backgroundColor: colors.surface }, nextLabel: { color: colors.muted, fontSize: 9, fontWeight: '900' }, nextText: { color: colors.ink, fontSize: 12, marginTop: 3, fontWeight: '700' },
-  progressInput: { minHeight: 46, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  available: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.line }, availableCopy: { flex: 1 },
-  timeline: { gap: 0 }, log: { minHeight: 64, flexDirection: 'row', alignItems: 'flex-start', position: 'relative' }, dot: { position: 'absolute', left: 43, top: 17, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary, zIndex: 2 }, dotInterrupt: { backgroundColor: colors.orange }, dotDone: { backgroundColor: colors.green },
-  logTime: { width: 42, paddingTop: 13 }, timeText: { color: colors.muted, fontSize: 10, fontWeight: '800', textAlign: 'right' }, logCard: { flex: 1, marginLeft: 18, marginBottom: 8, padding: 10, borderRadius: radius.medium, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card },
-  overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 18 }, confirm: { width: '100%', maxWidth: 390, borderRadius: 22, backgroundColor: colors.card, padding: 18, gap: 14 }, confirmTitle: { color: colors.ink, fontSize: 18, fontWeight: '900' },
+  currentCard: { padding: 15, gap: 12 }, titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, statusDot: { width: 9, height: 9, borderRadius: 5, marginTop: 6, backgroundColor: colors.primary }, titleCopy: { flex: 1, minWidth: 0, gap: 4 }, activeTitle: { color: colors.ink, fontSize: 18, lineHeight: 24, fontWeight: '900' },
+  progressTrack: { height: 5, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.line }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.primary },
+  nextCard: { padding: 14 }, nextLabel: { color: colors.ink, fontSize: 14, lineHeight: 19, fontWeight: '900' }, nextText: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 3 },
+  recordCard: { flexDirection: 'row', alignItems: 'center', gap: 8 }, progressInput: { flex: 1, minWidth: 0, minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 },
+  primaryActions: { flexDirection: 'row', gap: 8 }, primaryAction: { flex: 1 },
+  summaryCard: { padding: 14, gap: 8 }, summaryText: { color: colors.primary, fontSize: 13, lineHeight: 19, fontWeight: '800' }, recentProgress: { gap: 8, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 }, recentTitle: { color: colors.ink, fontSize: 12, lineHeight: 17, fontWeight: '900' }, progressRow: { flexDirection: 'row', alignItems: 'center', gap: 7 }, progressDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.green }, progressTime: { width: 34, color: colors.muted, fontSize: 10, fontWeight: '800' }, progressText: { flex: 1, color: colors.muted, fontSize: 11, lineHeight: 16 },
+  emptyCard: { paddingBottom: 12 }, candidate: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.line }, candidateCopy: { flex: 1, minWidth: 0 },
 });
