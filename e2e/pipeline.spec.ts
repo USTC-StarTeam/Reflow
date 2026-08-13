@@ -126,6 +126,101 @@ test('已排期任务完成后在同一天合并展示计划与实际完成', as
   await expect(calendarEntry.getByText('已完成')).toBeVisible();
 });
 
+test('Today 任务详情可编辑、取消具体时间并开始执行', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+  await page.getByTestId('task-detail-title').fill('复核客户报价');
+  await page.getByTestId('task-detail-duration').fill('45');
+  await page.getByTestId('task-detail-next-action').fill('确认预算口径并回复客户');
+  await page.getByTestId('open-task-schedule').click();
+  await expect(page.getByTestId('discard-task-changes')).toBeVisible();
+  await expect(page.getByTestId('schedule-date')).toBeHidden();
+  await page.getByTestId('continue-editing-task').click();
+  await page.getByTestId('save-task-details').click();
+
+  await page.getByTestId('open-task-schedule').click();
+  await expect(page.getByTestId('today-task-detail')).toBeHidden();
+  await expect(page.getByTestId('schedule-date')).toBeVisible();
+  await page.getByLabel('关闭排期').click();
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+
+  await page.getByTestId('unschedule-task').click();
+  await expect(page.getByTestId('task-detail-time')).toContainText('尚未安排具体时间');
+  await page.getByRole('button', { name: '关闭' }).click();
+  const dateOnlyTask = page.getByTestId('task-task-client-quote');
+  await expect(dateOnlyTask).toContainText('复核客户报价');
+  await expect(dateOnlyTask).toContainText('预计 45 分');
+  await expect(dateOnlyTask).not.toContainText('16:00');
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await page.getByTestId('start-task-from-detail').click();
+  await expect(page).toHaveURL(/\/active$/);
+  await expect(page.getByTestId('current-task-card')).toContainText('复核客户报价');
+});
+
+test('Today 跨日期排期返回详情后保存日期不会清除具体时间', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+  const tomorrow = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await page.getByTestId('open-task-schedule').click();
+  await page.getByTestId('schedule-date').fill(tomorrow);
+  await page.getByTestId('schedule-time').fill('14:00');
+  await page.getByTestId('schedule-duration').fill('45');
+  await page.getByTestId('confirm-schedule').click();
+
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+  await expect(page.getByTestId('task-detail-date')).toHaveValue(tomorrow);
+  await expect(page.getByTestId('task-detail-time')).toContainText('14:00–14:45');
+  await page.getByTestId('save-task-date').click();
+  await expect(page.getByTestId('task-detail-time')).toContainText('14:00–14:45');
+  await expect(page.getByTestId('discard-task-changes')).toBeHidden();
+});
+
+test('Today exact-time 跨日修改必须显式选择清除或重新排期', async ({ page }) => {
+  await page.goto('/');
+  await resetDemo(page);
+  const tomorrow = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+
+  await page.getByTestId('open-today-task-task-client-quote').click();
+  await page.getByTestId('task-detail-date').fill(tomorrow);
+  await page.getByTestId('save-task-date').click();
+  await expect(page.getByTestId('confirm-task-date-change')).toBeVisible();
+  const beforeConfirmation = await page.evaluate(() => JSON.parse(localStorage.getItem('reflow.demo.v1') ?? '{}').tasks.find((task: { id: string }) => task.id === 'task-client-quote'));
+  expect(beforeConfirmation.plannedDate).not.toBe(tomorrow);
+  expect(beforeConfirmation.plannedStartAt).toBeTruthy();
+
+  await page.getByTestId('continue-editing-task-date').click();
+  await expect(page.getByTestId('task-detail-date')).toHaveValue(tomorrow);
+  await expect(page.getByTestId('task-detail-time')).toContainText('16:00–16:30');
+  await page.getByTestId('save-task-date').click();
+  await page.getByTestId('reschedule-task-date').click();
+  await expect(page.getByTestId('schedule-date')).toHaveValue(tomorrow);
+  await expect(page.getByTestId('schedule-time')).toHaveValue('16:00');
+  await expect(page.getByTestId('schedule-duration')).toHaveValue('30');
+  await page.getByTestId('confirm-schedule').click();
+
+  await expect(page.getByTestId('today-task-detail')).toBeVisible();
+  await expect(page.getByTestId('task-detail-date')).toHaveValue(tomorrow);
+  await expect(page.getByTestId('task-detail-time')).toContainText('16:00–16:30');
+  const afterSchedule = await page.evaluate(() => JSON.parse(localStorage.getItem('reflow.demo.v1') ?? '{}').tasks.find((task: { id: string }) => task.id === 'task-client-quote'));
+  expect(afterSchedule.plannedDate).toBe(tomorrow);
+  expect(afterSchedule.plannedStartAt).toContain(`${tomorrow}T16:00:00`);
+  expect(afterSchedule.plannedEndAt).toContain(`${tomorrow}T16:30:00`);
+});
+
 test('点击排期先阻止冲突，用户明确确认后才写入并刷新保留', async ({ page }) => {
   const text = '推进时间规划验收说明';
   await page.goto('/');

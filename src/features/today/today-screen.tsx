@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { dateKey } from '@/core/date-utils';
@@ -8,6 +8,7 @@ import { QuickComposer } from '../shared/quick-composer';
 import { colors, spacing, typography } from '../shared/theme';
 import { ActionButton, Card, Page, PageHeader, SectionLabel } from '../shared/ui';
 import { TodayTaskRow } from './today-task-row';
+import { TaskDetailModal } from './task-detail-modal';
 
 function todaySuggestion(scheduledCount: number, dateOnlyCount: number, completedCount: number): string {
   if (scheduledCount > 0) return `今天有 ${scheduledCount} 个明确时间事项，建议先处理最早开始的一项。`;
@@ -27,6 +28,8 @@ export function TodayScreen() {
   const today = useMemo(() => dateKey(new Date()), []);
   const sections = selectTodaySections(store.data, today);
   const suggestion = todaySuggestion(sections.scheduled.length, sections.unscheduled.length, sections.completed.length);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>();
+  const selectedTask = selectedTaskId ? store.data.tasks.find((task) => task.id === selectedTaskId && !task.deletedAt && task.status !== 'completed') : undefined;
 
   return (
     <>
@@ -46,12 +49,12 @@ export function TodayScreen() {
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="时间安排" meta={`${sections.scheduled.length} 项`} />
-          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
+          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
         </View>
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="今天要做" meta={`${sections.unscheduled.length} 项`} />
-          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
+          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
         </View>
 
         <View style={styles.sectionGroup}>
@@ -59,6 +62,7 @@ export function TodayScreen() {
           {sections.completed.length ? sections.completed.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
         </View>
       </Page>
+      {selectedTask ? <TaskDetailModal task={selectedTask} visible onClose={() => setSelectedTaskId(undefined)} /> : null}
     </>
   );
 }

@@ -8,10 +8,12 @@ type TodayTaskRowProps = {
   task: TaskItem;
   variant: 'scheduled' | 'dateOnly';
   onComplete: () => void;
+  onOpen: () => void;
 } | {
   task: TaskItem;
   variant: 'completed';
   onComplete?: never;
+  onOpen?: never;
 };
 
 function estimateLabel(task: TaskItem): string | undefined {
@@ -31,15 +33,26 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
 
   return (
     <View testID={`task-${task.id}`} style={[styles.row, completed && styles.completedRow]}>
-      <Text style={styles.reorderGlyph} accessibilityElementsHidden>≡</Text>
-
-      {time ? <Text style={styles.time}>{time}</Text> : null}
-      <View style={styles.copy}>
-        <Text numberOfLines={1} style={[styles.title, completed && styles.completedTitle]}>{task.title}</Text>
-      </View>
-
-      {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
-      {completed ? <View style={styles.completedTag}><Text style={styles.completedTagText}>已完成</Text></View> : null}
+      {completed ? (
+        <View style={styles.rowBody}>
+          <Text style={styles.reorderGlyph} accessibilityElementsHidden>≡</Text>
+          <View style={styles.copy}><Text numberOfLines={1} style={[styles.title, styles.completedTitle]}>{task.title}</Text></View>
+          <View style={styles.completedTag}><Text style={styles.completedTagText}>已完成</Text></View>
+        </View>
+      ) : (
+        <Pressable
+          accessibilityLabel={`查看 ${task.title}`}
+          accessibilityRole="button"
+          onPress={() => props.onOpen()}
+          style={({ pressed }) => [styles.rowBody, pressed && styles.rowBodyPressed]}
+          testID={`open-today-task-${task.id}`}
+        >
+          <Text style={styles.reorderGlyph} accessibilityElementsHidden>≡</Text>
+          {time ? <Text style={styles.time}>{time}</Text> : null}
+          <View style={styles.copy}><Text numberOfLines={1} style={styles.title}>{task.title}</Text></View>
+          {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
+        </Pressable>
+      )}
 
       {completed ? (
         <View testID={`today-completed-${task.id}`} style={[styles.actionTouch, styles.completedAction]} accessibilityLabel={`已完成 ${task.title}`}>
@@ -63,7 +76,9 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
 }
 
 const styles = StyleSheet.create({
-  row: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingLeft: spacing.xl, paddingRight: spacing.sm, borderRadius: radius.medium, borderWidth: border.width, borderColor: border.color, backgroundColor: colors.card },
+  row: { minHeight: 62, flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.xl, paddingRight: spacing.sm, borderRadius: radius.medium, borderWidth: border.width, borderColor: border.color, backgroundColor: colors.card, overflow: 'hidden' },
+  rowBody: { minHeight: 60, flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  rowBodyPressed: { opacity: 0.72 },
   completedRow: { backgroundColor: '#FBFCFE' },
   reorderGlyph: { width: 14, flexShrink: 0, color: colors.subtle, fontSize: 16, lineHeight: 18, fontWeight: '800' },
   actionTouch: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },

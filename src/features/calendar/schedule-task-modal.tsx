@@ -15,11 +15,21 @@ function defaultTime(task: TaskItem): string {
   return formatTime(task.plannedStartAt);
 }
 
-export function ScheduleTaskModal({ task, initialDate, visible, onClose }: { task: TaskItem; initialDate: LocalDate; visible: boolean; onClose: () => void }) {
+type ScheduleTaskModalProps = {
+  task: TaskItem;
+  initialDate: LocalDate;
+  initialDateOverride?: LocalDate;
+  initialDurationMinutes?: number;
+  visible: boolean;
+  onClose: () => void;
+  onScheduled?: (date: LocalDate) => void;
+};
+
+export function ScheduleTaskModal({ task, initialDate, initialDateOverride, initialDurationMinutes, visible, onClose, onScheduled }: ScheduleTaskModalProps) {
   const store = useReflowStore();
-  const [date, setDate] = useState(task.plannedDate ?? initialDate);
+  const [date, setDate] = useState(initialDateOverride ?? task.plannedDate ?? initialDate);
   const [time, setTime] = useState(defaultTime(task));
-  const [duration, setDuration] = useState(String(Math.max(15, task.estimatedMinutes)));
+  const [duration, setDuration] = useState(String(initialDurationMinutes ?? Math.max(15, task.estimatedMinutes)));
   const [error, setError] = useState('');
   const [pendingConflict, setPendingConflict] = useState<{ startAt: string; endAt: string; names: string[] } | null>(null);
 
@@ -52,12 +62,14 @@ export function ScheduleTaskModal({ task, initialDate, visible, onClose }: { tas
       return;
     }
     store.scheduleTask(task.id, range.startAt, range.endAt);
+    onScheduled?.(date as LocalDate);
     onClose();
   }
 
   function confirmConflict() {
     if (!pendingConflict) return;
     store.scheduleTask(task.id, pendingConflict.startAt, pendingConflict.endAt, { allowConflict: true });
+    onScheduled?.(localDateOf(new Date(pendingConflict.startAt)));
     onClose();
   }
 
