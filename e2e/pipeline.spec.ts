@@ -45,11 +45,16 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   const calendarEntry = page.locator('[data-testid^="calendar-entry-"]', { hasText: taskText });
   await expect(calendarEntry).toContainText('未排期');
 
-  await page.getByTestId('nav-今天').click();
-  const todayTask = page.locator('[data-testid^="task-"]', { hasText: taskText });
-  await todayTask.getByRole('button', { name: `开始 ${taskText}` }).click();
-
+  // Today 一级不再承载执行操作；先完成唯一的 seed 当前任务，再从既有 Active 候选列表开始新任务。
   await page.getByTestId('nav-进行中').click();
+  const currentTask = page.getByTestId('current-task-card');
+  if (await currentTask.isVisible() && !await currentTask.getByText(taskText).isVisible()) {
+    await page.getByTestId('complete-task').click();
+  }
+  await expect(currentTask).toBeHidden();
+  const activeCandidate = page.locator('[data-testid^="active-candidate-"]', { hasText: taskText });
+  await expect(activeCandidate).toBeVisible();
+  await activeCandidate.getByRole('button', { name: '开始' }).click();
   await expect(page.getByTestId('current-task-card')).toContainText(taskText);
   await page.getByTestId('progress-input').fill('已核对预算假设');
   await page.getByTestId('record-progress').click();
@@ -131,7 +136,9 @@ test('点击排期先阻止冲突，用户明确确认后才写入并刷新保�
   const proposal = page.locator('[data-testid^="proposal-"]', { hasText: text });
   await selectTodayForProposal(page, proposal);
   await page.getByTestId('nav-今天').click();
-  const task = page.locator('[data-testid^="task-"]', { hasText: text });
+  await expect(page.locator('[data-testid^="task-"]', { hasText: text })).toBeVisible();
+  await page.getByTestId('nav-日历').click();
+  const task = page.locator('[data-testid^="calendar-entry-"]', { hasText: text });
   await task.getByRole('button', { name: '安排时间' }).click();
   await page.getByTestId('schedule-time').fill('10:30');
   await page.getByTestId('schedule-duration').fill('30');
