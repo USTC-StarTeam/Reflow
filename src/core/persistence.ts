@@ -1,4 +1,3 @@
-import { createSeedData } from './demo-data';
 import { dateKey, durationMilliseconds, isLocalDate, isZonedDateTime, localDateOf } from './date-utils';
 import { resolveProposalVisibleClassification } from './classification';
 import { validateSchedule } from './planning';
@@ -247,7 +246,7 @@ export function migrateStoredData(value: unknown, now = new Date()): DomainData 
   return v3 ? migrateV3ToV4(v3, now) : undefined;
 }
 
-export function parseStoredData(raw: string | null, fallback = createSeedData(), now = new Date()): DomainData {
+export function parseStoredData(raw: string | null, fallback: DomainData, now = new Date()): DomainData {
   if (!raw) return fallback;
   try {
     return migrateStoredData(JSON.parse(raw) as unknown, now) ?? fallback;
@@ -276,7 +275,7 @@ export function loadStoredDataWithRecovery(primary: string | null, recovery: str
   return primary === null && recovery === null ? { status: 'no-data' } : { status: 'failure' };
 }
 
-export function parseStoredDataWithRecovery(primary: string | null, recovery: string | null, fallback = createSeedData(), now = new Date()): DomainData {
+export function parseStoredDataWithRecovery(primary: string | null, recovery: string | null, fallback: DomainData, now = new Date()): DomainData {
   const result = loadStoredDataWithRecovery(primary, recovery, now);
   return result.status === 'success' ? result.data : fallback;
 }

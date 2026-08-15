@@ -164,8 +164,9 @@ describe('persistence v4', () => {
     expect(JSON.stringify(fallback)).toBe(before);
   });
 
-  it('falls back for corrupt or future primary data', () => {
-    expect(parseStoredData('{broken', fallback, now)).toEqual(fallback);
-    expect(parseStoredData(JSON.stringify({ ...fallback, version: 99 }), fallback, now)).toEqual(fallback);
+  it('uses the caller-supplied fallback for corrupt or future primary data', () => {
+    const explicitFallback = createEmptyData();
+    expect(parseStoredData('{broken', explicitFallback, now)).toEqual(explicitFallback);
+    expect(parseStoredData(JSON.stringify({ ...fallback, version: 99 }), explicitFallback, now)).toEqual(explicitFallback);
   });
 });
