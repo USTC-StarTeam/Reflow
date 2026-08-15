@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { dateKey } from '@/core/date-utils';
-import { selectTodaySections } from '@/core/selectors';
+import { isTaskDelayed, selectCurrentExecutionSession, selectCurrentTask, selectTodaySections } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { QuickComposer } from '../shared/quick-composer';
 import { colors, spacing, typography } from '../shared/theme';
@@ -10,7 +10,11 @@ import { ActionButton, Card, Page, PageHeader, SectionLabel } from '../shared/ui
 import { TodayTaskRow } from './today-task-row';
 import { TaskDetailModal } from './task-detail-modal';
 
-function todaySuggestion(scheduledCount: number, dateOnlyCount: number, completedCount: number): string {
+function todaySuggestion(activeTitle: string | undefined, delayedCount: number, scheduledCount: number, dateOnlyCount: number, completedCount: number): string {
+  if (activeTitle) return `当前正在进行“${activeTitle}”，继续推进即可。`;
+  if (delayedCount > 0) return delayedCount === 1
+    ? '今天有 1 项计划开始时间已过，建议确认是否继续处理。'
+    : `今天有 ${delayedCount} 项计划开始时间已过，建议先重新确认优先级。`;
   if (scheduledCount > 0) return `今天有 ${scheduledCount} 个明确时间事项，建议先处理最早开始的一项。`;
   if (dateOnlyCount > 0) return `今天有 ${dateOnlyCount} 件要做，先从一件需要完整注意力的任务开始。`;
   if (completedCount > 0) return '今天的事项已处理完，可以留一点时间整理收尾。';
@@ -25,9 +29,12 @@ const unavailableSuggestionAction = () => undefined;
 
 export function TodayScreen() {
   const store = useReflowStore();
+  const now = new Date();
   const today = useMemo(() => dateKey(new Date()), []);
   const sections = selectTodaySections(store.data, today);
-  const suggestion = todaySuggestion(sections.scheduled.length, sections.unscheduled.length, sections.completed.length);
+  const activeTask = selectCurrentTask(store.data);
+  const delayedCount = sections.scheduled.filter((task) => isTaskDelayed(task, now)).length;
+  const suggestion = todaySuggestion(activeTask?.title, delayedCount, sections.scheduled.length, sections.unscheduled.length, sections.completed.length);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const selectedTask = selectedTaskId ? store.data.tasks.find((task) => task.id === selectedTaskId && !task.deletedAt && task.status !== 'completed') : undefined;
 
@@ -49,12 +56,12 @@ export function TodayScreen() {
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="时间安排" meta={`${sections.scheduled.length} 项`} />
-          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
+          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" delayed={isTaskDelayed(task, now)} execution={task.status === 'inProgress' ? selectCurrentExecutionSession(store.data, task.id) : undefined} onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
         </View>
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="今天要做" meta={`${sections.unscheduled.length} 项`} />
-          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
+          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" execution={task.status === 'inProgress' ? selectCurrentExecutionSession(store.data, task.id) : undefined} onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
         </View>
 
         <View style={styles.sectionGroup}>
