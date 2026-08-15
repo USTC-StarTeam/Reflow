@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { dateKey, formatShortDate, formatTime } from '@/core/date-utils';
 import { selectCurrentTask, selectTaskMinutes } from '@/core/selectors';
@@ -34,6 +34,8 @@ export function ActiveScreen() {
   const { data } = store;
   const active = selectCurrentTask(data);
   const [progress, setProgress] = useState('');
+  const [recordingInterruption, setRecordingInterruption] = useState(false);
+  const [interruptionReason, setInterruptionReason] = useState('');
   const today = dateKey(new Date());
   const latestPause = [...data.progressLogs]
     .filter((log) => log.kind === 'pause')
@@ -58,7 +60,28 @@ export function ActiveScreen() {
 
   function pauseActive() {
     if (!active) return;
+    setRecordingInterruption(false);
+    setInterruptionReason('');
     store.pauseTask(active.id);
+  }
+
+  function recordInterruption() {
+    if (!active) return;
+    store.recordInterruption(active.id, interruptionReason);
+    setRecordingInterruption(false);
+    setInterruptionReason('');
+  }
+
+  function cancelInterruption() {
+    setRecordingInterruption(false);
+    setInterruptionReason('');
+  }
+
+  function completeActive() {
+    if (!active) return;
+    setRecordingInterruption(false);
+    setInterruptionReason('');
+    store.completeTask(active.id);
   }
 
   return (
@@ -74,13 +97,36 @@ export function ActiveScreen() {
           {active.nextAction ? <Card style={styles.nextCard}><Text style={styles.nextLabel}>下一步</Text><Text style={styles.nextText}>{active.nextAction}</Text></Card> : null}
 
           <Card style={styles.recordCard}>
-            <TextInput testID="progress-input" value={progress} onChangeText={setProgress} placeholder="记录一下进展…" placeholderTextColor={colors.subtle} style={styles.progressInput} />
-            <ActionButton testID="record-progress" label="记录进展" variant="green" onPress={submitProgress} disabled={!progress.trim()} />
+            <View style={styles.progressComposerRow}>
+              <TextInput testID="progress-input" value={progress} onChangeText={setProgress} placeholder="记录一下进展…" placeholderTextColor={colors.subtle} style={styles.progressInput} />
+              <ActionButton testID="record-progress" label="记录进展" variant="green" onPress={submitProgress} disabled={!progress.trim()} />
+            </View>
+            {recordingInterruption ? (
+              <View testID="interruption-form" style={styles.interruptionForm}>
+                <Text style={styles.interruptionTitle}>被什么打断了？</Text>
+                <TextInput
+                  testID="interruption-input"
+                  value={interruptionReason}
+                  onChangeText={setInterruptionReason}
+                  placeholder="临时消息、电话、同学找我……"
+                  placeholderTextColor={colors.subtle}
+                  style={styles.interruptionInput}
+                />
+                <View style={styles.interruptionActions}>
+                  <ActionButton testID="cancel-interruption" label="取消" onPress={cancelInterruption} />
+                  <ActionButton testID="save-interruption" label="记录" variant="primary" onPress={recordInterruption} />
+                </View>
+              </View>
+            ) : (
+              <Pressable testID="open-interruption" accessibilityRole="button" onPress={() => setRecordingInterruption(true)} style={styles.interruptionTrigger}>
+                <Text style={styles.interruptionTriggerText}>记录中断</Text>
+              </Pressable>
+            )}
           </Card>
 
           <View style={styles.primaryActions}>
             <View style={styles.primaryAction}><ActionButton testID="pause-task" label="暂停" onPress={pauseActive} /></View>
-            <View style={styles.primaryAction}><ActionButton testID="complete-task" label="完成" variant="primary" onPress={() => store.completeTask(active.id)} /></View>
+            <View style={styles.primaryAction}><ActionButton testID="complete-task" label="完成" variant="primary" onPress={completeActive} /></View>
           </View>
 
           <Card testID="execution-summary" style={styles.summaryCard}>
@@ -103,7 +149,9 @@ const styles = StyleSheet.create({
   currentCard: { padding: 15, gap: 12 }, titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, statusDot: { width: 9, height: 9, borderRadius: 5, marginTop: 6, backgroundColor: colors.primary }, titleCopy: { flex: 1, minWidth: 0, gap: 4 }, activeTitle: { color: colors.ink, fontSize: 18, lineHeight: 24, fontWeight: '900' },
   progressTrack: { height: 5, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.line }, progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.primary },
   nextCard: { padding: 14 }, nextLabel: { color: colors.ink, fontSize: 14, lineHeight: 19, fontWeight: '900' }, nextText: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 3 },
-  recordCard: { flexDirection: 'row', alignItems: 'center', gap: 8 }, progressInput: { flex: 1, minWidth: 0, minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 },
+  recordCard: { gap: 10 }, progressComposerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, progressInput: { flex: 1, minWidth: 0, minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 },
+  interruptionTrigger: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 }, interruptionTriggerText: { color: colors.muted, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  interruptionForm: { gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.line }, interruptionTitle: { color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '900' }, interruptionInput: { minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 }, interruptionActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
   primaryActions: { flexDirection: 'row', gap: 8 }, primaryAction: { flex: 1 },
   summaryCard: { padding: 14, gap: 8 }, summaryText: { color: colors.primary, fontSize: 13, lineHeight: 19, fontWeight: '800' }, recentProgress: { gap: 8, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 }, recentTitle: { color: colors.ink, fontSize: 12, lineHeight: 17, fontWeight: '900' }, progressRow: { flexDirection: 'row', alignItems: 'center', gap: 7 }, progressDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.green }, progressTime: { width: 34, color: colors.muted, fontSize: 10, fontWeight: '800' }, progressText: { flex: 1, color: colors.muted, fontSize: 11, lineHeight: 16 },
   emptyCard: { paddingBottom: 12 }, candidate: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.line }, candidateCopy: { flex: 1, minWidth: 0 },

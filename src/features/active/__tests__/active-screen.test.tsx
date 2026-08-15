@@ -71,7 +71,7 @@ describe('ActiveScreen presentation', () => {
     expect(screen.getByText('完成 Today 页面结构和设计令牌')).toBeTruthy();
     expect(screen.queryByText('工作推进')).toBeNull();
     expect(screen.queryByText('+15 分钟')).toBeNull();
-    expect(screen.queryByText('记录打断')).toBeNull();
+    expect(screen.getByText('记录中断')).toBeTruthy();
     expect(screen.queryByText('删除')).toBeNull();
     expect(screen.queryByText('本地进度估算')).toBeNull();
     expect(screen.queryByText('执行时间线')).toBeNull();
@@ -94,6 +94,42 @@ describe('ActiveScreen presentation', () => {
     expect(store.recordTime).not.toHaveBeenCalled();
     expect(store.recordInterruption).not.toHaveBeenCalled();
     expect(store.deleteTask).not.toHaveBeenCalled();
+  });
+
+  it('records and cancels an interruption without changing task lifecycle', async () => {
+    const store = storeValue(createSeedData());
+    const screen = await renderActive(store);
+
+    await fireEvent.press(screen.getByTestId('open-interruption'));
+    expect(screen.getByText('被什么打断了？')).toBeTruthy();
+    expect(screen.getByTestId('cancel-interruption')).toBeTruthy();
+    expect(screen.getByTestId('save-interruption')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId('interruption-input'), '同学临时来找');
+    await fireEvent.press(screen.getByTestId('save-interruption'));
+
+    expect(store.recordInterruption).toHaveBeenCalledWith('task-reflow-demo', '同学临时来找');
+    expect(store.pauseTask).not.toHaveBeenCalled();
+    expect(store.completeTask).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('interruption-form')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('open-interruption'));
+    await fireEvent.changeText(screen.getByTestId('interruption-input'), '不会保存');
+    await fireEvent.press(screen.getByTestId('cancel-interruption'));
+    expect(screen.queryByTestId('interruption-form')).toBeNull();
+    expect(store.recordInterruption).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes an empty interruption reason to the existing Store fallback', async () => {
+    const store = storeValue(createSeedData());
+    const screen = await renderActive(store);
+
+    await fireEvent.press(screen.getByTestId('open-interruption'));
+    await fireEvent.press(screen.getByTestId('save-interruption'));
+
+    expect(store.recordInterruption).toHaveBeenCalledWith('task-reflow-demo', '');
+    expect(store.pauseTask).not.toHaveBeenCalled();
+    expect(store.completeTask).not.toHaveBeenCalled();
   });
 
   it('keeps a cross-day paused task first, deduplicates it from today, and limits candidates to three', async () => {
@@ -120,6 +156,7 @@ describe('ActiveScreen presentation', () => {
     const screen = await renderActive(store);
 
     expect(screen.getByTestId('active-empty-state')).toBeTruthy();
+    expect(screen.queryByTestId('open-interruption')).toBeNull();
     expect(screen.getByText('完成 Reflow Demo 页面结构（已暂停）')).toBeTruthy();
     expect(screen.getByText(/暂停 · 预计 90 分钟/)).toBeTruthy();
     expect(screen.getByLabelText('继续')).toBeTruthy();
