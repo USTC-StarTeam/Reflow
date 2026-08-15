@@ -1,12 +1,15 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { formatDateTimeRange } from '@/core/date-utils';
+import { formatDateTimeRange, formatTime } from '@/core/date-utils';
+import type { CurrentExecutionSession } from '@/core/selectors';
 import type { TaskItem } from '@/core/types';
 import { border, colors, radius, spacing, typography } from '../shared/theme';
 
 type TodayTaskRowProps = {
   task: TaskItem;
   variant: 'scheduled' | 'dateOnly';
+  delayed?: boolean;
+  execution?: CurrentExecutionSession;
   onComplete: () => void;
   onOpen: () => void;
 } | {
@@ -28,8 +31,14 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
   const { task, variant } = props;
   const completed = variant === 'completed';
   const isInProgress = task.status === 'inProgress';
-  const time = variant === 'scheduled' ? formatDateTimeRange(task.plannedStartAt, task.plannedEndAt) : undefined;
+  const execution = completed ? undefined : props.execution;
+  const delayed = completed ? false : props.delayed;
+  const plannedTime = variant === 'scheduled' ? formatDateTimeRange(task.plannedStartAt, task.plannedEndAt) : undefined;
+  const time = plannedTime && !isInProgress ? plannedTime : undefined;
   const estimate = completed ? undefined : estimateLabel(task);
+  const executionLabel = isInProgress
+    ? execution ? `进行中 · ${formatTime(execution.startedAt)} ${execution.resumed ? '继续' : '开始'}` : '进行中'
+    : undefined;
 
   return (
     <View testID={`task-${task.id}`} style={[styles.row, completed && styles.completedRow]}>
@@ -49,7 +58,12 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
         >
           <Text style={styles.reorderGlyph} accessibilityElementsHidden>≡</Text>
           {time ? <Text style={styles.time}>{time}</Text> : null}
-          <View style={styles.copy}><Text numberOfLines={1} style={styles.title}>{task.title}</Text></View>
+          <View style={styles.copy}>
+            <Text numberOfLines={1} style={styles.title}>{task.title}</Text>
+            {executionLabel ? <Text style={styles.executionStatus}>● {executionLabel}</Text> : null}
+            {isInProgress && plannedTime ? <Text style={styles.plannedMeta}>原计划 {plannedTime}</Text> : null}
+            {!isInProgress && delayed ? <Text style={styles.delayedStatus}>已延迟 · 未开始</Text> : null}
+          </View>
           {estimate ? <Text style={styles.estimate}>{estimate}</Text> : null}
         </Pressable>
       )}
@@ -89,8 +103,11 @@ const styles = StyleSheet.create({
   actionGlyphInProgress: { color: colors.green },
   completedAction: { borderWidth: border.width, borderColor: colors.line, backgroundColor: '#F3F5F8' },
   completedGlyph: { color: colors.subtle, fontSize: 15, lineHeight: 18, fontWeight: '900' },
-  copy: { flex: 1, minWidth: 0 },
+  copy: { flex: 1, minWidth: 0, gap: 2, paddingVertical: spacing.sm },
   title: { color: colors.ink, fontSize: 14, lineHeight: 19, fontWeight: '800' },
+  executionStatus: { color: colors.green, fontSize: 11, lineHeight: 15, fontWeight: '800' },
+  plannedMeta: { color: colors.muted, fontSize: 10, lineHeight: 14, fontWeight: '700' },
+  delayedStatus: { color: colors.orange, fontSize: 10, lineHeight: 14, fontWeight: '800' },
   completedTitle: { color: colors.muted, fontWeight: '700' },
   time: { color: colors.ink, flexShrink: 0, fontSize: 13, lineHeight: 18, fontWeight: '800' },
   estimate: { color: colors.primary, flexShrink: 0, ...typography.meta, fontWeight: '800' },

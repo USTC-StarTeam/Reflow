@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, selectCalendarEntriesForDate, selectCurrentTask, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
+import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
 import type { TaskItem } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
@@ -82,6 +82,27 @@ describe('selectors', () => {
     expect(selectCurrentTask(data)?.id).toBe('task-client-quote');
     data = domainReducer(data, { type: 'completeTask', taskId: 'task-client-quote', at });
     expect(selectCurrentTask(data)).toBeUndefined();
+  });
+
+  it('derives the latest current execution segment and delayed planning state without persisted fields', () => {
+    const seed = createSeedData(new Date(at));
+    const task = calendarTask({ status: 'inProgress', plannedStartAt: '2026-07-17T07:00:00+08:00', plannedEndAt: '2026-07-17T07:45:00+08:00' });
+    const data = {
+      ...seed,
+      tasks: [task],
+      progressLogs: [
+        { id: 'start-1', taskId: task.id, kind: 'start' as const, text: '开始', createdAt: '2026-07-17T17:00:00+08:00' },
+        { id: 'pause', taskId: task.id, kind: 'pause' as const, text: '暂停', createdAt: '2026-07-17T17:30:00+08:00' },
+        { id: 'invalid-start', taskId: task.id, kind: 'start' as const, text: '无效', createdAt: 'invalid-date' },
+        { id: 'start-2', taskId: task.id, kind: 'start' as const, text: '继续', createdAt: '2026-07-17T18:00:00+08:00' },
+      ],
+    };
+
+    expect(selectCurrentExecutionSession(data, task.id)).toEqual({ startedAt: '2026-07-17T18:00:00+08:00', resumed: true });
+    expect(selectCurrentExecutionSession({ ...data, progressLogs: [] }, task.id)).toBeUndefined();
+    expect(selectCurrentExecutionSession({ ...data, tasks: [{ ...task, status: 'notStarted' }] }, task.id)).toBeUndefined();
+    expect(isTaskDelayed({ ...task, status: 'notStarted' }, new Date('2026-07-17T17:00:00+08:00'))).toBe(true);
+    expect(isTaskDelayed(task, new Date('2026-07-17T17:00:00+08:00'))).toBe(false);
   });
 
   it('maps separated dimensions into all visible classifications and limits recent decisions', () => {

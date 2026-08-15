@@ -105,20 +105,93 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.getByTestId('quick-capture-input')).toBeTruthy();
     expect(screen.getByText('轻量捕捉与今日重点')).toBeTruthy();
     expect(screen.getByText('AI')).toBeTruthy();
-    expect(screen.getByText(/今天有 3 个明确时间事项/)).toBeTruthy();
+    expect(screen.getByText('当前正在进行“完成 Reflow Demo 页面结构”，继续推进即可。')).toBeTruthy();
     expect(screen.getByTestId('accept-today-order')).toBeTruthy();
     expect(screen.getByTestId('manual-adjust-today')).toBeTruthy();
     expect(screen.getByText('时间安排')).toBeTruthy();
     expect(screen.getByText('今天要做')).toBeTruthy();
     expect(screen.getAllByText('已完成')).toHaveLength(2);
     expect(screen.getByTestId('task-task-reflow-demo')).toBeTruthy();
-    expect(screen.getByText('10:00–11:30')).toBeTruthy();
+    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/进行中.*10:00.*开始/);
+    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/原计划.*10:00.*11:30/);
     expect(screen.getByTestId('task-task-today-date-only')).toBeTruthy();
     expect(screen.getByText('整理本周实验报告')).toBeTruthy();
     expect(screen.getByText('预计 60 分')).toBeTruthy();
     expect(screen.getByTestId('today-completed-task-inbox-cleanup')).toBeTruthy();
     expect(screen.getByLabelText('完成 完成 Reflow Demo 页面结构')).toBeTruthy();
     expect(screen.getByLabelText('完成 整理本周实验报告')).toBeTruthy();
+  });
+
+  it('keeps future plans quiet and marks a past planned start as delayed without rescheduling', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const base = storeValue();
+    const data = {
+      ...base.data,
+      tasks: base.data.tasks.map((task) => task.id === 'task-reflow-demo' ? { ...task, status: 'notStarted' as const } : task),
+      progressLogs: base.data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo'),
+    };
+    mockedUseReflowStore.mockReturnValue({ ...base, data });
+
+    const screen = await renderToday();
+    const delayed = screen.getByTestId('task-task-reflow-demo');
+    const future = screen.getByTestId('task-task-client-quote');
+
+    expect(delayed).toHaveTextContent(/10:00.*11:30/);
+    expect(delayed).toHaveTextContent(/已延迟.*未开始/);
+    expect(future).toHaveTextContent(/16:00.*16:30/);
+    expect(future).not.toHaveTextContent('已延迟');
+    expect(screen.getByText('今天有 1 项计划开始时间已过，建议确认是否继续处理。')).toBeTruthy();
+  });
+
+  it('uses the latest start as a resumed current session and does not invent a legacy start time', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T18:05:00+08:00'));
+    const resumedBase = storeValue();
+    mockedUseReflowStore.mockReturnValue({
+      ...resumedBase,
+      data: {
+        ...resumedBase.data,
+        progressLogs: [
+          ...resumedBase.data.progressLogs,
+          { id: 'pause-late', taskId: 'task-reflow-demo', kind: 'pause', text: '暂停', createdAt: '2026-07-17T17:30:00+08:00' },
+          { id: 'resume-late', taskId: 'task-reflow-demo', kind: 'start', text: '继续', createdAt: '2026-07-17T18:00:00+08:00' },
+        ],
+      },
+    });
+
+    const resumed = await renderToday();
+    expect(resumed.getByTestId('task-task-reflow-demo')).toHaveTextContent(/进行中.*18:00.*继续/);
+    await resumed.unmount();
+
+    const legacyBase = storeValue();
+    mockedUseReflowStore.mockReturnValue({
+      ...legacyBase,
+      data: { ...legacyBase.data, progressLogs: legacyBase.data.progressLogs.filter((log) => log.kind !== 'start') },
+    });
+    const legacy = await renderToday();
+    const legacyRow = legacy.getByTestId('task-task-reflow-demo');
+    expect(legacyRow).toHaveTextContent(/●.*进行中/);
+    expect(legacyRow).not.toHaveTextContent(/进行中 · \d{2}:\d{2}/);
+  });
+
+  it('shows the current session for a date-only task without inventing an original time', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T17:20:00+08:00'));
+    const base = storeValue();
+    const data = {
+      ...base.data,
+      tasks: base.data.tasks.map((task) => task.id === 'task-reflow-demo'
+        ? { ...task, status: 'notStarted' as const }
+        : task.id === 'task-today-date-only' ? { ...task, status: 'inProgress' as const } : task),
+      progressLogs: [
+        ...base.data.progressLogs.filter((log) => log.kind !== 'start'),
+        { id: 'date-only-start', taskId: 'task-today-date-only', kind: 'start' as const, text: '开始', createdAt: '2026-07-17T17:16:00+08:00' },
+      ],
+    };
+    mockedUseReflowStore.mockReturnValue({ ...base, data });
+
+    const screen = await renderToday();
+    const row = screen.getByTestId('task-task-today-date-only');
+    expect(row).toHaveTextContent(/进行中.*17:16.*开始/);
+    expect(row).not.toHaveTextContent('原计划');
   });
 
   it('keeps first-level rows scan-only without execution controls or task metadata', async () => {
@@ -132,7 +205,7 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.queryByText('规划今天')).toBeNull();
     expect(screen.queryByText('今日未排期')).toBeNull();
     expect(screen.getByText('晨间整理收件箱')).toBeTruthy();
-    expect(screen.getByText('10:00–11:30')).toBeTruthy();
+    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/10:00.*11:30/);
     expect(screen.getByText('预计 90 分')).toBeTruthy();
     expect(completedRow).not.toHaveTextContent(/工作推进/);
     expect(completedRow).not.toHaveTextContent(/分钟/);

@@ -125,4 +125,54 @@ describe('CalendarScreen planning surface', () => {
     await fireEvent.press(screen.getByTestId('calendar-grid-unschedule-task-reflow-demo'));
     expect(store.unscheduleTask).toHaveBeenCalledWith('task-reflow-demo');
   });
+
+  it('keeps the plan at 07:00 while showing an actual 17:16 current execution', async () => {
+    jest.setSystemTime(new Date('2026-07-17T17:20:00+08:00'));
+    const base = storeValue();
+    const data = {
+      ...base.data,
+      tasks: base.data.tasks.map((task) => task.id === 'task-reflow-demo' ? {
+        ...task,
+        plannedStartAt: '2026-07-17T07:00:00+08:00',
+        plannedEndAt: '2026-07-17T07:45:00+08:00',
+      } : task),
+      progressLogs: [
+        ...base.data.progressLogs.filter((log) => !(log.taskId === 'task-reflow-demo' && log.kind === 'start')),
+        { id: 'actual-start', taskId: 'task-reflow-demo', kind: 'start' as const, text: '开始', createdAt: '2026-07-17T17:16:00+08:00' },
+      ],
+    };
+    const screen = await renderCalendar({ ...base, data });
+    const plannedEntry = screen.getByTestId('calendar-entry-task-reflow-demo');
+
+    expect(plannedEntry).toHaveTextContent(/07:00.*07:45/);
+    expect(plannedEntry).toHaveTextContent(/进行中.*17:16.*开始/);
+
+    await fireEvent.press(screen.getByTestId('calendar-mode-day'));
+    const gridBlock = screen.getByTestId('calendar-grid-task-reflow-demo');
+    expect(gridBlock).toHaveTextContent(/07:00.*07:45.*进行中/);
+    expect(gridBlock).not.toHaveTextContent('17:16');
+  });
+
+  it('keeps a delayed not-started task at its planned time', async () => {
+    jest.setSystemTime(new Date('2026-07-17T17:20:00+08:00'));
+    const base = storeValue();
+    const data = {
+      ...base.data,
+      tasks: base.data.tasks.map((task) => task.id === 'task-reflow-demo' ? {
+        ...task,
+        status: 'notStarted' as const,
+        plannedStartAt: '2026-07-17T07:00:00+08:00',
+        plannedEndAt: '2026-07-17T07:45:00+08:00',
+      } : task),
+      progressLogs: base.data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo'),
+    };
+    const screen = await renderCalendar({ ...base, data });
+    const plannedEntry = screen.getByTestId('calendar-entry-task-reflow-demo');
+
+    expect(plannedEntry).toHaveTextContent(/07:00.*07:45/);
+    expect(plannedEntry).toHaveTextContent(/已延迟.*未开始/);
+
+    await fireEvent.press(screen.getByTestId('calendar-mode-day'));
+    expect(screen.getByTestId('calendar-grid-task-reflow-demo')).toHaveTextContent(/07:00.*07:45.*已延迟/);
+  });
 });

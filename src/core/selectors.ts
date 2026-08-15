@@ -3,6 +3,11 @@ import { resolveProposalVisibleClassification } from './classification';
 import { findScheduleConflicts } from './planning';
 import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type ZonedDateTime } from './types';
 
+export interface CurrentExecutionSession {
+  startedAt: string;
+  resumed: boolean;
+}
+
 function activeTasks(data: DomainData): TaskItem[] {
   return data.tasks.filter((task) => !task.deletedAt);
 }
@@ -20,6 +25,22 @@ export function selectTaskMinutes(data: DomainData, taskId: string): number {
 
 export function selectCurrentTask(data: DomainData) {
   return activeTasks(data).find((task) => task.status === 'inProgress');
+}
+
+export function selectCurrentExecutionSession(data: DomainData, taskId: string): CurrentExecutionSession | undefined {
+  const task = activeTasks(data).find((candidate) => candidate.id === taskId);
+  if (task?.status !== 'inProgress') return undefined;
+  const starts = data.progressLogs
+    .filter((log) => log.taskId === taskId && log.kind === 'start' && Number.isFinite(new Date(log.createdAt).getTime()))
+    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+  const latest = starts.at(-1);
+  return latest ? { startedAt: latest.createdAt, resumed: starts.length > 1 } : undefined;
+}
+
+export function isTaskDelayed(task: TaskItem, now: Date): boolean {
+  if (task.status !== 'notStarted' || !task.plannedStartAt) return false;
+  const plannedStart = new Date(task.plannedStartAt).getTime();
+  return Number.isFinite(plannedStart) && now.getTime() > plannedStart;
 }
 
 export function selectPendingProposals(data: DomainData) {
