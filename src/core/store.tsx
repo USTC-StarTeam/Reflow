@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, type PropsWithChildren, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { createWebTextCapture } from './capture-factory';
 import { createEmptyData, createSeedData } from './demo-data';
@@ -18,6 +18,7 @@ interface StoreState {
   data: DomainData;
   hydrated: boolean;
   recoveryFailure: boolean;
+  persistenceFailure: boolean;
   capturing: boolean;
   lastActionFailure: PipelineFailure | null;
 }
@@ -25,6 +26,7 @@ interface StoreState {
 type StoreAction =
   | { type: 'hydrate'; data: DomainData; recoveryFailure: boolean }
   | { type: 'setCapturing'; value: boolean }
+  | { type: 'setPersistenceFailure'; value: boolean }
   | { type: 'domain'; action: DomainAction }
   | { type: 'reset'; data: DomainData };
 
@@ -32,6 +34,7 @@ export interface ReflowStoreValue {
   data: DomainData;
   hydrated: boolean;
   recoveryFailure: boolean;
+  persistenceFailure: boolean;
   capturing: boolean;
   proposalServiceKind: ProposalServiceKind;
   lastActionFailure: PipelineFailure | null;
@@ -55,6 +58,7 @@ export interface ReflowStoreValue {
   deleteTask(taskId: string): void;
   reorderTasks(taskIds: string[]): void;
   exportBackup(): string;
+  retryPersistence(): Promise<void>;
   importBackup(raw: string): Promise<{ status: 'success'; counts: Record<string, number> } | { status: 'failure'; failure: PipelineFailure }>;
   startEmpty(): void;
   resetDemo(): void;
@@ -70,6 +74,8 @@ function storeReducer(state: StoreState, action: StoreAction): StoreState {
       return { ...state, data: action.data, hydrated: true, recoveryFailure: action.recoveryFailure };
     case 'setCapturing':
       return { ...state, capturing: action.value };
+    case 'setPersistenceFailure':
+      return state.persistenceFailure === action.value ? state : { ...state, persistenceFailure: action.value };
     case 'domain': {
       // 水合完成前忽略所有领域动作，否则持久化数据加载后会整体覆盖 state，
       // 导致用户在水合期间触发的捕捉/建议被静默丢弃，并产生找不到 capture 的失败。
@@ -82,7 +88,7 @@ function storeReducer(state: StoreState, action: StoreAction): StoreState {
       };
     }
     case 'reset':
-      return { data: action.data, hydrated: true, recoveryFailure: false, capturing: false, lastActionFailure: null };
+      return { data: action.data, hydrated: true, recoveryFailure: false, persistenceFailure: state.persistenceFailure, capturing: false, lastActionFailure: null };
     default:
       return state;
   }
@@ -92,6 +98,7 @@ const initialState: StoreState = {
   data: createEmptyData(),
   hydrated: false,
   recoveryFailure: false,
+  persistenceFailure: false,
   capturing: false,
   lastActionFailure: null,
 };
@@ -104,7 +111,37 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
   const [state, dispatch] = useReducer(storeReducer, initialState);
   const persistenceQueue = useRef(Promise.resolve());
   const lastPersistedSnapshot = useRef<string | null>(null);
+  const latestPersistenceSnapshot = useRef<string | null>(null);
+  const persistenceFailure = useRef(false);
   const skipNextPersistence = useRef(false);
+
+  const setPersistenceFailure = useCallback((value: boolean) => {
+    if (persistenceFailure.current === value) return;
+    persistenceFailure.current = value;
+    dispatch({ type: 'setPersistenceFailure', value });
+  }, []);
+
+  const enqueuePersistence = useCallback((snapshot: string): Promise<void> => {
+    latestPersistenceSnapshot.current = snapshot;
+    const attempt = persistenceQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (lastPersistedSnapshot.current && lastPersistedSnapshot.current !== snapshot) {
+          await AsyncStorage.setItem(RECOVERY_KEY, lastPersistedSnapshot.current);
+        }
+        await AsyncStorage.setItem(PERSISTENCE_KEY, snapshot);
+        lastPersistedSnapshot.current = snapshot;
+    });
+    persistenceQueue.current = attempt.then(
+      () => {
+        if (latestPersistenceSnapshot.current === snapshot) setPersistenceFailure(false);
+      },
+      () => {
+        if (latestPersistenceSnapshot.current === snapshot) setPersistenceFailure(true);
+      },
+    );
+    return persistenceQueue.current;
+  }, [setPersistenceFailure]);
 
   useEffect(() => {
     let active = true;
@@ -132,17 +169,8 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       lastPersistedSnapshot.current = snapshot;
       return;
     }
-    persistenceQueue.current = persistenceQueue.current
-      .catch(() => undefined)
-      .then(async () => {
-        if (lastPersistedSnapshot.current && lastPersistedSnapshot.current !== snapshot) {
-          await AsyncStorage.setItem(RECOVERY_KEY, lastPersistedSnapshot.current);
-        }
-        await AsyncStorage.setItem(PERSISTENCE_KEY, snapshot);
-        lastPersistedSnapshot.current = snapshot;
-      })
-      .catch(() => undefined);
-  }, [state.data, state.hydrated]);
+    void enqueuePersistence(snapshot);
+  }, [enqueuePersistence, state.data, state.hydrated, state.recoveryFailure]);
 
   const value = useMemo<ReflowStoreValue>(() => {
     const now = () => toZonedISOString(new Date());
@@ -166,6 +194,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       data: state.data,
       hydrated: state.hydrated,
       recoveryFailure: state.recoveryFailure,
+      persistenceFailure: state.persistenceFailure,
       capturing: state.capturing,
       proposalServiceKind: proposalService.kind ?? 'mock',
       lastActionFailure: state.lastActionFailure,
@@ -232,6 +261,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       deleteTask(taskId) { perform({ type: 'deleteTask', taskId, at: now() }); },
       reorderTasks(taskIds) { perform({ type: 'reorderTasks', taskIds }); },
       exportBackup() { return serializeBackup(state.data); },
+      retryPersistence() { return enqueuePersistence(JSON.stringify(state.data)); },
       async importBackup(raw) {
         const parsed = parseBackup(raw);
         if (parsed.status === 'failure') return { status: 'failure', failure: { code: 'invalid_backup', message: parsed.message, retryable: false } };
@@ -241,6 +271,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
           await AsyncStorage.setItem(RECOVERY_KEY, current);
           await AsyncStorage.setItem(PERSISTENCE_KEY, incoming);
           lastPersistedSnapshot.current = incoming;
+          setPersistenceFailure(false);
           skipNextPersistence.current = true;
           dispatch({ type: 'reset', data: parsed.data });
           return { status: 'success', counts: parsed.counts };
@@ -256,7 +287,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         dispatch({ type: 'reset', data });
       },
     };
-  }, [proposalService, state]);
+  }, [enqueuePersistence, proposalService, setPersistenceFailure, state]);
 
   return <ReflowContext.Provider value={value}>{children}</ReflowContext.Provider>;
 }

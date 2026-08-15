@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { Platform, Text } from 'react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { useReflowStore, type ReflowStoreValue } from '@/core/store';
@@ -17,11 +17,12 @@ jest.mock('@/core/store', () => ({
 
 const mockedUseReflowStore = jest.mocked(useReflowStore);
 
-function storeValue(hydrated: boolean, recoveryFailure = false): ReflowStoreValue {
+function storeValue(hydrated: boolean, recoveryFailure = false, persistenceFailure = false): ReflowStoreValue {
   return {
     data: createSeedData(new Date('2026-07-17T12:00:00+08:00')),
     hydrated,
     recoveryFailure,
+    persistenceFailure,
     capturing: false,
     proposalServiceKind: 'mock',
     lastActionFailure: null,
@@ -45,6 +46,7 @@ function storeValue(hydrated: boolean, recoveryFailure = false): ReflowStoreValu
     deleteTask: jest.fn(),
     reorderTasks: jest.fn(),
     exportBackup: jest.fn(),
+    retryPersistence: jest.fn(),
     importBackup: jest.fn(),
     startEmpty: jest.fn(),
     resetDemo: jest.fn(),
@@ -81,7 +83,7 @@ describe('AppShell hydration boundary', () => {
   });
 
   it('blocks domain content after recovery failure until the user imports a backup or starts empty', async () => {
-    const value = storeValue(true, true);
+    const value = storeValue(true, true, true);
     mockedUseReflowStore.mockReturnValue(value);
 
     const screen = await render(
@@ -91,9 +93,55 @@ describe('AppShell hydration boundary', () => {
     );
 
     expect(screen.getByTestId('recovery-failure')).toBeTruthy();
+    expect(screen.queryByTestId('persistence-failure')).toBeNull();
     expect(screen.queryByTestId('domain-content')).toBeNull();
     fireEvent.press(screen.getByTestId('start-empty-personal-space'));
     expect(value.startEmpty).toHaveBeenCalled();
+  });
+
+  it('shows persistence failure actions without blocking normal app content', async () => {
+    const value = storeValue(true, false, true);
+    mockedUseReflowStore.mockReturnValue(value);
+
+    const screen = await render(
+      <AppShell>
+        <Text testID="domain-content">应用内容</Text>
+      </AppShell>,
+    );
+
+    expect(screen.getByTestId('persistence-failure')).toBeTruthy();
+    expect(screen.getByText('本地保存失败')).toBeTruthy();
+    expect(screen.getByTestId('domain-content')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('retry-persistence'));
+    });
+    expect(value.retryPersistence).toHaveBeenCalled();
+
+    const originalPlatformOS = Platform.OS;
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    const link = { click: jest.fn() };
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement: jest.fn(() => link) } });
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: jest.fn(() => 'blob:backup') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: jest.fn() });
+
+    try {
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('export-persistence-backup'));
+      });
+      expect(value.exportBackup).toHaveBeenCalled();
+      expect(link.click).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatformOS });
+      if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument);
+      else Reflect.deleteProperty(globalThis, 'document');
+      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
   });
 
   it('preserves the five routes, active state, and inbox badge semantics', async () => {
