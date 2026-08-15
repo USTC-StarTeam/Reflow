@@ -113,6 +113,7 @@ export function AppShell({ children }: PropsWithChildren) {
     <ShellContext.Provider value={contextValue}>
       <View style={styles.viewport}>
         <SafeAreaView style={[styles.app, Platform.OS === 'web' && styles.appWeb, Platform.OS === 'web' && pathname === '/calendar' && styles.appWebWide]} edges={['top', 'left', 'right']}>
+          {store.persistenceFailure ? <View testID="persistence-failure" style={styles.persistenceFailure}><Text style={textStyles.cardTitle}>本地保存失败</Text><Text style={textStyles.meta}>最近修改可能尚未保存。</Text><View style={styles.settingsActions}><ActionButton testID="retry-persistence" label="重试保存" variant="danger" onPress={() => { void store.retryPersistence(); }} /><ActionButton testID="export-persistence-backup" label="导出备份" onPress={exportData} /></View></View> : null}
           <View style={styles.content}>{children}</View>
           {pathname !== '/' ? (
             <Pressable testID="global-capture" accessibilityRole="button" accessibilityLabel="快速添加" onPress={() => setCaptureOpen(true)} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
@@ -161,6 +162,7 @@ const styles = StyleSheet.create({
   viewport: { flex: 1, backgroundColor: colors.page, alignItems: 'center' },
   hydrating: { flex: 1, backgroundColor: colors.page, alignItems: 'center', justifyContent: 'center', gap: 10 },
   recoveryFailure: { flex: 1, backgroundColor: colors.page, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
+  persistenceFailure: { margin: spacing.page, padding: spacing.xl, gap: spacing.xs, borderRadius: radius.medium, backgroundColor: colors.dangerSoft, borderWidth: border.width, borderColor: colors.danger },
   app: { flex: 1, width: '100%', maxWidth: layout.appMaxWidth, backgroundColor: colors.surface },
   appWeb: { boxShadow: '0 12px 30px rgba(31, 38, 51, 0.07)' },
   appWebWide: { maxWidth: layout.calendarMaxWidth },
