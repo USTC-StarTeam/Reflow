@@ -38,6 +38,7 @@ function storeValue(): ReflowStoreValue {
   return {
     data: { ...data, tasks: [...data.tasks, dateOnly] },
     hydrated: true,
+    recoveryFailure: false,
     capturing: false,
     proposalServiceKind: 'mock',
     lastActionFailure: null,
@@ -62,6 +63,7 @@ function storeValue(): ReflowStoreValue {
     reorderTasks: jest.fn(),
     exportBackup: jest.fn(),
     importBackup: jest.fn(),
+    startEmpty: jest.fn(),
     resetDemo: jest.fn(),
   } as ReflowStoreValue;
 }

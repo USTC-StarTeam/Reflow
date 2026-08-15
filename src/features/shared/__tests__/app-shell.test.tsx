@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { createSeedData } from '@/core/demo-data';
@@ -17,10 +17,11 @@ jest.mock('@/core/store', () => ({
 
 const mockedUseReflowStore = jest.mocked(useReflowStore);
 
-function storeValue(hydrated: boolean): ReflowStoreValue {
+function storeValue(hydrated: boolean, recoveryFailure = false): ReflowStoreValue {
   return {
     data: createSeedData(new Date('2026-07-17T12:00:00+08:00')),
     hydrated,
+    recoveryFailure,
     capturing: false,
     proposalServiceKind: 'mock',
     lastActionFailure: null,
@@ -45,6 +46,7 @@ function storeValue(hydrated: boolean): ReflowStoreValue {
     reorderTasks: jest.fn(),
     exportBackup: jest.fn(),
     importBackup: jest.fn(),
+    startEmpty: jest.fn(),
     resetDemo: jest.fn(),
   } as ReflowStoreValue;
 }
@@ -76,6 +78,22 @@ describe('AppShell hydration boundary', () => {
     expect(screen.queryByTestId('app-hydrating')).toBeNull();
     expect(screen.getByTestId('domain-content')).toBeTruthy();
     expect(screen.getByTestId('global-capture')).toBeTruthy();
+  });
+
+  it('blocks domain content after recovery failure until the user imports a backup or starts empty', async () => {
+    const value = storeValue(true, true);
+    mockedUseReflowStore.mockReturnValue(value);
+
+    const screen = await render(
+      <AppShell>
+        <Text testID="domain-content">应用内容</Text>
+      </AppShell>,
+    );
+
+    expect(screen.getByTestId('recovery-failure')).toBeTruthy();
+    expect(screen.queryByTestId('domain-content')).toBeNull();
+    fireEvent.press(screen.getByTestId('start-empty-personal-space'));
+    expect(value.startEmpty).toHaveBeenCalled();
   });
 
   it('preserves the five routes, active state, and inbox badge semantics', async () => {

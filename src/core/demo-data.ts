@@ -1,6 +1,20 @@
 import { addDays, addMinutes, atTime, dateKey, toZonedISOString } from './date-utils';
 import { DEMO_DATA_VERSION, type DomainData, type TaskItem, type TaskPlanEvent } from './types';
 
+export function createEmptyData(): DomainData {
+  return {
+    version: DEMO_DATA_VERSION,
+    tasks: [],
+    captures: [],
+    proposals: [],
+    decisions: [],
+    timeEntries: [],
+    progressLogs: [],
+    taskPlanEvents: [],
+    knowledgeCards: [],
+  };
+}
+
 export function createSeedData(baseDate = new Date()): DomainData {
   const today = new Date(baseDate);
   const yesterday = addDays(today, -1);
