@@ -2,10 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, type PropsWithChildren, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { createWebTextCapture } from './capture-factory';
-import { createSeedData } from './demo-data';
+import { createEmptyData, createSeedData } from './demo-data';
 import { runtimeId, toZonedISOString } from './date-utils';
 import { MockProposalService } from './mock-proposal-service';
-import { parseBackup, parseStoredDataWithRecovery, PERSISTENCE_KEY, RECOVERY_KEY, serializeBackup } from './persistence';
+import { loadStoredDataWithRecovery, parseBackup, PERSISTENCE_KEY, RECOVERY_KEY, serializeBackup } from './persistence';
 import { runProposalPipeline } from './proposal-pipeline';
 import { createProposalService } from './proposal-service-config';
 import { reduceDomain, type DomainAction } from './reducer';
@@ -17,12 +17,13 @@ export type StoreCommandResult = { status: 'success' } | { status: 'failure'; fa
 interface StoreState {
   data: DomainData;
   hydrated: boolean;
+  recoveryFailure: boolean;
   capturing: boolean;
   lastActionFailure: PipelineFailure | null;
 }
 
 type StoreAction =
-  | { type: 'hydrate'; data: DomainData }
+  | { type: 'hydrate'; data: DomainData; recoveryFailure: boolean }
   | { type: 'setCapturing'; value: boolean }
   | { type: 'domain'; action: DomainAction }
   | { type: 'reset'; data: DomainData };
@@ -30,6 +31,7 @@ type StoreAction =
 export interface ReflowStoreValue {
   data: DomainData;
   hydrated: boolean;
+  recoveryFailure: boolean;
   capturing: boolean;
   proposalServiceKind: ProposalServiceKind;
   lastActionFailure: PipelineFailure | null;
@@ -54,6 +56,7 @@ export interface ReflowStoreValue {
   reorderTasks(taskIds: string[]): void;
   exportBackup(): string;
   importBackup(raw: string): Promise<{ status: 'success'; counts: Record<string, number> } | { status: 'failure'; failure: PipelineFailure }>;
+  startEmpty(): void;
   resetDemo(): void;
 }
 
@@ -64,7 +67,7 @@ const ReflowContext = createContext<ReflowStoreValue | null>(null);
 function storeReducer(state: StoreState, action: StoreAction): StoreState {
   switch (action.type) {
     case 'hydrate':
-      return { ...state, data: action.data, hydrated: true };
+      return { ...state, data: action.data, hydrated: true, recoveryFailure: action.recoveryFailure };
     case 'setCapturing':
       return { ...state, capturing: action.value };
     case 'domain': {
@@ -79,15 +82,16 @@ function storeReducer(state: StoreState, action: StoreAction): StoreState {
       };
     }
     case 'reset':
-      return { data: action.data, hydrated: true, capturing: false, lastActionFailure: null };
+      return { data: action.data, hydrated: true, recoveryFailure: false, capturing: false, lastActionFailure: null };
     default:
       return state;
   }
 }
 
 const initialState: StoreState = {
-  data: createSeedData(),
+  data: createEmptyData(),
   hydrated: false,
+  recoveryFailure: false,
   capturing: false,
   lastActionFailure: null,
 };
@@ -107,19 +111,21 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
     Promise.all([AsyncStorage.getItem(PERSISTENCE_KEY), AsyncStorage.getItem(RECOVERY_KEY)])
       .then(([primary, recovery]) => {
         if (active) {
-          const data = parseStoredDataWithRecovery(primary, recovery);
-          lastPersistedSnapshot.current = JSON.stringify(data);
-          dispatch({ type: 'hydrate', data });
+          const result = loadStoredDataWithRecovery(primary, recovery);
+          const recoveryFailure = result.status === 'failure';
+          const data = result.status === 'success' ? result.data : createEmptyData();
+          lastPersistedSnapshot.current = recoveryFailure ? null : JSON.stringify(data);
+          dispatch({ type: 'hydrate', data, recoveryFailure });
         }
       })
       .catch(() => {
-        if (active) dispatch({ type: 'hydrate', data: createSeedData() });
+        if (active) dispatch({ type: 'hydrate', data: createEmptyData(), recoveryFailure: true });
       });
     return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (!state.hydrated) return;
+    if (!state.hydrated || state.recoveryFailure) return;
     const snapshot = JSON.stringify(state.data);
     if (skipNextPersistence.current) {
       skipNextPersistence.current = false;
@@ -159,6 +165,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
     return {
       data: state.data,
       hydrated: state.hydrated,
+      recoveryFailure: state.recoveryFailure,
       capturing: state.capturing,
       proposalServiceKind: proposalService.kind ?? 'mock',
       lastActionFailure: state.lastActionFailure,
@@ -235,11 +242,14 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
           await AsyncStorage.setItem(PERSISTENCE_KEY, incoming);
           lastPersistedSnapshot.current = incoming;
           skipNextPersistence.current = true;
-          dispatch({ type: 'domain', action: { type: 'restoreBackup', data: parsed.data } });
+          dispatch({ type: 'reset', data: parsed.data });
           return { status: 'success', counts: parsed.counts };
         } catch {
           return { status: 'failure', failure: { code: 'invalid_backup', message: '写入备份失败，现有数据保持不变。', retryable: true } };
         }
+      },
+      startEmpty() {
+        dispatch({ type: 'reset', data: createEmptyData() });
       },
       resetDemo() {
         const data = createSeedData();

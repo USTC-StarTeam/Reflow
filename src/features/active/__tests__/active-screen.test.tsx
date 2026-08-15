@@ -18,6 +18,7 @@ function storeValue(data: DomainData): ReflowStoreValue {
   return {
     data,
     hydrated: true,
+    recoveryFailure: false,
     capturing: false,
     proposalServiceKind: 'mock',
     lastActionFailure: null,
@@ -42,6 +43,7 @@ function storeValue(data: DomainData): ReflowStoreValue {
     reorderTasks: jest.fn(),
     exportBackup: jest.fn(),
     importBackup: jest.fn(),
+    startEmpty: jest.fn(),
     resetDemo: jest.fn(),
   } as ReflowStoreValue;
 }

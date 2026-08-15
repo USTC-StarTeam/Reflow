@@ -92,6 +92,23 @@ export function AppShell({ children }: PropsWithChildren) {
     setImportCandidate(null);
   }
 
+  if (store.recoveryFailure) {
+    return (
+      <ShellContext.Provider value={contextValue}>
+        <View testID="recovery-failure" style={styles.recoveryFailure}>
+          <Text style={textStyles.cardTitle}>本地数据无法恢复</Text>
+          <Text style={textStyles.meta}>请导入之前导出的备份，或明确放弃当前损坏数据后开始空白个人空间。</Text>
+          <View style={styles.settingsActions}>
+            <ActionButton testID="import-recovery-backup" label="导入备份" onPress={chooseImportFile} />
+            <ActionButton testID="start-empty-personal-space" label="放弃并开始空白空间" variant="danger" onPress={store.startEmpty} />
+          </View>
+          {importCandidate ? <View testID="import-preview" style={styles.settingsInfo}><Text style={textStyles.cardTitle}>确认替换当前数据？</Text><Text style={textStyles.meta}>{importCandidate.counts.tasks} 个任务 · {importCandidate.counts.taskPlanEvents} 条计划事件 · {importCandidate.counts.timeEntries} 条耗时记录</Text><ActionButton testID="confirm-import-backup" label="确认恢复备份" variant="primary" onPress={confirmImport} /></View> : null}
+          {settingsMessage ? <Text style={textStyles.meta}>{settingsMessage}</Text> : null}
+        </View>
+      </ShellContext.Provider>
+    );
+  }
+
   return (
     <ShellContext.Provider value={contextValue}>
       <View style={styles.viewport}>
@@ -134,7 +151,7 @@ export function AppShell({ children }: PropsWithChildren) {
         <View style={styles.settingsActions}><ActionButton testID="export-backup" label="导出备份" onPress={exportData} /><ActionButton testID="import-backup" label="导入备份" onPress={chooseImportFile} /></View>
         {importCandidate ? <View testID="import-preview" style={styles.settingsInfo}><Text style={textStyles.cardTitle}>确认替换当前数据？</Text><Text style={textStyles.meta}>{importCandidate.counts.tasks} 个任务 · {importCandidate.counts.taskPlanEvents} 条计划事件 · {importCandidate.counts.timeEntries} 条耗时记录</Text><ActionButton testID="confirm-import-backup" label="确认恢复备份" variant="primary" onPress={confirmImport} /></View> : null}
         {settingsMessage ? <Text style={textStyles.meta}>{settingsMessage}</Text> : null}
-        <ActionButton testID="reset-demo" label="重置 Demo 数据" variant="danger" onPress={() => { resetDemo(); setSettingsOpen(false); }} />
+        <ActionButton testID="reset-demo" label="加载演示数据" variant="danger" onPress={() => { resetDemo(); setSettingsOpen(false); }} />
       </ModalSurface>
     </ShellContext.Provider>
   );
@@ -143,6 +160,7 @@ export function AppShell({ children }: PropsWithChildren) {
 const styles = StyleSheet.create({
   viewport: { flex: 1, backgroundColor: colors.page, alignItems: 'center' },
   hydrating: { flex: 1, backgroundColor: colors.page, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  recoveryFailure: { flex: 1, backgroundColor: colors.page, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
   app: { flex: 1, width: '100%', maxWidth: layout.appMaxWidth, backgroundColor: colors.surface },
   appWeb: { boxShadow: '0 12px 30px rgba(31, 38, 51, 0.07)' },
   appWebWide: { maxWidth: layout.calendarMaxWidth },

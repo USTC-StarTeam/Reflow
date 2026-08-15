@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { createSeedData } from '../demo-data';
-import { isDomainData, parseBackup, parseStoredData, parseStoredDataWithRecovery, serializeBackup } from '../persistence';
+import { createEmptyData, createSeedData } from '../demo-data';
+import { isDomainData, loadStoredDataWithRecovery, parseBackup, parseStoredData, parseStoredDataWithRecovery, serializeBackup } from '../persistence';
 
 const now = new Date('2026-07-17T12:00:00+08:00');
 
@@ -41,7 +41,25 @@ describe('persistence v4', () => {
   });
 
   it('uses a valid recovery copy when the primary value is corrupt', () => {
+    expect(loadStoredDataWithRecovery('{broken', JSON.stringify(fallback), now)).toEqual({ status: 'success', data: fallback, source: 'recovery' });
     expect(parseStoredDataWithRecovery('{broken', JSON.stringify(fallback), createSeedData(new Date('2026-01-01T12:00:00+08:00')), now)).toEqual(fallback);
+  });
+
+  it('creates, persists, exports and restores valid empty domain data when no local data exists', () => {
+    const empty = createEmptyData();
+    expect(empty).not.toEqual(fallback);
+    expect(isDomainData(empty)).toBe(true);
+    expect(loadStoredDataWithRecovery(null, null, now)).toEqual({ status: 'no-data' });
+    expect(parseBackup(serializeBackup(empty, now), now)).toMatchObject({ status: 'success', data: empty });
+  });
+
+  it('prefers valid primary data over a recovery copy', () => {
+    const recovery = createSeedData(new Date('2026-01-01T12:00:00+08:00'));
+    expect(loadStoredDataWithRecovery(JSON.stringify(fallback), JSON.stringify(recovery), now)).toEqual({ status: 'success', data: fallback, source: 'primary' });
+  });
+
+  it('reports recovery failure when stored values exist but neither is valid', () => {
+    expect(loadStoredDataWithRecovery('{broken', JSON.stringify({ version: 99 }), now)).toEqual({ status: 'failure' });
   });
 
   it('serializes and validates a versioned backup envelope', () => {

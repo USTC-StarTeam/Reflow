@@ -20,6 +20,11 @@ export type BackupParseResult =
   | { status: 'success'; data: DomainData; counts: { tasks: number; decisions: number; timeEntries: number; progressLogs: number; taskPlanEvents: number; knowledgeCards: number } }
   | { status: 'failure'; message: string };
 
+export type StoredDataLoadResult =
+  | { status: 'success'; data: DomainData; source: 'primary' | 'recovery' }
+  | { status: 'no-data' }
+  | { status: 'failure' };
+
 type RecordValue = Record<string, unknown>;
 const taskStatuses = new Set(['notStarted', 'inProgress', 'completed']);
 const taskCategories = new Set(['work', 'communication', 'learning', 'life', 'health', 'unknown']);
@@ -251,16 +256,29 @@ export function parseStoredData(raw: string | null, fallback = createSeedData(),
   }
 }
 
-export function parseStoredDataWithRecovery(primary: string | null, recovery: string | null, fallback = createSeedData(), now = new Date()): DomainData {
-  if (primary) {
-    try {
-      const parsed = migrateStoredData(JSON.parse(primary) as unknown, now);
-      if (parsed) return parsed;
-    } catch {
-      // Try the independently validated recovery copy.
-    }
+function readStoredData(raw: string, now: Date): DomainData | undefined {
+  try {
+    return migrateStoredData(JSON.parse(raw) as unknown, now);
+  } catch {
+    return undefined;
   }
-  return parseStoredData(recovery, fallback, now);
+}
+
+export function loadStoredDataWithRecovery(primary: string | null, recovery: string | null, now = new Date()): StoredDataLoadResult {
+  if (primary !== null) {
+    const data = readStoredData(primary, now);
+    if (data) return { status: 'success', data, source: 'primary' };
+  }
+  if (recovery !== null) {
+    const data = readStoredData(recovery, now);
+    if (data) return { status: 'success', data, source: 'recovery' };
+  }
+  return primary === null && recovery === null ? { status: 'no-data' } : { status: 'failure' };
+}
+
+export function parseStoredDataWithRecovery(primary: string | null, recovery: string | null, fallback = createSeedData(), now = new Date()): DomainData {
+  const result = loadStoredDataWithRecovery(primary, recovery, now);
+  return result.status === 'success' ? result.data : fallback;
 }
 
 export function serializeBackup(data: DomainData, exportedAt = new Date()): string {

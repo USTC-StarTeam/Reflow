@@ -21,6 +21,7 @@ function storeValue(): ReflowStoreValue {
   return {
     data: createSeedData(new Date('2026-07-17T12:00:00+08:00')),
     hydrated: true,
+    recoveryFailure: false,
     capturing: false,
     proposalServiceKind: 'mock',
     lastActionFailure: null,
@@ -45,6 +46,7 @@ function storeValue(): ReflowStoreValue {
     reorderTasks: jest.fn(),
     exportBackup: jest.fn(),
     importBackup: jest.fn(),
+    startEmpty: jest.fn(),
     resetDemo: jest.fn(),
   } as ReflowStoreValue;
 }
