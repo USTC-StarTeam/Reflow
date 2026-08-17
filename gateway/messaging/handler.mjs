@@ -144,6 +144,7 @@ export function createMessagingHandler({ config, registry, logger = console }) {
           await invokeProvider(() => connector.listItems({ accountId, limit, cursor, query })),
           { source: connector.descriptor.source, provider: connector.descriptor.provider, accountId },
           connector.providerHintKeys,
+          connector.descriptor.capabilities,
           limit,
         );
         safeJson(res, 200, {
@@ -166,6 +167,7 @@ export function createMessagingHandler({ config, registry, logger = console }) {
           await invokeProvider(() => connector.getItem({ accountId, externalId })),
           { source: connector.descriptor.source, provider: connector.descriptor.provider, accountId, externalId },
           connector.providerHintKeys,
+          connector.descriptor.capabilities,
         );
         safeJson(res, 200, {
           status: 'success',

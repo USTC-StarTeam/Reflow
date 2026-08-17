@@ -1,4 +1,4 @@
-import { EXTERNAL_TRUST, QUERYABLE_MODE } from './contracts.mjs';
+import { EXTERNAL_TRUST, OPTIONAL_CAPABILITIES, QUERYABLE_MODE } from './contracts.mjs';
 import { messagingError } from './errors.mjs';
 
 const DESCRIPTOR_KEYS = ['capabilities', 'id', 'mode', 'provider', 'source'];
@@ -126,7 +126,7 @@ function validateActor(actor) {
   if (actor.address !== undefined && !isBoundedString(actor.address, 320)) providerFailure();
 }
 
-function validateSummaryFields(item, binding, providerHintKeys) {
+function validateSummaryFields(item, binding, providerHintKeys, capabilities) {
   validateRef(item.ref, binding);
   if (item.schemaVersion !== 1
     || !isBoundedString(item.kind, 80)
@@ -135,21 +135,23 @@ function validateSummaryFields(item, binding, providerHintKeys) {
     || item.trust !== EXTERNAL_TRUST) providerFailure();
   if (item.title !== undefined && !isBoundedString(item.title, 512)) providerFailure();
   if (item.preview !== undefined && !isBoundedString(item.preview, 1_000, { allowEmpty: true })) providerFailure();
-  if (item.threadRef !== undefined && !isBoundedString(item.threadRef, 512)) providerFailure();
-  if (item.openUrl !== undefined && !isHttpUrl(item.openUrl)) providerFailure();
+  if (item.threadRef !== undefined
+    && (!capabilities.includes(OPTIONAL_CAPABILITIES.THREAD_REF) || !isBoundedString(item.threadRef, 512))) providerFailure();
+  if (item.openUrl !== undefined
+    && (!capabilities.includes(OPTIONAL_CAPABILITIES.DEEP_LINK) || !isHttpUrl(item.openUrl))) providerFailure();
   if (item.actor !== undefined) validateActor(item.actor);
   if (item.providerHints !== undefined) validateProviderHints(item.providerHints, providerHintKeys);
 }
 
-export function validateExternalItemSummary(item, binding, providerHintKeys = []) {
+export function validateExternalItemSummary(item, binding, providerHintKeys = [], capabilities = []) {
   if (!hasExactKeys(item, SUMMARY_REQUIRED_KEYS, SUMMARY_OPTIONAL_KEYS)) providerFailure();
-  validateSummaryFields(item, binding, providerHintKeys);
+  validateSummaryFields(item, binding, providerHintKeys, capabilities);
   return item;
 }
 
-export function validateExternalItemDetail(item, binding, providerHintKeys = []) {
+export function validateExternalItemDetail(item, binding, providerHintKeys = [], capabilities = []) {
   if (!hasExactKeys(item, DETAIL_REQUIRED_KEYS, SUMMARY_OPTIONAL_KEYS)) providerFailure();
-  validateSummaryFields(item, binding, providerHintKeys);
+  validateSummaryFields(item, binding, providerHintKeys, capabilities);
   if (!hasExactKeys(item.content, CONTENT_KEYS)
     || !isBoundedString(item.content.text, 1_000_000, { allowEmpty: true })
     || typeof item.content.truncated !== 'boolean'
@@ -164,12 +166,13 @@ export function validateExternalItemDetail(item, binding, providerHintKeys = [])
   return item;
 }
 
-export function validateExternalItemPage(page, binding, providerHintKeys = [], maxItems = 100) {
+export function validateExternalItemPage(page, binding, providerHintKeys = [], capabilities = [], maxItems = 100) {
   if (!hasExactKeys(page, PAGE_KEYS)
     || !Array.isArray(page.items)
     || page.items.length > maxItems
-    || !(page.nextCursor === null || isBoundedString(page.nextCursor, 512))) providerFailure();
-  for (const item of page.items) validateExternalItemSummary(item, binding, providerHintKeys);
+    || !(page.nextCursor === null || isBoundedString(page.nextCursor, 512))
+    || (page.nextCursor !== null && !capabilities.includes(OPTIONAL_CAPABILITIES.PAGINATION))) providerFailure();
+  for (const item of page.items) validateExternalItemSummary(item, binding, providerHintKeys, capabilities);
   return page;
 }
 

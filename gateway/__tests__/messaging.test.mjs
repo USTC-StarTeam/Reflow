@@ -264,6 +264,70 @@ describe('messaging HTTP API', () => {
 });
 
 describe('strict connector output validation', () => {
+  it('rejects a next cursor when pagination is not declared', async () => {
+    const connector = createFixtureConnector({
+      descriptor: { capabilities: [] },
+      async listItems() {
+        return { items: [structuredClone(summary)], nextCursor: 'fixture-cursor' };
+      },
+    });
+    const { url } = await startMessaging(connector);
+    const response = await fetch(`${url}/v1/messaging/items?connectorId=fixture&accountId=fixture-account`);
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error.code, 'provider_error');
+  });
+
+  for (const scenario of [
+    { name: 'summary openUrl without deepLink', field: 'openUrl', value: 'https://example.test/item', detail: false },
+    { name: 'detail openUrl without deepLink', field: 'openUrl', value: 'https://example.test/item', detail: true },
+    { name: 'summary threadRef without threadRef capability', field: 'threadRef', value: 'fixture-thread', detail: false },
+    { name: 'detail threadRef without threadRef capability', field: 'threadRef', value: 'fixture-thread', detail: true },
+  ]) {
+    it(`rejects ${scenario.name}`, async () => {
+      const output = { ...structuredClone(summary), [scenario.field]: scenario.value };
+      const connector = createFixtureConnector({
+        descriptor: { capabilities: [] },
+        async listItems() {
+          return { items: [output], nextCursor: null };
+        },
+        async getItem() {
+          return {
+            ...output,
+            content: { text: 'Fixture content', truncated: false },
+            attachments: [],
+          };
+        },
+      });
+      const { url } = await startMessaging(connector);
+      const path = scenario.detail
+        ? '/v1/messaging/items/detail?connectorId=fixture&accountId=fixture-account&externalId=fixture-item'
+        : '/v1/messaging/items?connectorId=fixture&accountId=fixture-account';
+      const response = await fetch(`${url}${path}`);
+      assert.equal(response.status, 502);
+      assert.equal((await response.json()).error.code, 'provider_error');
+    });
+  }
+
+  it('allows declared capabilities without requiring their output fields', async () => {
+    const connector = createFixtureConnector({
+      descriptor: { capabilities: ['pagination', 'deepLink', 'threadRef'] },
+    });
+    const { url } = await startMessaging(connector);
+
+    const listResponse = await fetch(`${url}/v1/messaging/items?connectorId=fixture&accountId=fixture-account`);
+    assert.equal(listResponse.status, 200);
+    const page = await listResponse.json();
+    assert.equal(page.nextCursor, null);
+    assert.equal(Object.hasOwn(page.items[0], 'openUrl'), false);
+    assert.equal(Object.hasOwn(page.items[0], 'threadRef'), false);
+
+    const detailResponse = await fetch(`${url}/v1/messaging/items/detail?connectorId=fixture&accountId=fixture-account&externalId=fixture-item`);
+    assert.equal(detailResponse.status, 200);
+    const detail = (await detailResponse.json()).item;
+    assert.equal(Object.hasOwn(detail, 'openUrl'), false);
+    assert.equal(Object.hasOwn(detail, 'threadRef'), false);
+  });
+
   it('fails the entire list when a summary contains content', async () => {
     const connector = createFixtureConnector({
       async listItems() {
