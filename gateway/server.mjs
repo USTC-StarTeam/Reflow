@@ -1,14 +1,14 @@
 import { createServer } from 'node:http';
 
-import { createGatewayHandler } from './app.mjs';
 import { loadDevVars, readGatewayConfig } from './config.mjs';
+import { createLocalServiceHandler } from './local-service.mjs';
 
 await loadDevVars();
 const config = readGatewayConfig();
-const handler = createGatewayHandler({ config });
+const handler = createLocalServiceHandler({ config });
 const server = createServer(handler);
 
 server.listen(config.port, config.host, () => {
-  console.log(`Reflow AI Gateway listening on http://${config.host}:${config.port}`);
+  console.log(`Reflow Local Service listening on http://${config.host}:${config.port}`);
   console.log(`Model: ${config.model}; reasoning: ${config.reasoningEffort}; AI enabled: ${config.enabled}`);
 });
