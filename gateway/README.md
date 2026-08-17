@@ -1,13 +1,23 @@
-# Reflow 本地 AI Gateway
+# Reflow Local Service
 
-该 Gateway 只用于本地开发阶段的一次 Proposal 请求：
+该本地进程组合两个彼此隔离的 request-driven 边界：
+
+```text
+Local Service
+├─ existing AI Gateway       → GET /health, POST /v1/proposals
+└─ Message Gateway V0        → GET /v1/messaging/*
+```
+
+现有 AI Gateway 用于本地开发阶段的一次 Proposal 请求：
 
 ```text
 Web Capture → CloudProposalService → POST /v1/proposals
 → DeepSeek 官方 Responses API → CloudProposalDraft
 ```
 
-它不保存数据库、会话、任务或 Capture 原文，也不执行任何 Reflow 领域 Action。
+Local Service 不保存数据库、会话、任务或 Capture 原文，也不执行任何 Reflow 领域 Action。
+
+Message Gateway 当前只包含 deterministic `fake-email` Queryable Connector，用来验证 provider-neutral 的 `ExternalItem` 边界；它不接真实邮箱，也不创建 Capture。
 
 ## 配置
 
@@ -122,9 +132,70 @@ npm run test:gateway
 
 测试不会调用真实模型。真实 Smoke Test 只能使用合成、非敏感输入，并且不应进入公开 CI。
 
+## Message Gateway V0
+
+Message Gateway 是 local、provider-neutral、默认只读的外部输入边界：
+
+```text
+External World → Queryable Connector → Message Gateway → ExternalItem
+```
+
+V0 只接受 `mode = queryable`。`probe`、`listItems` 和 `getItem` 是基础 contract；`search`、`pagination` 等可选行为通过 descriptor 的 `capabilities` 声明。Registry 在构造时校验 connector 与唯一 id，构造后不支持动态增删。
+
+可用接口：
+
+```text
+GET /v1/messaging/connectors
+GET /v1/messaging/connectors/:connectorId/health?accountId=...
+GET /v1/messaging/items?connectorId=...&accountId=...&limit=...&cursor=...&query=...
+GET /v1/messaging/items/detail?connectorId=...&accountId=...&externalId=...
+```
+
+`limit` 默认为 `20`，最大为 `100`；`cursor` 与 `externalId` 都是 opaque string。Fake Connector 固定使用：
+
+```text
+connectorId = fake-email
+source      = email
+provider    = fake
+accountId   = fake-account
+```
+
+所有 Messaging 成功响应包含 `status = success` 和 `schemaVersion = 1`。失败响应使用统一安全 envelope：
+
+```json
+{
+  "status": "failure",
+  "error": {
+    "code": "provider_error",
+    "message": "外部服务返回了无效结果。",
+    "retryable": false
+  }
+}
+```
+
+主要错误映射：
+
+| code | HTTP | retryable |
+| --- | ---: | ---: |
+| `invalid_request` | 400 | false |
+| `unsupported_capability` | 400 | false |
+| `unknown_connector` | 404 | false |
+| `account_not_found` | 404 | false |
+| `item_not_found` | 404 | false |
+| `provider_auth_error` | 502 | false |
+| `provider_error` | 502 | false |
+| `network_error` | 503 | true |
+| `messaging_unavailable` | 500 | true |
+
+Gateway 会严格校验 Connector 输出及 `source`、`provider`、`accountId`、detail `externalId` 的请求绑定。Summary 出现 `content` 或任何未知字段会使整个请求以 `provider_error` 失败，而不是静默删除字段。所有 ExternalItem 的 `trust` 固定为 `untrustedExternal`。
+
+`providerHints` 仅接受 Connector 明确白名单中的有界 scalar 或小型字符串数组；未知 key、嵌套对象、binary、超长值和明显敏感 key 会被拒绝。敏感 key 检查只是 defense-in-depth，不是通用 secret detection。
+
+Foundation 保证的是 Gateway 的 Summary HTTP 响应不含正文。它不能证明未来真实 Connector 内部没有提前获取正文；真实 IMAP Connector 必须另行加入 provider-specific metadata/detail fetch 测试。
+
 ## 当前边界
 
-这是 P1 本地开发 Gateway，不是 P2 公开服务。当前没有：
+这是本地开发服务，不是公开 Gateway。当前没有：
 
 - 生产认证；
 - Turnstile；
@@ -132,5 +203,8 @@ npm run test:gateway
 - 公网部署；
 - 账号或数据库；
 - 会话、队列、工具调用或 Agent Loop。
+- 真实 Email Provider、账户或 credential persistence；
+- polling、IMAP IDLE、webhook、后台同步或 Event Source；
+- `ExternalItem → Capture` 或任何 Domain 写入。
 
 `AI_ENABLED=false` 可以独立关闭上游调用。公开部署前还需要单独完成来源白名单、防滥用、预算验证、隐私确认和运维流程。
