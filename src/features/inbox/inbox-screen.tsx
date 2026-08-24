@@ -153,7 +153,6 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   return (
     <Card testID={`proposal-${proposal.id}`} style={styles.proposalCard}>
       <View style={styles.proposalRow}>
-        <View style={styles.reorderMark}><Text style={styles.reorderGlyph}>≡</Text></View>
         <View style={styles.proposalCopy}>
           <Text style={styles.proposalTitle}>{title}</Text>
           <Text style={styles.proposalMeta}>{proposalMeta(classification, plannedDate, minutes)}</Text>
@@ -259,9 +258,8 @@ export function InboxScreen() {
   const pendingCount = proposals.length + failedCaptures.length;
   return (
     <Page testID="screen-inbox">
-      <PageHeader title="收件箱" subtitle={pendingCount ? `已整理，剩 ${pendingCount} 个待确认` : '收件箱已整理完毕'} right={<Chip label="整理" size="header" />} />
+      <PageHeader title="收件箱" subtitle={pendingCount ? '整理完成，等待你的决定' : '收件箱已整理完毕'} right={<Chip label="整理" size="header" />} />
       {lastActionFailure ? <Card style={styles.failure}><Text style={textStyles.cardTitle}>操作未完成</Text><Text style={textStyles.meta}>{lastActionFailure.message}</Text></Card> : null}
-      {pendingCount ? <Card accent="ai"><Text style={textStyles.cardTitle}>已整理为 {pendingCount} 条待确认建议</Text><Text style={textStyles.meta}>确认后才会写入任务、等待列表或知识卡片。</Text></Card> : null}
       <SectionHeader title="待你确认" meta={`${pendingCount} 条`} />
       {failedCaptures.map((capture) => <FailedCaptureCard key={capture.id} captureId={capture.id} />)}
       {proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} />)}
@@ -274,7 +272,7 @@ export function InboxScreen() {
 const styles = StyleSheet.create({
   field: { gap: 2 }, fieldLabel: { color: colors.muted, fontSize: 10, fontWeight: '800' }, fieldValue: { minHeight: 18, justifyContent: 'center' }, fieldText: { color: colors.ink, fontSize: 13, lineHeight: 19 }, fieldTextEmphasis: { fontWeight: '900', fontSize: 15, lineHeight: 21 },
   classificationButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, minHeight: 34 }, disclosure: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  proposalCard: { padding: 12 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, reorderMark: { width: 18, alignItems: 'center' }, reorderGlyph: { color: colors.subtle, fontSize: 18, lineHeight: 20 }, proposalCopy: { flex: 1, minWidth: 0, gap: 3 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 6 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  proposalCard: { paddingHorizontal: 11, paddingVertical: 9 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, proposalCopy: { flex: 1, minWidth: 0, gap: 1 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 4 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   editor: { gap: 6, padding: 10, backgroundColor: colors.surface, borderRadius: radius.medium }, input: { minHeight: 42, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 }, summaryInput: { minHeight: 74, paddingTop: 9, textAlignVertical: 'top' }, inputError: { color: colors.danger, fontSize: 11, fontWeight: '700' },
   dateButton: { minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, dateButtonPressed: { opacity: 0.72 }, dateButtonText: { color: colors.ink, fontSize: 13, fontWeight: '800' }, dateButtonPlaceholder: { color: colors.muted },
   modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(24, 32, 45, 0.34)', padding: 14 }, sheet: { width: '100%', maxWidth: 452, gap: 10, maxHeight: '84%', borderRadius: radius.large, backgroundColor: colors.card, padding: 14 }, sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, optionList: { gap: 8 }, editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

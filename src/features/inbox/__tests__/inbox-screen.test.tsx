@@ -45,8 +45,12 @@ describe('InboxScreen first-level presentation', () => {
     expect(row.queryByText(/识别到明确截止时间/)).toBeNull();
     expect(row.queryByText('先标出付款周期风险点')).toBeNull();
     expect(row.queryByText('AI 归类结果')).toBeNull();
+    expect(row.queryByText('≡')).toBeNull();
     expect(row.getByText('确认')).toBeTruthy();
     expect(row.getByText('修改')).toBeTruthy();
+    expect(screen.getByText('整理完成，等待你的决定')).toBeTruthy();
+    expect(screen.getByText('待你确认')).toBeTruthy();
+    expect(screen.queryByText(/已整理为 .* 条待确认建议/)).toBeNull();
   });
 
   it('selects a missing date locally before confirmation writes the decision', async () => {
