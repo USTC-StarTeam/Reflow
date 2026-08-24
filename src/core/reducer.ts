@@ -18,6 +18,7 @@ export type DomainAction =
   | { type: 'completeTask'; taskId: string; at: string }
   | { type: 'updateTaskDetails'; taskId: string; title: string; estimatedMinutes: number; nextAction: string }
   | { type: 'moveTask'; taskId: string; bucket: WorkflowBucket; at: string }
+  | { type: 'updateWaitingFollowUp'; taskId: string; followUpDate: LocalDate }
   | { type: 'recordTime'; taskId: string; minutes: number; at: string }
   | { type: 'recordProgress'; taskId: string; text: string; kind: ProgressKind; at: string }
   | { type: 'recordInterruption'; taskId: string; text: string; at: string }
@@ -431,6 +432,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       const next: TaskItem = {
         ...task,
         bucket: action.bucket,
+        waitingDetails: action.bucket === 'waiting' ? task.waitingDetails : undefined,
         plannedDate: targetDate,
         plannedStartAt: keepTimes ? task.plannedStartAt : undefined,
         plannedEndAt: keepTimes ? task.plannedEndAt : undefined,
@@ -438,6 +440,17 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (samePlan(taskPlanSnapshot(task), taskPlanSnapshot(next))) return success(data, action.type);
       const kind: TaskPlanEventKind = action.bucket === 'someday' ? 'movedToSomeday' : targetDate ? (task.plannedDate ? 'rescheduled' : 'planned') : 'unscheduled';
       return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
+    }
+    case 'updateWaitingFollowUp': {
+      const task = findTask(data, action.taskId);
+      if (!task || task.status === 'completed' || task.bucket !== 'waiting' || !task.waitingDetails) return failure(data, 'task_not_found', '找不到可调整的等待事项。');
+      if (!isLocalDate(action.followUpDate)) return failure(data, 'invalid_follow_up', '跟进日期无效。');
+      return success({
+        ...data,
+        tasks: data.tasks.map((item) => item.id === task.id
+          ? { ...item, waitingDetails: { ...task.waitingDetails!, followUpDate: action.followUpDate } }
+          : item),
+      }, action.type);
     }
     case 'recordTime': {
       if (!findTask(data, action.taskId)) return failure(data, 'task_not_found', '找不到需要记录耗时的任务。');
@@ -465,7 +478,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可规划的任务。');
       if (!isLocalDate(action.date)) return failure(data, 'invalid_schedule', '计划日期无效。');
       if (task.plannedDate === action.date) return success(data, action.type);
-      const next: TaskItem = { ...task, bucket: 'today', plannedDate: action.date, plannedStartAt: undefined, plannedEndAt: undefined };
+      const next: TaskItem = { ...task, bucket: 'today', waitingDetails: undefined, plannedDate: action.date, plannedStartAt: undefined, plannedEndAt: undefined };
       const kind: TaskPlanEventKind = task.plannedDate ? 'rescheduled' : 'planned';
       return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
     }
@@ -476,7 +489,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (!validation.valid) return failure(data, 'invalid_schedule', validation.message);
       const conflicts = findScheduleConflicts(data.tasks, task.id, action.startAt, action.endAt);
       if (conflicts.length && !action.allowConflict) return failure(data, 'schedule_conflict', `与“${conflicts.map((item) => item.title).join('、')}”时间冲突。`);
-      const next: TaskItem = { ...task, bucket: 'today', plannedDate: validation.plannedDate, plannedStartAt: action.startAt, plannedEndAt: action.endAt };
+      const next: TaskItem = { ...task, bucket: 'today', waitingDetails: undefined, plannedDate: validation.plannedDate, plannedStartAt: action.startAt, plannedEndAt: action.endAt };
       if (samePlan(taskPlanSnapshot(task), taskPlanSnapshot(next))) return success(data, action.type);
       const kind: TaskPlanEventKind = task.plannedStartAt || task.plannedDate !== validation.plannedDate ? 'rescheduled' : 'scheduled';
       return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);
@@ -493,8 +506,8 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可顺延的任务。');
       if ('date' in action.destination && !isLocalDate(action.destination.date)) return failure(data, 'invalid_schedule', '顺延日期无效。');
       const next: TaskItem = 'date' in action.destination
-        ? { ...task, bucket: 'today', plannedDate: action.destination.date, plannedStartAt: undefined, plannedEndAt: undefined }
-        : { ...task, bucket: 'someday', plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined };
+        ? { ...task, bucket: 'today', waitingDetails: undefined, plannedDate: action.destination.date, plannedStartAt: undefined, plannedEndAt: undefined }
+        : { ...task, bucket: 'someday', waitingDetails: undefined, plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined };
       if (samePlan(taskPlanSnapshot(task), taskPlanSnapshot(next))) return success(data, action.type);
       const kind: TaskPlanEventKind = 'date' in action.destination ? 'deferred' : 'movedToSomeday';
       return success({ ...data, tasks: data.tasks.map((item) => item.id === task.id ? next : item), taskPlanEvents: [...data.taskPlanEvents, planEvent({ task, next, kind, at: action.at })] }, action.type);

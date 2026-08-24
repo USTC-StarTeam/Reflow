@@ -36,6 +36,7 @@ function storeValue(hydrated: boolean, recoveryFailure = false, persistenceFailu
     completeTask: jest.fn(),
     updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
+    updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),

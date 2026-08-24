@@ -261,6 +261,24 @@ describe('domain reducer', () => {
     expect(result.data.taskPlanEvents.at(-1)).toMatchObject({ kind: 'rescheduled', before: { plannedDate: '2026-07-17' }, after: { plannedDate: '2026-07-18', plannedStartAt: undefined } });
   });
 
+  it('updates a waiting follow-up and clears waiting metadata when it returns to normal planning', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const waiting = {
+      ...seed.tasks[1],
+      id: 'task-waiting',
+      bucket: 'waiting' as const,
+      plannedDate: undefined,
+      plannedStartAt: undefined,
+      plannedEndAt: undefined,
+      waitingDetails: { waitingFor: '供应商', waitingOn: '送货时间', followUpDate: '2026-07-17' },
+    };
+    let data = { ...seed, tasks: [...seed.tasks, waiting] };
+    data = domainReducer(data, { type: 'updateWaitingFollowUp', taskId: waiting.id, followUpDate: '2026-07-19' });
+    expect(data.tasks.find((task) => task.id === waiting.id)?.waitingDetails?.followUpDate).toBe('2026-07-19');
+    data = domainReducer(data, { type: 'planTaskForDate', taskId: waiting.id, date: '2026-07-18', at: now });
+    expect(data.tasks.find((task) => task.id === waiting.id)).toMatchObject({ bucket: 'today', plannedDate: '2026-07-18', waitingDetails: undefined });
+  });
+
   it('enforces same-day schedules and half-open conflicts with explicit override', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
     const crossDay = reduceDomain(seed, { type: 'scheduleTask', taskId: 'task-client-quote', startAt: '2026-07-17T23:30:00+08:00', endAt: '2026-07-18T00:15:00+08:00', at: now });

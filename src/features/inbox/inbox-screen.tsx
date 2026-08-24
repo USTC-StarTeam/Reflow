@@ -9,7 +9,7 @@ import { useReflowStore } from '@/core/store';
 import { type AIProposal, type ProposalEdit, type TaskCategory, type VisibleClassification, visibleClassificationLabels, type WaitingDetails, type WorkflowBucket } from '@/core/types';
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
-import { LocalDatePicker } from './local-date-picker';
+import { LocalDatePicker } from '../shared/local-date-picker';
 
 const visibleClassifications: VisibleClassification[] = ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown'];
 

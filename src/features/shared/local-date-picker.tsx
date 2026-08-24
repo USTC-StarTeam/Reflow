@@ -3,8 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { addDays, dateKey, formatShortDate, localDateToDate } from '@/core/date-utils';
 import type { LocalDate } from '@/core/types';
-import { colors, radius } from '../shared/theme';
-import { ActionButton, ModalSurface } from '../shared/ui';
+import { colors, radius } from './theme';
+import { ActionButton, ModalSurface } from './ui';
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
 

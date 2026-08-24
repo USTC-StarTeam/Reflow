@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectInboxAttentionCount, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
+import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
 import type { TaskItem } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
@@ -127,5 +127,26 @@ describe('selectors', () => {
       proposals: seed.proposals.map((proposal) => ({ ...proposal, status: 'accepted' as const })),
     };
     expect(selectInboxAttentionCount(data)).toBe(1);
+  });
+
+  it('surfaces overdue, due waiting, and cross-day active tasks without duplicating them', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const overdue = { ...seed.tasks[1], id: 'overdue', status: 'notStarted' as const, plannedDate: '2026-07-16' };
+    const waiting = { ...seed.tasks[1], id: 'waiting', status: 'notStarted' as const, bucket: 'waiting' as const, plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, waitingDetails: { waitingFor: '供应商', waitingOn: '送货时间', followUpDate: '2026-07-17' } };
+    const data = {
+      ...seed,
+      tasks: [
+        { ...seed.tasks[0], plannedDate: '2026-07-16' },
+        overdue,
+        waiting,
+      ],
+    };
+
+    expect(selectNeedsAttention(data, '2026-07-17').map((item) => [item.kind, item.task.id])).toEqual([
+      ['crossDayActive', 'task-reflow-demo'],
+      ['overdue', 'overdue'],
+      ['waitingDue', 'waiting'],
+    ]);
+    expect(selectNeedsAttention(data, '2026-07-16')).toEqual([]);
   });
 });

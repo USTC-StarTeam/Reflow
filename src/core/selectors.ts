@@ -80,6 +80,37 @@ export interface TodaySections {
   completed: TaskItem[];
 }
 
+export type NeedsAttentionItem = {
+  kind: 'overdue' | 'waitingDue' | 'crossDayActive';
+  task: TaskItem;
+};
+
+export function selectNeedsAttention(data: DomainData, today: LocalDate = dateKey(new Date())): NeedsAttentionItem[] {
+  const tasks = activeTasks(data).filter((task) => task.status !== 'completed');
+  const crossDayIds = new Set(tasks
+    .filter((task) => {
+      if (task.status !== 'inProgress') return false;
+      const segment = findOpenExecutionSegment(data, task.id);
+      return Boolean((segment && compareLocalDates(localDateOf(segment.startedAt), today) < 0)
+        || (task.plannedDate && compareLocalDates(task.plannedDate, today) < 0));
+    })
+    .map((task) => task.id));
+
+  return [
+    ...tasks.filter((task) => crossDayIds.has(task.id)).map((task) => ({ kind: 'crossDayActive' as const, task })),
+    ...tasks.filter((task) => task.bucket !== 'waiting' && task.status !== 'inProgress' && Boolean(task.plannedDate && compareLocalDates(task.plannedDate, today) < 0))
+      .map((task) => ({ kind: 'overdue' as const, task })),
+    ...tasks.filter((task) => task.bucket === 'waiting' && Boolean(task.waitingDetails?.followUpDate && compareLocalDates(task.waitingDetails.followUpDate, today) <= 0))
+      .map((task) => ({ kind: 'waitingDue' as const, task })),
+  ];
+}
+
+export function selectSomedayTasks(data: DomainData): TaskItem[] {
+  return activeTasks(data)
+    .filter((task) => task.bucket === 'someday' && task.status !== 'completed')
+    .sort((left, right) => left.sortIndex - right.sortIndex);
+}
+
 export function selectTodaySections(data: DomainData, today: LocalDate = dateKey(new Date())): TodaySections {
   const tasks = activeTasks(data);
   const completed = tasks

@@ -48,6 +48,7 @@ export interface ReflowStoreValue {
   completeTask(taskId: string): void;
   updateTaskDetails(taskId: string, details: { title: string; estimatedMinutes: number; nextAction: string }): void;
   moveTask(taskId: string, bucket: WorkflowBucket): void;
+  updateWaitingFollowUp(taskId: string, followUpDate: LocalDate): void;
   recordTime(taskId: string, minutes: number): void;
   recordProgress(taskId: string, text: string): void;
   recordInterruption(taskId: string, text: string): void;
@@ -289,6 +290,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       completeTask(taskId) { perform({ type: 'completeTask', taskId, at: now() }); },
       updateTaskDetails(taskId, details) { perform({ type: 'updateTaskDetails', taskId, ...details }); },
       moveTask(taskId, bucket) { perform({ type: 'moveTask', taskId, bucket, at: now() }); },
+      updateWaitingFollowUp(taskId, followUpDate) { perform({ type: 'updateWaitingFollowUp', taskId, followUpDate }); },
       recordTime(taskId, minutes) { perform({ type: 'recordTime', taskId, minutes, at: now() }); },
       recordProgress(taskId, text) { perform({ type: 'recordProgress', taskId, text, kind: 'progress', at: now() }); },
       recordInterruption(taskId, text) { perform({ type: 'recordInterruption', taskId, text: text.trim() || '突发事项打断当前任务', at: now() }); },
