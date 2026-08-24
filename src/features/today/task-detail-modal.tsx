@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatDateTimeRange, isLocalDate } from '@/core/date-utils';
+import { selectCurrentTask } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { LocalDate, TaskItem } from '@/core/types';
 import { ScheduleTaskModal } from '../calendar/schedule-task-modal';
@@ -34,6 +35,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
   const [savedDate, setSavedDate] = useState(task.plannedDate ?? '');
   const [pendingAction, setPendingAction] = useState<GuardedAction>();
   const [confirmDateChange, setConfirmDateChange] = useState(false);
+  const [confirmTaskSwitch, setConfirmTaskSwitch] = useState(false);
   const [scheduleDateOverride, setScheduleDateOverride] = useState<LocalDate>();
   const planningIdentity = `${task.plannedDate ?? ''}|${task.plannedStartAt ?? ''}|${task.plannedEndAt ?? ''}`;
   const [previousPlanningIdentity, setPreviousPlanningIdentity] = useState(planningIdentity);
@@ -115,12 +117,19 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
       return onClose();
     }
     if (action === 'start') {
-      if (task.status !== 'inProgress') store.startTask(task.id);
-      onClose();
-      return router.push('/active');
+      const current = selectCurrentTask(store.data);
+      if (task.status !== 'inProgress' && current && current.id !== task.id) return setConfirmTaskSwitch(true);
+      return startAndOpenActive();
     }
     store.completeTask(task.id);
     return onClose();
+  }
+
+  function startAndOpenActive() {
+    if (task.status !== 'inProgress') store.startTask(task.id);
+    setConfirmTaskSwitch(false);
+    onClose();
+    router.push('/active');
   }
 
   function request(action: GuardedAction) {
@@ -142,7 +151,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
 
   return (
     <>
-      {!scheduleOpen && !pendingAction && !confirmDateChange ? (
+      {!scheduleOpen && !pendingAction && !confirmDateChange && !confirmTaskSwitch ? (
         <ModalSurface
           visible={visible}
           title="任务详情"
@@ -228,6 +237,22 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
             <ActionButton testID="continue-editing-task-date" label="继续编辑" variant="primary" onPress={() => setConfirmDateChange(false)} />
             <ActionButton testID="reschedule-task-date" label="重新安排时间" onPress={rescheduleDateChange} />
             <ActionButton testID="confirm-unscheduled-date-change" label="取消具体时间并改日期" variant="danger" onPress={confirmUnscheduledDateChange} />
+          </View>
+        </ModalSurface>
+      ) : null}
+
+      {confirmTaskSwitch ? (
+        <ModalSurface
+          visible
+          title="暂停当前任务并开始新的任务？"
+          subtitle={`“${selectCurrentTask(store.data)?.title ?? '当前任务'}”正在进行。切换后会先暂停它并保留实际执行时间。`}
+          onClose={() => setConfirmTaskSwitch(false)}
+          placement="center"
+          testID="confirm-task-switch"
+        >
+          <View style={styles.confirmActions}>
+            <ActionButton testID="cancel-task-switch" label="继续当前任务" variant="primary" onPress={() => setConfirmTaskSwitch(false)} />
+            <ActionButton testID="confirm-task-switch-action" label={`暂停并开始“${task.title}”`} onPress={startAndOpenActive} />
           </View>
         </ModalSurface>
       ) : null}

@@ -221,14 +221,34 @@ describe('domain reducer', () => {
     expect(reduceDomain(executed, { type: 'undoUserDecision', decisionId: 'decision-exec', at: now })).toMatchObject({ status: 'failure', failure: { code: 'decision_not_reversible' } });
   });
 
-  it('allows only one current task and records execution facts separately', () => {
-    let data = createSeedData(new Date('2026-07-17T12:00:00'));
-    data = domainReducer(data, { type: 'startTask', taskId: 'task-client-quote', at: now });
-    expect(data.tasks.filter((task) => task.status === 'inProgress')).toHaveLength(1);
-    data = domainReducer(data, { type: 'recordInterruption', taskId: 'task-client-quote', text: '临时会议', at: now });
-    data = domainReducer(data, { type: 'completeTask', taskId: 'task-client-quote', at: now });
-    expect(data.progressLogs.some((log) => log.kind === 'interrupt')).toBe(true);
+  it('closes start, pause, resume, and complete into actual execution intervals', () => {
+    let data = createSeedData(new Date('2026-07-17T09:00:00+08:00'));
+    data = { ...data, tasks: data.tasks.map((task) => ({ ...task, status: 'notStarted' })), progressLogs: [], timeEntries: [] };
+    data = domainReducer(data, { type: 'startTask', taskId: 'task-client-quote', at: '2026-07-17T10:00:00+08:00' });
+    data = domainReducer(data, { type: 'pauseTask', taskId: 'task-client-quote', at: '2026-07-17T10:35:00+08:00' });
+    data = domainReducer(data, { type: 'startTask', taskId: 'task-client-quote', at: '2026-07-17T11:20:00+08:00' });
+    data = domainReducer(data, { type: 'completeTask', taskId: 'task-client-quote', at: '2026-07-17T11:50:00+08:00' });
+
+    expect(data.timeEntries.map((entry) => ({ startedAt: entry.startedAt, endedAt: entry.endedAt, minutes: entry.minutes }))).toEqual([
+      { startedAt: '2026-07-17T10:00:00+08:00', endedAt: '2026-07-17T10:35:00+08:00', minutes: 35 },
+      { startedAt: '2026-07-17T11:20:00+08:00', endedAt: '2026-07-17T11:50:00+08:00', minutes: 30 },
+    ]);
     expect(data.tasks.find((task) => task.id === 'task-client-quote')?.status).toBe('completed');
+  });
+
+  it('explicitly pauses and records the old task before starting another one', () => {
+    let data = createSeedData(new Date('2026-07-17T09:00:00+08:00'));
+    data = { ...data, tasks: data.tasks.map((task) => ({ ...task, status: 'notStarted' })), progressLogs: [], timeEntries: [] };
+    data = domainReducer(data, { type: 'startTask', taskId: 'task-reflow-demo', at: '2026-07-17T10:00:00+08:00' });
+    data = domainReducer(data, { type: 'startTask', taskId: 'task-client-quote', at: '2026-07-17T10:25:00+08:00' });
+
+    expect(data.tasks.find((task) => task.id === 'task-reflow-demo')?.status).toBe('notStarted');
+    expect(data.tasks.find((task) => task.id === 'task-client-quote')?.status).toBe('inProgress');
+    expect(data.timeEntries).toEqual([expect.objectContaining({ taskId: 'task-reflow-demo', minutes: 25 })]);
+    expect(data.progressLogs.slice(-2)).toEqual([
+      expect.objectContaining({ taskId: 'task-reflow-demo', kind: 'pause' }),
+      expect.objectContaining({ taskId: 'task-client-quote', kind: 'start' }),
+    ]);
   });
 
   it('moves a scheduled task to another date as unscheduled and appends immutable history', () => {

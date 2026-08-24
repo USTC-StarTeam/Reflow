@@ -1,6 +1,7 @@
 import { addDays, addLocalDays, compareLocalDates, dateKey, durationMilliseconds, intervalOverlapMilliseconds, localDateOf, localDateToDate, localDayInterval, startOfDay, startOfWeek, timestampOf, toZonedISOString } from './date-utils';
 import { resolveProposalVisibleClassification } from './classification';
 import { findScheduleConflicts } from './planning';
+import { findOpenExecutionSegment } from './execution';
 import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type ZonedDateTime } from './types';
 
 export interface CurrentExecutionSession {
@@ -30,11 +31,15 @@ export function selectCurrentTask(data: DomainData) {
 export function selectCurrentExecutionSession(data: DomainData, taskId: string): CurrentExecutionSession | undefined {
   const task = activeTasks(data).find((candidate) => candidate.id === taskId);
   if (task?.status !== 'inProgress') return undefined;
-  const starts = data.progressLogs
-    .filter((log) => log.taskId === taskId && log.kind === 'start' && Number.isFinite(new Date(log.createdAt).getTime()))
-    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
-  const latest = starts.at(-1);
-  return latest ? { startedAt: latest.createdAt, resumed: starts.length > 1 } : undefined;
+  return findOpenExecutionSegment(data, taskId);
+}
+
+export function selectTaskExecutionMinutes(data: DomainData, taskId: string, now: Date = new Date()) {
+  const closedMinutes = selectTaskMinutes(data, taskId);
+  const current = selectCurrentExecutionSession(data, taskId);
+  const start = current ? new Date(current.startedAt).getTime() : Number.NaN;
+  const currentSegmentMinutes = Number.isFinite(start) ? Math.max(0, Math.round((now.getTime() - start) / 60_000)) : 0;
+  return { currentSegmentMinutes, totalMinutes: closedMinutes + currentSegmentMinutes };
 }
 
 export function isTaskDelayed(task: TaskItem, now: Date): boolean {

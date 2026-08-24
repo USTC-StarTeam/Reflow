@@ -112,7 +112,7 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.getByText('今天要做')).toBeTruthy();
     expect(screen.getAllByText('已完成')).toHaveLength(2);
     expect(screen.getByTestId('task-task-reflow-demo')).toBeTruthy();
-    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/进行中.*10:00.*开始/);
+    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/进行中.*11:00.*继续/);
     expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/原计划.*10:00.*11:30/);
     expect(screen.getByTestId('task-task-today-date-only')).toBeTruthy();
     expect(screen.getByText('整理本周实验报告')).toBeTruthy();

@@ -65,9 +65,11 @@ describe('ActiveScreen presentation', () => {
     const screen = await renderActive(storeValue(data));
 
     expect(screen.getByText('完成 Reflow Demo 页面结构')).toBeTruthy();
-    expect(screen.getByText('已执行 45 分 · 预计 90 分钟')).toBeTruthy();
+    expect(screen.getByText(/当前执行段 \d+ 分 · 任务累计 \d+ 分 · 预计 90 分钟/)).toBeTruthy();
     expect(screen.getByText('补齐收件箱确认流程')).toBeTruthy();
-    expect(screen.getByText('本次执行 45 分 · 暂停 0 次 · 被打断 1 次')).toBeTruthy();
+    expect(screen.getByText(/当前执行段 \d+ 分 · 任务累计 \d+ 分 · 暂停 1 次 · 被打断 1 次/)).toBeTruthy();
+    expect(screen.getByText('执行概况')).toBeTruthy();
+    expect(screen.queryByText('本次执行')).toBeNull();
     expect(screen.getByText('完成 Today 页面结构和设计令牌')).toBeTruthy();
     expect(screen.queryByText('工作推进')).toBeNull();
     expect(screen.queryByText('+15 分钟')).toBeNull();
@@ -143,7 +145,7 @@ describe('ActiveScreen presentation', () => {
       plannedEndAt: undefined,
     } : task);
     data.progressLogs = [
-      ...data.progressLogs,
+      ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo'),
       {
         id: 'log-pause-latest',
         taskId: 'task-reflow-demo',

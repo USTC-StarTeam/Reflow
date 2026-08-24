@@ -1,6 +1,7 @@
 import { addMinutes, isLocalDate, localDateOf, runtimeId, toZonedISOString } from './date-utils';
 import { categoryForVisibleClassification, defaultSuggestedBucket, resolveProposalVisibleClassification } from './classification';
 import { createTaskPlanEvent, findScheduleConflicts, samePlan, taskPlanSnapshot, validateSchedule } from './planning';
+import { closeOpenExecutionSegment, findOpenExecutionSegment } from './execution';
 import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type LocalDate, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type TaskPlanEvent, type TaskPlanEventKind, type TaskPlanEventSource, type UserDecision, type UserDecisionInput, type WaitingDetails, type WaitingDetailsDraft, type WorkflowBucket } from './types';
 
 export type EditedProposal = ProposalEdit;
@@ -368,29 +369,40 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
     case 'startTask': {
       const task = findTask(data, action.taskId);
       if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可开始的任务。');
+      if (task.status === 'inProgress' && findOpenExecutionSegment(data, task.id)) return success(data, action.type);
+      const previous = data.tasks.find((item) => !item.deletedAt && item.id !== task.id && item.status === 'inProgress');
+      const previousEntry = previous ? closeOpenExecutionSegment(data, previous.id, action.at, runtimeId('time')) : undefined;
+      const progressLogs = previous
+        ? appendLog({ ...data, progressLogs: appendLog(data, previous.id, `已暂停“${previous.title}”，保留实际执行时间`, 'pause', action.at) }, action.taskId, '开始执行任务', 'start', action.at)
+        : appendLog(data, action.taskId, '开始执行任务', 'start', action.at);
       return success({
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId
           ? { ...item, status: 'inProgress' }
           : item.status === 'inProgress' ? { ...item, status: 'notStarted' } : item),
-        progressLogs: appendLog(data, action.taskId, '开始执行任务', 'start', action.at),
+        timeEntries: previousEntry ? [...data.timeEntries, previousEntry] : data.timeEntries,
+        progressLogs,
       }, action.type);
     }
     case 'pauseTask': {
       const task = findTask(data, action.taskId);
       if (!task || task.status !== 'inProgress') return failure(data, 'invalid_decision', '只有进行中的任务可以暂停。');
+      const entry = closeOpenExecutionSegment(data, task.id, action.at, runtimeId('time'));
       return success({
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId ? { ...item, status: 'notStarted' } : item),
+        timeEntries: entry ? [...data.timeEntries, entry] : data.timeEntries,
         progressLogs: appendLog(data, action.taskId, '暂停任务，保留当前进度', 'pause', action.at),
       }, action.type);
     }
     case 'completeTask': {
       const task = findTask(data, action.taskId);
       if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可完成的任务。');
+      const entry = task.status === 'inProgress' ? closeOpenExecutionSegment(data, task.id, action.at, runtimeId('time')) : undefined;
       return success({
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId ? { ...item, status: 'completed', completedAt: action.at } : item),
+        timeEntries: entry ? [...data.timeEntries, entry] : data.timeEntries,
         progressLogs: appendLog(data, action.taskId, '完成任务', 'complete', action.at),
       }, action.type);
     }
