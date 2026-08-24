@@ -266,7 +266,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         }
         const persisted = await enqueuePersistence(JSON.stringify(transition.data));
         if (!persisted) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '本地保存失败，输入仍保留在当前页面，请先重试保存。', retryable: true } };
-        enqueueCapturedProposals();
+        enqueueProposal(created.capture.id);
         return { status: 'success' };
       },
       async retryCapture(captureId) {

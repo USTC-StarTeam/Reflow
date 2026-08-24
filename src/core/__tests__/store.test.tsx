@@ -288,6 +288,53 @@ function proposalFor(request: ProposalRequest): ProposalResult {
 }
 
 describe('durable Capture queue', () => {
+  it('queues each Capture only after its own durable write succeeds', async () => {
+    mockedStorage.getItem.mockReset();
+    mockedStorage.setItem.mockReset();
+    mockedStorage.getItem.mockResolvedValue(null);
+    mockedStorage.setItem.mockResolvedValue();
+    const propose = jest.fn<ProposalService['propose']>(async (request) => proposalFor(request));
+    const service: ProposalService = { kind: 'mock', propose };
+    const screen = await render(<ReflowProvider proposalService={service}><StoreProbe /></ReflowProvider>);
+    await waitFor(() => expect(screen.getByTestId('hydrated').props.children).toBe('true'));
+    await settlePersistence();
+
+    const firstPrimary = pendingWrite();
+    const secondPrimary = pendingWrite();
+    mockedStorage.setItem.mockReset();
+    mockedStorage.setItem.mockImplementation((key, raw) => {
+      if (key !== PERSISTENCE_KEY) return Promise.resolve();
+      const texts = JSON.parse(raw).captures.map((capture: { rawText: string }) => capture.rawText);
+      if (texts.includes('第二条捕捉')) return secondPrimary.promise;
+      if (texts.includes('第一条捕捉')) return firstPrimary.promise;
+      return Promise.resolve();
+    });
+
+    let firstCapture!: ReturnType<ReflowStoreValue['capture']>;
+    let secondCapture!: ReturnType<ReflowStoreValue['capture']>;
+    await act(async () => {
+      firstCapture = probedStore!.capture('第一条捕捉');
+      await Promise.resolve();
+      secondCapture = probedStore!.capture('第二条捕捉');
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('capture-states').props.children).toBe('captured,captured');
+    expect(propose).not.toHaveBeenCalled();
+
+    firstPrimary.resolve();
+    await act(async () => { await firstCapture; });
+    await waitFor(() => expect(propose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedStorage.setItem.mock.calls.some(([key, raw]) => key === PERSISTENCE_KEY && JSON.parse(raw).captures.some((capture: { rawText: string }) => capture.rawText === '第二条捕捉'))).toBe(true));
+    await act(async () => { await Promise.resolve(); });
+    expect(propose.mock.calls.map(([request]) => request.capture.rawText)).toEqual(['第一条捕捉']);
+
+    secondPrimary.resolve();
+    await act(async () => { await secondCapture; });
+    await waitFor(() => expect(propose).toHaveBeenCalledTimes(2));
+    expect(propose.mock.calls.map(([request]) => request.capture.rawText)).toEqual(['第一条捕捉', '第二条捕捉']);
+  });
+
   it('keeps a Capture visible after its first persistence failure and queues it after retry', async () => {
     mockedStorage.getItem.mockReset();
     mockedStorage.setItem.mockReset();
