@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { formatShortDate } from '@/core/date-utils';
 import type { NeedsAttentionItem } from '@/core/selectors';
@@ -8,7 +8,7 @@ import { useReflowStore } from '@/core/store';
 import type { LocalDate } from '@/core/types';
 import { LocalDatePicker } from '../shared/local-date-picker';
 import { colors, spacing } from '../shared/theme';
-import { ActionButton, Card, SectionLabel, textStyles } from '../shared/ui';
+import { ActionButton, Card, ModalSurface, textStyles } from '../shared/ui';
 
 type PickerState = { taskId: string; kind: 'plan' | 'followUp'; value?: LocalDate };
 
@@ -18,9 +18,17 @@ function itemLabel(item: NeedsAttentionItem): string {
   return '进行状态已跨日，请确认是否继续';
 }
 
+function attentionSummary(items: NeedsAttentionItem[]): string {
+  const overdue = items.filter((item) => item.kind === 'overdue').length;
+  const waiting = items.filter((item) => item.kind === 'waitingDue').length;
+  const crossDay = items.filter((item) => item.kind === 'crossDayActive').length;
+  return [overdue ? `${overdue} 项逾期` : '', waiting ? `${waiting} 项待跟进` : '', crossDay ? `${crossDay} 项跨日进行中` : ''].filter(Boolean).join(' · ');
+}
+
 export function NeedsAttentionSection({ items, today, onOpen }: { items: NeedsAttentionItem[]; today: LocalDate; onOpen: (taskId: string) => void }) {
   const store = useReflowStore();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<PickerState>();
   if (!items.length) return null;
 
@@ -31,46 +39,62 @@ export function NeedsAttentionSection({ items, today, onOpen }: { items: NeedsAt
     setPicker(undefined);
   }
 
+  function openPicker(next: PickerState) {
+    setOpen(false);
+    setPicker(next);
+  }
+
   return (
-    <View testID="needs-attention" style={styles.section}>
-      <SectionLabel title="需要处理" meta={`${items.length} 项`} />
-      {items.map((item) => (
-        <Card key={`${item.kind}-${item.task.id}`} testID={`attention-${item.kind}-${item.task.id}`} style={styles.card}>
-          <View style={styles.copy}>
-            <Text style={textStyles.cardTitle}>{item.task.title}</Text>
-            <Text style={styles.meta}>{itemLabel(item)}</Text>
-          </View>
-          <View style={styles.actions}>
-            {item.kind === 'overdue' ? (
-              <>
-                <ActionButton testID={`attention-today-${item.task.id}`} label="安排到今天" variant="primary" onPress={() => store.planTaskForDate(item.task.id, today)} />
-                <ActionButton testID={`attention-date-${item.task.id}`} label="改到其他日期" onPress={() => setPicker({ taskId: item.task.id, kind: 'plan', value: item.task.plannedDate })} />
-                <ActionButton testID={`attention-someday-${item.task.id}`} label="移到稍后" onPress={() => store.deferTask(item.task.id, { bucket: 'someday' })} />
-              </>
-            ) : null}
-            {item.kind === 'waitingDue' ? (
-              <>
-                <ActionButton testID={`attention-continue-${item.task.id}`} label="继续处理" variant="primary" onPress={() => onOpen(item.task.id)} />
-                <ActionButton testID={`attention-follow-up-${item.task.id}`} label="调整跟进日期" onPress={() => setPicker({ taskId: item.task.id, kind: 'followUp', value: item.task.waitingDetails?.followUpDate })} />
-                <ActionButton testID={`attention-regular-${item.task.id}`} label="转回普通任务" onPress={() => store.moveTask(item.task.id, 'today')} />
-              </>
-            ) : null}
-            {item.kind === 'crossDayActive' ? (
-              <>
-                <ActionButton testID={`attention-active-${item.task.id}`} label="前往进行中" variant="green" onPress={() => router.push('/active')} />
-                <ActionButton testID={`attention-pause-today-${item.task.id}`} label="暂停并安排今天" onPress={() => { store.pauseTask(item.task.id); store.planTaskForDate(item.task.id, today); }} />
-              </>
-            ) : null}
-          </View>
-        </Card>
-      ))}
+    <View>
+      <Card testID="needs-attention" style={styles.entry}>
+        <View style={styles.copy}><Text style={textStyles.cardTitle}>需要处理</Text><Text style={styles.summary}>{attentionSummary(items)}</Text></View>
+        <ActionButton testID="open-needs-attention" label={`查看 ${items.length} 项`} variant="orange" onPress={() => setOpen(true)} />
+      </Card>
+      {open ? (
+        <ModalSurface visible title="需要处理" subtitle="这些事项需要重新安排、跟进或确认执行状态。" onClose={() => setOpen(false)} testID="needs-attention-sheet">
+          <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+            {items.map((item) => (
+              <Card key={`${item.kind}-${item.task.id}`} testID={`attention-${item.kind}-${item.task.id}`} style={styles.card}>
+                <View style={styles.copy}>
+                  <Text style={textStyles.cardTitle}>{item.task.title}</Text>
+                  <Text style={styles.meta}>{itemLabel(item)}</Text>
+                </View>
+                <View style={styles.actions}>
+                  {item.kind === 'overdue' ? (
+                    <>
+                      <ActionButton testID={`attention-today-${item.task.id}`} label="安排到今天" variant="primary" onPress={() => store.planTaskForDate(item.task.id, today)} />
+                      <ActionButton testID={`attention-date-${item.task.id}`} label="改到其他日期" onPress={() => openPicker({ taskId: item.task.id, kind: 'plan', value: item.task.plannedDate })} />
+                      <ActionButton testID={`attention-someday-${item.task.id}`} label="移到稍后" onPress={() => store.deferTask(item.task.id, { bucket: 'someday' })} />
+                    </>
+                  ) : null}
+                  {item.kind === 'waitingDue' ? (
+                    <>
+                      <ActionButton testID={`attention-continue-${item.task.id}`} label="继续处理" variant="primary" onPress={() => { setOpen(false); onOpen(item.task.id); }} />
+                      <ActionButton testID={`attention-follow-up-${item.task.id}`} label="调整跟进日期" onPress={() => openPicker({ taskId: item.task.id, kind: 'followUp', value: item.task.waitingDetails?.followUpDate })} />
+                      <ActionButton testID={`attention-regular-${item.task.id}`} label="转回普通任务" onPress={() => store.moveTask(item.task.id, 'today')} />
+                    </>
+                  ) : null}
+                  {item.kind === 'crossDayActive' ? (
+                    <>
+                      <ActionButton testID={`attention-active-${item.task.id}`} label="前往进行中" variant="green" onPress={() => { setOpen(false); router.push('/active'); }} />
+                      <ActionButton testID={`attention-pause-today-${item.task.id}`} label="暂停并安排今天" onPress={() => { store.pauseTask(item.task.id); store.planTaskForDate(item.task.id, today); }} />
+                    </>
+                  ) : null}
+                </View>
+              </Card>
+            ))}
+          </ScrollView>
+        </ModalSurface>
+      ) : null}
       {picker ? <LocalDatePicker value={picker.value} onClose={() => setPicker(undefined)} onSelect={selectDate} /> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { gap: spacing.md },
+  entry: { flexDirection: 'row', alignItems: 'center', padding: spacing.lg },
+  summary: { color: colors.muted, fontSize: 11, lineHeight: 16 },
+  list: { gap: spacing.md },
   card: { padding: spacing.lg, gap: spacing.md },
   copy: { gap: spacing.xxs },
   meta: { color: colors.orange, fontSize: 11, lineHeight: 16, fontWeight: '800' },

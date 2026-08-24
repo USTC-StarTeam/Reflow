@@ -240,6 +240,12 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       proposalQueue.current = job.then(() => undefined, () => undefined);
     }
 
+    function enqueueCapturedProposals() {
+      dataRef.current.captures
+        .filter((capture) => capture.pipelineState === 'captured')
+        .forEach((capture) => enqueueProposal(capture.id));
+    }
+
     return {
       data: state.data,
       hydrated: state.hydrated,
@@ -260,7 +266,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         }
         const persisted = await enqueuePersistence(JSON.stringify(transition.data));
         if (!persisted) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '本地保存失败，输入仍保留在当前页面，请先重试保存。', retryable: true } };
-        enqueueProposal(created.capture.id);
+        enqueueCapturedProposals();
         return { status: 'success' };
       },
       async retryCapture(captureId) {
@@ -303,7 +309,10 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       deleteTask(taskId) { perform({ type: 'deleteTask', taskId, at: now() }); },
       reorderTasks(taskIds) { perform({ type: 'reorderTasks', taskIds }); },
       exportBackup() { return serializeBackup(state.data); },
-      retryPersistence() { return enqueuePersistence(JSON.stringify(dataRef.current)).then(() => undefined); },
+      async retryPersistence() {
+        const persisted = await enqueuePersistence(JSON.stringify(dataRef.current));
+        if (persisted) enqueueCapturedProposals();
+      },
       async importBackup(raw) {
         const parsed = parseBackup(raw);
         if (parsed.status === 'failure') return { status: 'failure', failure: { code: 'invalid_backup', message: parsed.message, retryable: false } };

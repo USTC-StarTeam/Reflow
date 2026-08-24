@@ -288,6 +288,38 @@ function proposalFor(request: ProposalRequest): ProposalResult {
 }
 
 describe('durable Capture queue', () => {
+  it('keeps a Capture visible after its first persistence failure and queues it after retry', async () => {
+    mockedStorage.getItem.mockReset();
+    mockedStorage.setItem.mockReset();
+    mockedStorage.getItem.mockResolvedValue(null);
+    mockedStorage.setItem.mockResolvedValue();
+    const propose = jest.fn<ProposalService['propose']>(async (request) => proposalFor(request));
+    const service: ProposalService = { kind: 'mock', propose };
+    const screen = await render(<ReflowProvider proposalService={service}><StoreProbe /></ReflowProvider>);
+    await waitFor(() => expect(screen.getByTestId('hydrated').props.children).toBe('true'));
+    await settlePersistence();
+
+    mockedStorage.setItem.mockReset();
+    mockedStorage.setItem.mockRejectedValue(new Error('storage unavailable'));
+    let result: Awaited<ReturnType<ReflowStoreValue['capture']>> | undefined;
+    await act(async () => {
+      result = await probedStore?.capture('第一条捕捉');
+    });
+
+    expect(result?.status).toBe('failure');
+    expect(screen.getByTestId('capture-count').props.children).toBe(1);
+    expect(screen.getByTestId('capture-states').props.children).toBe('captured');
+    expect(propose).not.toHaveBeenCalled();
+
+    mockedStorage.setItem.mockReset();
+    mockedStorage.setItem.mockResolvedValue();
+    await press(screen, 'retry-persistence');
+
+    await waitFor(() => expect(propose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('capture-states').props.children).toBe('proposed'));
+    expect(screen.getByTestId('persistence-failure').props.children).toBe('false');
+  });
+
   it('persists the raw Capture before calling ProposalService', async () => {
     mockedStorage.getItem.mockReset();
     mockedStorage.setItem.mockReset();

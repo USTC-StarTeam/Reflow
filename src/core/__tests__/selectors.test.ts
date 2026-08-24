@@ -121,15 +121,16 @@ describe('selectors', () => {
       pipelineState: 'proposalFailed' as const,
       failure: { code: 'proposal_unavailable' as const, message: '暂时不可用', retryable: true },
     };
+    const captured = { ...seed.captures[1], pipelineState: 'captured' as const };
     const data = {
       ...seed,
-      captures: [failed, ...seed.captures.slice(1)],
+      captures: [failed, captured, ...seed.captures.slice(2)],
       proposals: seed.proposals.map((proposal) => ({ ...proposal, status: 'accepted' as const })),
     };
-    expect(selectInboxAttentionCount(data)).toBe(1);
+    expect(selectInboxAttentionCount(data)).toBe(2);
   });
 
-  it('surfaces overdue, due waiting, and cross-day active tasks without duplicating them', () => {
+  it('uses an open execution segment before plannedDate when identifying cross-day active tasks', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
     const overdue = { ...seed.tasks[1], id: 'overdue', status: 'notStarted' as const, plannedDate: '2026-07-16' };
     const waiting = { ...seed.tasks[1], id: 'waiting', status: 'notStarted' as const, bucket: 'waiting' as const, plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, waitingDetails: { waitingFor: '供应商', waitingOn: '送货时间', followUpDate: '2026-07-17' } };
@@ -143,10 +144,21 @@ describe('selectors', () => {
     };
 
     expect(selectNeedsAttention(data, '2026-07-17').map((item) => [item.kind, item.task.id])).toEqual([
-      ['crossDayActive', 'task-reflow-demo'],
       ['overdue', 'overdue'],
       ['waitingDue', 'waiting'],
     ]);
+
+    const crossDaySegment = {
+      ...data,
+      progressLogs: [
+        ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || (log.kind !== 'start' && log.kind !== 'pause' && log.kind !== 'complete')),
+        { id: 'open-yesterday', taskId: 'task-reflow-demo', kind: 'start' as const, text: '昨日开始', createdAt: '2026-07-16T23:30:00+08:00' },
+      ],
+    };
+    expect(selectNeedsAttention(crossDaySegment, '2026-07-17')[0]).toMatchObject({ kind: 'crossDayActive', task: { id: 'task-reflow-demo' } });
+
+    const legacyWithoutSegment = { ...data, progressLogs: data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo') };
+    expect(selectNeedsAttention(legacyWithoutSegment, '2026-07-17')[0]).toMatchObject({ kind: 'crossDayActive', task: { id: 'task-reflow-demo' } });
     expect(selectNeedsAttention(data, '2026-07-16')).toEqual([]);
   });
 });

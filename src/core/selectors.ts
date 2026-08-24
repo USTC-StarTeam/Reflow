@@ -53,7 +53,7 @@ export function selectPendingProposals(data: DomainData) {
 }
 
 export function selectInboxAttentionCount(data: DomainData): number {
-  return selectPendingProposals(data).length + selectFailedCaptures(data).length;
+  return selectPendingProposals(data).length + selectCapturedCaptures(data).length + selectFailedCaptures(data).length;
 }
 
 export function selectProposalVisibleClassification(data: DomainData, proposalId: string) {
@@ -67,6 +67,10 @@ export function selectRecentDecisions(data: DomainData, limit = 5) {
 
 export function selectFailedCaptures(data: DomainData) {
   return data.captures.filter((capture) => capture.pipelineState === 'proposalFailed');
+}
+
+export function selectCapturedCaptures(data: DomainData) {
+  return data.captures.filter((capture) => capture.pipelineState === 'captured');
 }
 
 export function selectLatestUndoableDecision(data: DomainData) {
@@ -91,8 +95,8 @@ export function selectNeedsAttention(data: DomainData, today: LocalDate = dateKe
     .filter((task) => {
       if (task.status !== 'inProgress') return false;
       const segment = findOpenExecutionSegment(data, task.id);
-      return Boolean((segment && compareLocalDates(localDateOf(segment.startedAt), today) < 0)
-        || (task.plannedDate && compareLocalDates(task.plannedDate, today) < 0));
+      if (segment) return compareLocalDates(localDateOf(segment.startedAt), today) < 0;
+      return Boolean(task.plannedDate && compareLocalDates(task.plannedDate, today) < 0);
     })
     .map((task) => task.id));
 

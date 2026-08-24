@@ -4,7 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { isTaskCategory, resolveProposalVisibleClassification } from '@/core/classification';
 import { formatShortDate, isLocalDate, localDateOf } from '@/core/date-utils';
 import { editProposal } from '@/core/reducer';
-import { selectFailedCaptures, selectLatestUndoableDecision, selectPendingProposals, selectRecentDecisions } from '@/core/selectors';
+import { selectCapturedCaptures, selectFailedCaptures, selectLatestUndoableDecision, selectPendingProposals, selectRecentDecisions } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { type AIProposal, type ProposalEdit, type TaskCategory, type VisibleClassification, visibleClassificationLabels, type WaitingDetails, type WorkflowBucket } from '@/core/types';
 import { colors, radius } from '../shared/theme';
@@ -223,6 +223,13 @@ function FailedCaptureCard({ captureId }: { captureId: string }) {
   return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>输入已保留，暂未整理完成</Text><Text style={textStyles.meta}>{capture.failure.message}</Text><View style={styles.actions}>{capture.failure.retryable ? <ActionButton label={retrying ? '已加入整理队列' : proposalServiceKind === 'cloud' ? '重新使用云端整理' : '重新使用本地规则整理'} disabled={retrying} onPress={() => { void retry(); }} /> : null}{proposalServiceKind === 'cloud' ? <ActionButton testID={`fallback-local-${capture.id}`} label="使用本地规则整理" disabled={retrying} onPress={() => { void retry(true); }} /> : null}</View></Card>;
 }
 
+function CapturedCaptureCard({ captureId }: { captureId: string }) {
+  const { data } = useReflowStore();
+  const capture = data.captures.find((item) => item.id === captureId);
+  if (!capture || capture.pipelineState !== 'captured') return null;
+  return <Card testID={`captured-capture-${capture.id}`} accent="ai"><Text style={textStyles.cardTitle}>{capture.rawText}</Text><Text style={textStyles.meta}>输入已保留，等待本地保存后继续整理。</Text></Card>;
+}
+
 function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undoable: boolean }) {
   const { data, undoLastDecision } = useReflowStore();
   const decision = data.decisions.find((item) => item.id === decisionId);
@@ -252,15 +259,17 @@ function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undo
 export function InboxScreen() {
   const { data, lastActionFailure } = useReflowStore();
   const proposals = selectPendingProposals(data);
+  const capturedCaptures = selectCapturedCaptures(data);
   const failedCaptures = selectFailedCaptures(data);
   const latestDecision = selectLatestUndoableDecision(data);
   const recentDecisions = selectRecentDecisions(data, 1);
-  const pendingCount = proposals.length + failedCaptures.length;
+  const pendingCount = proposals.length + capturedCaptures.length + failedCaptures.length;
   return (
     <Page testID="screen-inbox">
       <PageHeader title="收件箱" subtitle={pendingCount ? '整理完成，等待你的决定' : '收件箱已整理完毕'} right={<Chip label="整理" size="header" />} />
       {lastActionFailure ? <Card style={styles.failure}><Text style={textStyles.cardTitle}>操作未完成</Text><Text style={textStyles.meta}>{lastActionFailure.message}</Text></Card> : null}
       <SectionHeader title="待你确认" meta={`${pendingCount} 条`} />
+      {capturedCaptures.map((capture) => <CapturedCaptureCard key={capture.id} captureId={capture.id} />)}
       {failedCaptures.map((capture) => <FailedCaptureCard key={capture.id} captureId={capture.id} />)}
       {proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} />)}
       {!pendingCount ? <EmptyState title="收件箱已清空" detail="从任意页面使用“+”捕捉新事项，AI 整理后会回到这里等待你确认。" /> : null}

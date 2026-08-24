@@ -127,6 +127,22 @@ describe('InboxScreen first-level presentation', () => {
     expect(recentRow.getByText('撤销')).toBeTruthy();
   });
 
+  it('keeps a captured input visible while local persistence is waiting to recover', async () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const captured = { ...seed.captures[0], pipelineState: 'captured' as const };
+    const data = {
+      ...seed,
+      captures: [captured, ...seed.captures.slice(1)],
+      proposals: seed.proposals.map((proposal) => ({ ...proposal, status: 'accepted' as const })),
+    };
+    const screen = await renderInbox(storeValue(data));
+
+    const card = within(screen.getByTestId('captured-capture-capture-contract'));
+    expect(card.getByText(/合同条款今晚前审阅/)).toBeTruthy();
+    expect(card.getByText('输入已保留，等待本地保存后继续整理。')).toBeTruthy();
+    expect(screen.getByText('1 条')).toBeTruthy();
+  });
+
   it('projects only the latest decision feedback instead of five history cards', async () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
     const decisions = Array.from({ length: 5 }, (_, index) => ({
