@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { useEffect } from 'react';
 import { Pressable, Text } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -25,7 +26,9 @@ async function settlePersistence() {
 
 function StoreProbe() {
   const store = useReflowStore();
-  probedStore = store;
+  useEffect(() => {
+    probedStore = store;
+  }, [store]);
   return (
     <>
       <Text testID="hydrated">{String(store.hydrated)}</Text>
@@ -82,14 +85,19 @@ describe('store hydration recovery failure', () => {
     await waitFor(() => expect(screen.getByTestId('hydrated').props.children).toBe('true'));
     expect(screen.getByTestId('task-count').props.children).toBe(0);
 
-    fireEvent.press(screen.getByTestId('load-demo'));
+    await act(async () => {
+      await probedStore?.resetDemo();
+    });
 
     await waitFor(() => expect(screen.getByTestId('task-count').props.children).toBeGreaterThan(0));
     await settlePersistence();
+    expect(mockedStorage.setItem).toHaveBeenCalledWith(RECOVERY_KEY, JSON.stringify(createEmptyData()));
+    expect(mockedStorage.setItem).toHaveBeenCalledWith(PERSISTENCE_KEY, expect.stringContaining('task-reflow-demo'));
   });
 });
 
 const seedAt = new Date('2026-07-17T12:00:00+08:00');
+const seedProgressLogCount = createSeedData(seedAt).progressLogs.length;
 
 async function renderHydratedSeed() {
   const seed = createSeedData(seedAt);
@@ -135,7 +143,7 @@ describe('store persistence write failures', () => {
 
     await waitFor(() => expect(mockedStorage.setItem).toHaveBeenCalledWith(PERSISTENCE_KEY, expect.any(String)));
     expect(screen.getByTestId('persistence-failure').props.children).toBe('false');
-    expect(JSON.parse(latestPrimarySnapshot()).progressLogs).toHaveLength(4);
+    expect(JSON.parse(latestPrimarySnapshot()).progressLogs).toHaveLength(seedProgressLogCount + 1);
   });
 
   it('keeps changed domain data in memory and marks a failed automatic write', async () => {
@@ -145,7 +153,7 @@ describe('store persistence write failures', () => {
     await press(screen, 'record-progress-first');
 
     await waitFor(() => expect(screen.getByTestId('persistence-failure').props.children).toBe('true'));
-    expect(screen.getByTestId('progress-log-count').props.children).toBe(4);
+    expect(screen.getByTestId('progress-log-count').props.children).toBe(seedProgressLogCount + 1);
   });
 
   it('retries the current snapshot without replaying domain actions and keeps failure visible if retry fails', async () => {
@@ -163,7 +171,7 @@ describe('store persistence write failures', () => {
     mockedStorage.setItem.mockResolvedValue();
     await press(screen, 'retry-persistence');
     await waitFor(() => expect(screen.getByTestId('persistence-failure').props.children).toBe('false'));
-    expect(screen.getByTestId('progress-log-count').props.children).toBe(4);
+    expect(screen.getByTestId('progress-log-count').props.children).toBe(seedProgressLogCount + 1);
     expect(screen.getByTestId('decision-count').props.children).toBe(seed.decisions.length);
     expect(screen.getByTestId('plan-event-count').props.children).toBe(seed.taskPlanEvents.length);
   });
@@ -236,7 +244,7 @@ describe('store persistence write failures', () => {
     await press(screen, 'record-progress-second');
 
     await waitFor(() => expect(screen.getByTestId('persistence-failure').props.children).toBe('false'));
-    expect(JSON.parse(latestPrimarySnapshot()).progressLogs).toHaveLength(5);
+    expect(JSON.parse(latestPrimarySnapshot()).progressLogs).toHaveLength(seedProgressLogCount + 2);
   });
 
   it('keeps the prior successful snapshot for recovery when primary write fails after recovery succeeds', async () => {

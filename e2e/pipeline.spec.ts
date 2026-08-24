@@ -5,7 +5,8 @@ const taskText = '推进季度预算口径整理';
 async function resetDemo(page: Page) {
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByTestId('reset-demo').click();
-  await expect(page.getByTestId('reset-demo')).toBeHidden();
+  await page.getByTestId('confirm-demo-reset-action').click();
+  await expect(page.getByTestId('confirm-demo-reset')).toBeHidden();
 }
 
 async function selectTodayForProposal(page: Page, proposal: ReturnType<Page['locator']>) {
@@ -25,7 +26,7 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
 
   await page.getByTestId('quick-capture-input').fill(taskText);
   await page.getByTestId('quick-capture-submit').click();
-  await expect(page.getByText('已交给本地规则整理，请到收件箱确认。')).toBeVisible();
+  await expect(page.getByText('已保存，正在用本地规则整理，可以继续记录。')).toBeVisible();
 
   await page.getByTestId('nav-收件箱').click();
   const proposal = page.locator('[data-testid^="proposal-"]', { hasText: taskText });
@@ -91,7 +92,7 @@ test('收件箱清晰展示等待建议、九种归类和可撤销的等待决�
 
   const waitingProposal = page.getByTestId('proposal-proposal-waiting');
   await expect(page.getByText('待你确认')).toBeVisible();
-  await expect(page.getByText('最近处理')).toBeVisible();
+  await expect(page.getByText('最近处理')).toBeHidden();
   await expect(waitingProposal).toContainText('等待供应商确认送货时间');
   await expect(waitingProposal).toContainText('等待他人 · 预计 10 分');
   await waitingProposal.getByRole('button', { name: '修改', exact: true }).click();
@@ -116,6 +117,7 @@ test('收件箱清晰展示等待建议、九种归类和可撤销的等待决�
   await expect(contractProposal.getByRole('button', { name: '保存为知识' })).toBeVisible();
 
   await waitingProposal.getByRole('button', { name: '放入等待列表' }).click();
+  await expect(page.getByText('最近处理')).toBeVisible();
   await expect(page.getByTestId('undo-decision')).toBeVisible();
   await page.reload();
   await expect(page.getByTestId('undo-decision')).toBeVisible();
@@ -167,6 +169,7 @@ test('Today 任务详情可编辑、取消具体时间并开始执行', async ({
 
   await page.getByTestId('open-today-task-task-client-quote').click();
   await page.getByTestId('start-task-from-detail').click();
+  await page.getByTestId('confirm-task-switch-action').click();
   await expect(page).toHaveURL(/\/active$/);
   await expect(page.getByTestId('current-task-card')).toContainText('复核客户报价');
 });
@@ -314,7 +317,7 @@ test('Mock 模式不会请求 Cloud Gateway', async ({ page }) => {
   await resetDemo(page);
   await page.getByTestId('quick-capture-input').fill('验证本地规则不会访问网关');
   await page.getByTestId('quick-capture-submit').click();
-  await expect(page.getByText('已交给本地规则整理，请到收件箱确认。')).toBeVisible();
+  await expect(page.getByText('已保存，正在用本地规则整理，可以继续记录。')).toBeVisible();
   const count = await fetch('http://127.0.0.1:8788/__count').then((response) => response.json());
   expect(count.proposalRequests).toBe(0);
 });

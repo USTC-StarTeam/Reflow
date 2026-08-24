@@ -5,7 +5,8 @@ test.use({ baseURL: 'http://127.0.0.1:8082' });
 async function resetDemo(page: Page) {
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByTestId('reset-demo').click();
-  await expect(page.getByTestId('reset-demo')).toBeHidden();
+  await page.getByTestId('confirm-demo-reset-action').click();
+  await expect(page.getByTestId('confirm-demo-reset')).toBeHidden();
 }
 
 async function browserLocalDateAfter(page: Page, days: number) {
@@ -30,7 +31,7 @@ test('Cloud Capture 进入收件箱，编辑确认后建议日期写入任务并
 
   await page.getByTestId('quick-capture-input').fill(input);
   await page.getByTestId('quick-capture-submit').click();
-  await expect(page.getByText('已交给云端 AI 整理，请到收件箱确认。')).toBeVisible();
+  await expect(page.getByText('已保存，正在交给云端 AI 整理，可以继续记录。')).toBeVisible();
   await page.getByTestId('nav-收件箱').click();
 
   let proposal = page.locator('[data-testid^="proposal-"]', { hasText: '整理云端验收说明' });
@@ -232,11 +233,11 @@ test('Cloud 失败保留 Capture，用户明确选择本地规则后恢复', asy
   await resetDemo(page);
   await page.getByTestId('quick-capture-input').fill(input);
   await page.getByTestId('quick-capture-submit').click();
-  await expect(page.getByTestId('quick-capture-error')).toContainText('模拟云端暂时不可用');
+  await expect(page.getByText('已保存，正在交给云端 AI 整理，可以继续记录。')).toBeVisible();
 
   await page.getByTestId('nav-收件箱').click();
   const failed = page.locator('[data-testid^="failed-capture-"]', { hasText: input });
-  await expect(failed).toContainText('暂未能整理这条输入');
+  await expect(failed).toContainText('输入已保留，暂未整理完成');
   await failed.getByRole('button', { name: '使用本地规则整理' }).click();
 
   const recovered = page.locator('[data-testid^="proposal-"]', { hasText: input });

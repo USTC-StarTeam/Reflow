@@ -251,6 +251,12 @@ describe('domain reducer', () => {
     ]);
   });
 
+  it('restores a completed task to an unfinished state', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const restored = domainReducer(seed, { type: 'restoreTask', taskId: 'task-inbox-cleanup' });
+    expect(restored.tasks.find((task) => task.id === 'task-inbox-cleanup')).toMatchObject({ status: 'notStarted', completedAt: undefined });
+  });
+
   it('moves a scheduled task to another date as unscheduled and appends immutable history', () => {
     const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
     const previousEvents = seed.taskPlanEvents;

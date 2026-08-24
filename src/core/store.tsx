@@ -46,6 +46,7 @@ export interface ReflowStoreValue {
   startTask(taskId: string): void;
   pauseTask(taskId: string): void;
   completeTask(taskId: string): void;
+  restoreTask(taskId: string): void;
   updateTaskDetails(taskId: string, details: { title: string; estimatedMinutes: number; nextAction: string }): void;
   moveTask(taskId: string, bucket: WorkflowBucket): void;
   updateWaitingFollowUp(taskId: string, followUpDate: LocalDate): void;
@@ -62,7 +63,7 @@ export interface ReflowStoreValue {
   retryPersistence(): Promise<void>;
   importBackup(raw: string): Promise<{ status: 'success'; counts: Record<string, number> } | { status: 'failure'; failure: PipelineFailure }>;
   startEmpty(): void;
-  resetDemo(): void;
+  resetDemo(): Promise<StoreCommandResult>;
 }
 
 const defaultProposalService = createProposalService();
@@ -288,6 +289,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       startTask(taskId) { perform({ type: 'startTask', taskId, at: now() }); },
       pauseTask(taskId) { perform({ type: 'pauseTask', taskId, at: now() }); },
       completeTask(taskId) { perform({ type: 'completeTask', taskId, at: now() }); },
+      restoreTask(taskId) { perform({ type: 'restoreTask', taskId }); },
       updateTaskDetails(taskId, details) { perform({ type: 'updateTaskDetails', taskId, ...details }); },
       moveTask(taskId, bucket) { perform({ type: 'moveTask', taskId, bucket, at: now() }); },
       updateWaitingFollowUp(taskId, followUpDate) { perform({ type: 'updateWaitingFollowUp', taskId, followUpDate }); },
@@ -325,10 +327,30 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         dataRef.current = data;
         dispatch({ type: 'reset', data });
       },
-      resetDemo() {
+      async resetDemo() {
+        const current = JSON.stringify(dataRef.current);
         const data = createSeedData();
-        dataRef.current = data;
-        dispatch({ type: 'reset', data });
+        const incoming = JSON.stringify(data);
+        latestPersistenceSnapshot.current = incoming;
+        const replacement = persistenceQueue.current
+          .catch(() => undefined)
+          .then(async () => {
+            await AsyncStorage.setItem(RECOVERY_KEY, current);
+            await AsyncStorage.setItem(PERSISTENCE_KEY, incoming);
+          });
+        persistenceQueue.current = replacement.then(() => undefined, () => undefined);
+        try {
+          await replacement;
+          lastPersistedSnapshot.current = incoming;
+          setPersistenceFailure(false);
+          dataRef.current = data;
+          dispatch({ type: 'reset', data });
+          return { status: 'success' };
+        } catch {
+          latestPersistenceSnapshot.current = current;
+          setPersistenceFailure(true);
+          return { status: 'failure', failure: { code: 'invalid_backup', message: '加载演示数据失败，个人数据保持不变。', retryable: true } };
+        }
       },
     };
   }, [enqueuePersistence, proposalService, setPersistenceFailure, state]);

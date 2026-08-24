@@ -71,7 +71,7 @@ export function TodayScreen() {
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="已完成" meta={`${sections.completed.length} 项`} />
-          {sections.completed.length ? sections.completed.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
+          {sections.completed.length ? sections.completed.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" onRestore={() => store.restoreTask(task.id)} />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
         </View>
 
         <Card testID="someday-entry" style={styles.secondaryEntry}>

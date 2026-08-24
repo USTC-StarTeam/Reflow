@@ -63,6 +63,7 @@ function storeValue(): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    restoreTask: jest.fn(),
     updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),
@@ -119,7 +120,7 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.getByTestId('task-task-today-date-only')).toBeTruthy();
     expect(screen.getByText('整理本周实验报告')).toBeTruthy();
     expect(screen.getByText('预计 60 分')).toBeTruthy();
-    expect(screen.getByTestId('today-completed-task-inbox-cleanup')).toBeTruthy();
+    expect(screen.getByTestId('restore-completed-task-inbox-cleanup')).toBeTruthy();
     expect(screen.getByLabelText('完成 完成 Reflow Demo 页面结构')).toBeTruthy();
     expect(screen.getByLabelText('完成 整理本周实验报告')).toBeTruthy();
   });
@@ -273,6 +274,16 @@ describe('TodayScreen information hierarchy', () => {
     fireEvent.press(adjust);
 
     expect(store.reorderTasks).not.toHaveBeenCalled();
+  });
+
+  it('restores a completed task through its explicit recovery control', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    await fireEvent.press(screen.getByLabelText('恢复未完成 晨间整理收件箱'));
+    expect(store.restoreTask).toHaveBeenCalledWith('task-inbox-cleanup');
   });
 
   it('surfaces overdue, due waiting, and cross-day active items with explicit recovery actions', async () => {

@@ -15,6 +15,7 @@ type TodayTaskRowProps = {
 } | {
   task: TaskItem;
   variant: 'completed';
+  onRestore: () => void;
   onComplete?: never;
   onOpen?: never;
 };
@@ -69,9 +70,9 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
       )}
 
       {completed ? (
-        <View testID={`today-completed-${task.id}`} style={[styles.actionTouch, styles.completedAction]} accessibilityLabel={`已完成 ${task.title}`}>
-          <Text style={styles.completedGlyph}>✓</Text>
-        </View>
+        <Pressable testID={`restore-completed-${task.id}`} style={({ pressed }) => [styles.actionTouch, styles.completedAction, pressed && styles.actionTouchPressed]} accessibilityRole="button" accessibilityLabel={`恢复未完成 ${task.title}`} onPress={props.onRestore}>
+          <Text style={styles.completedGlyph}>↶</Text>
+        </Pressable>
       ) : (
         <Pressable
           accessibilityHint={statusLabel(task)}
@@ -102,7 +103,7 @@ const styles = StyleSheet.create({
   actionGlyph: { color: colors.muted, fontSize: 15, lineHeight: 18, fontWeight: '900' },
   actionGlyphInProgress: { color: colors.green },
   completedAction: { borderWidth: border.width, borderColor: colors.line, backgroundColor: '#F3F5F8' },
-  completedGlyph: { color: colors.subtle, fontSize: 15, lineHeight: 18, fontWeight: '900' },
+  completedGlyph: { color: colors.primary, fontSize: 17, lineHeight: 19, fontWeight: '900' },
   copy: { flex: 1, minWidth: 0, gap: 2, paddingVertical: spacing.sm },
   title: { color: colors.ink, fontSize: 14, lineHeight: 19, fontWeight: '800' },
   executionStatus: { color: colors.green, fontSize: 11, lineHeight: 15, fontWeight: '800' },

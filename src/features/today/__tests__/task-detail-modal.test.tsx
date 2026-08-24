@@ -35,6 +35,7 @@ function storeValue(): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    restoreTask: jest.fn(),
     updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),

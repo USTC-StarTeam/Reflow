@@ -16,6 +16,7 @@ export type DomainAction =
   | { type: 'startTask'; taskId: string; at: string }
   | { type: 'pauseTask'; taskId: string; at: string }
   | { type: 'completeTask'; taskId: string; at: string }
+  | { type: 'restoreTask'; taskId: string }
   | { type: 'updateTaskDetails'; taskId: string; title: string; estimatedMinutes: number; nextAction: string }
   | { type: 'moveTask'; taskId: string; bucket: WorkflowBucket; at: string }
   | { type: 'updateWaitingFollowUp'; taskId: string; followUpDate: LocalDate }
@@ -450,6 +451,14 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
         tasks: data.tasks.map((item) => item.id === task.id
           ? { ...item, waitingDetails: { ...task.waitingDetails!, followUpDate: action.followUpDate } }
           : item),
+      }, action.type);
+    }
+    case 'restoreTask': {
+      const task = findTask(data, action.taskId);
+      if (!task || task.status !== 'completed') return failure(data, 'task_not_found', '找不到可恢复的已完成任务。');
+      return success({
+        ...data,
+        tasks: data.tasks.map((item) => item.id === task.id ? { ...item, status: 'notStarted', completedAt: undefined } : item),
       }, action.type);
     }
     case 'recordTime': {

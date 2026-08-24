@@ -21,7 +21,7 @@ function storeValue(data = createSeedData(new Date('2026-07-17T12:00:00+08:00'))
     proposalServiceKind: 'mock',
     lastActionFailure: null,
     capture: jest.fn(), retryCapture: jest.fn(), retryCaptureWithLocalRules: jest.fn(),
-    submitUserDecision: jest.fn(), undoLastDecision: jest.fn(), updateTaskDetails: jest.fn(), startTask: jest.fn(), pauseTask: jest.fn(), completeTask: jest.fn(), moveTask: jest.fn(), updateWaitingFollowUp: jest.fn(), recordTime: jest.fn(), recordProgress: jest.fn(), recordInterruption: jest.fn(), planTaskForDate: jest.fn(), scheduleTask: jest.fn(), unscheduleTask: jest.fn(), deferTask: jest.fn(), deleteTask: jest.fn(), reorderTasks: jest.fn(), exportBackup: jest.fn(), retryPersistence: jest.fn(), importBackup: jest.fn(), startEmpty: jest.fn(), resetDemo: jest.fn(),
+    submitUserDecision: jest.fn(), undoLastDecision: jest.fn(), updateTaskDetails: jest.fn(), startTask: jest.fn(), pauseTask: jest.fn(), completeTask: jest.fn(), restoreTask: jest.fn(), moveTask: jest.fn(), updateWaitingFollowUp: jest.fn(), recordTime: jest.fn(), recordProgress: jest.fn(), recordInterruption: jest.fn(), planTaskForDate: jest.fn(), scheduleTask: jest.fn(), unscheduleTask: jest.fn(), deferTask: jest.fn(), deleteTask: jest.fn(), reorderTasks: jest.fn(), exportBackup: jest.fn(), retryPersistence: jest.fn(), importBackup: jest.fn(), startEmpty: jest.fn(), resetDemo: jest.fn(),
   } as ReflowStoreValue;
 }
 

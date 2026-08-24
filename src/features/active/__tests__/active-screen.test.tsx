@@ -32,6 +32,7 @@ function storeValue(data: DomainData): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    restoreTask: jest.fn(),
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
