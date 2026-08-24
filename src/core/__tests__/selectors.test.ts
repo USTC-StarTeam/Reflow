@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
+import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectInboxAttentionCount, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
 import type { TaskItem } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
@@ -112,5 +112,20 @@ describe('selectors', () => {
     expect(selectProposalVisibleClassification(seed, 'proposal-knowledge')).toBe('knowledge');
     const decisions = Array.from({ length: 6 }, (_, index) => ({ id: `decision-${index}`, captureId: 'capture-contract', proposalId: 'proposal-contract', kind: 'ignore' as const, outcome: 'ignored' as const, appliedAt: `2026-07-17T0${index}:00:00+08:00`, status: 'applied' as const, effect: { type: 'ignored' as const } }));
     expect(selectRecentDecisions({ ...seed, decisions })).toHaveLength(5);
+  });
+
+  it('counts failed captures together with pending proposals for Inbox attention', () => {
+    const seed = createSeedData(new Date(at));
+    const failed = {
+      ...seed.captures[0],
+      pipelineState: 'proposalFailed' as const,
+      failure: { code: 'proposal_unavailable' as const, message: '暂时不可用', retryable: true },
+    };
+    const data = {
+      ...seed,
+      captures: [failed, ...seed.captures.slice(1)],
+      proposals: seed.proposals.map((proposal) => ({ ...proposal, status: 'accepted' as const })),
+    };
+    expect(selectInboxAttentionCount(data)).toBe(1);
   });
 });

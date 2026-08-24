@@ -5,13 +5,12 @@ import { useReflowStore } from '@/core/store';
 import { border, colors, radius, shadows, spacing, typography } from './theme';
 
 export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: boolean; onSubmitted?: () => void }) {
-  const { capture, capturing, proposalServiceKind } = useReflowStore();
+  const { capture, proposalServiceKind } = useReflowStore();
   const [value, setValue] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
-    if (capturing) return;
     const result = await capture(value);
     if (result.status === 'failure') {
       setError(result.failure.message);
@@ -43,14 +42,14 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
           testID="quick-capture-submit"
           accessibilityRole="button"
           accessibilityLabel={value.trim() ? '提交捕捉' : '语音输入尚未开放'}
-          disabled={!value.trim() || capturing}
+          disabled={!value.trim()}
           onPress={submit}
           style={[styles.send, value.trim() && styles.sendActive]}
         >
-          <Text style={[styles.sendText, value.trim() && styles.sendTextActive]}>{capturing ? '…' : value.trim() ? '↑' : '⌁'}</Text>
+          <Text style={[styles.sendText, value.trim() && styles.sendTextActive]}>{value.trim() ? '↑' : '⌁'}</Text>
         </Pressable>
       </View>
-      {submitted ? <Text style={styles.success}>{proposalServiceKind === 'cloud' ? '已交给云端 AI 整理，请到收件箱确认。' : '已交给本地规则整理，请到收件箱确认。'}</Text> : null}
+      {submitted ? <Text style={styles.success}>{proposalServiceKind === 'cloud' ? '已保存，正在交给云端 AI 整理，可以继续记录。' : '已保存，正在用本地规则整理，可以继续记录。'}</Text> : null}
       {error ? <Text testID="quick-capture-error" style={styles.error}>{error}</Text> : null}
     </View>
   );

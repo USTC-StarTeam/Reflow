@@ -155,4 +155,20 @@ describe('AppShell hydration boundary', () => {
     expect(screen.getByTestId('nav-收件箱').props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId('nav-inbox-badge')).toBeTruthy();
   });
+
+  it('keeps the Inbox badge visible when only a failed Capture needs attention', async () => {
+    const value = storeValue(true);
+    value.data = {
+      ...value.data,
+      proposals: value.data.proposals.map((proposal) => ({ ...proposal, status: 'accepted' })),
+      captures: value.data.captures.map((capture, index) => index === 0 ? {
+        ...capture,
+        pipelineState: 'proposalFailed',
+        failure: { code: 'proposal_unavailable', message: '暂时不可用', retryable: true },
+      } : capture),
+    };
+    mockedUseReflowStore.mockReturnValue(value);
+    const screen = await render(<AppShell><Text>应用内容</Text></AppShell>);
+    expect(screen.getByTestId('nav-inbox-badge')).toHaveTextContent('1');
+  });
 });

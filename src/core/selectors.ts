@@ -47,6 +47,10 @@ export function selectPendingProposals(data: DomainData) {
   return data.proposals.filter((proposal) => proposal.status === 'pending');
 }
 
+export function selectInboxAttentionCount(data: DomainData): number {
+  return selectPendingProposals(data).length + selectFailedCaptures(data).length;
+}
+
 export function selectProposalVisibleClassification(data: DomainData, proposalId: string) {
   const proposal = data.proposals.find((item) => item.id === proposalId);
   return proposal ? resolveProposalVisibleClassification(proposal) : undefined;

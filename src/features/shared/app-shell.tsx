@@ -3,7 +3,7 @@ import { type PropsWithChildren, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { selectPendingProposals } from '@/core/selectors';
+import { selectInboxAttentionCount } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { parseBackup } from '@/core/persistence';
 import { QuickComposer } from './quick-composer';
@@ -28,7 +28,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('');
   const [importCandidate, setImportCandidate] = useState<{ raw: string; counts: Record<string, number> } | null>(null);
-  const pending = selectPendingProposals(data).length;
+  const pending = selectInboxAttentionCount(data);
   const cloudMode = store.proposalServiceKind === 'cloud';
   const contextValue = useMemo(() => ({ openCapture: () => setCaptureOpen(true), openSettings: () => setSettingsOpen(true) }), []);
 

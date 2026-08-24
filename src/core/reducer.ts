@@ -246,7 +246,7 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
   switch (action.type) {
     case 'captureCreated': {
       if (data.captures.some((capture) => capture.id === action.capture.id)) return failure(data, 'invalid_decision', '该捕捉已存在。');
-      return success({ ...data, captures: [...data.captures, { ...action.capture, pipelineState: 'proposing', failure: undefined }] }, action.type);
+      return success({ ...data, captures: [...data.captures, { ...action.capture, pipelineState: 'captured', failure: undefined }] }, action.type);
     }
     case 'proposalRequested': {
       const capture = data.captures.find((item) => item.id === action.captureId);

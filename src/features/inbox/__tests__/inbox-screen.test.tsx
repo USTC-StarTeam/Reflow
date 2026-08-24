@@ -112,6 +112,7 @@ describe('InboxScreen first-level presentation', () => {
     const screen = await renderInbox(store);
 
     expect(within(screen.getByTestId('failed-capture-capture-contract')).getByText(/合同条款今晚前审阅/)).toBeTruthy();
+    expect(screen.getByText('输入已保留，暂未整理完成')).toBeTruthy();
     await fireEvent.press(screen.getByText('重新使用本地规则整理'));
     expect(store.retryCapture).toHaveBeenCalledWith('capture-contract');
     const recent = screen.getByTestId('recent-decision-decision-recent');
@@ -120,5 +121,22 @@ describe('InboxScreen first-level presentation', () => {
     expect(recentRow.getByText(/已加入今天/)).toBeTruthy();
     expect(recentRow.queryByText(/合同条款今晚前审阅/)).toBeNull();
     expect(recentRow.getByText('撤销')).toBeTruthy();
+  });
+
+  it('projects only the latest decision feedback instead of five history cards', async () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const decisions = Array.from({ length: 5 }, (_, index) => ({
+      id: `decision-${index}`,
+      captureId: 'capture-contract',
+      proposalId: 'proposal-contract',
+      kind: 'ignore' as const,
+      outcome: 'ignored' as const,
+      appliedAt: `2026-07-17T0${index}:00:00+08:00`,
+      status: 'applied' as const,
+      effect: { type: 'ignored' as const },
+    }));
+    const screen = await renderInbox(storeValue({ ...seed, decisions }));
+    expect(screen.getAllByTestId(/^recent-decision-/)).toHaveLength(1);
+    expect(screen.getByTestId('recent-decision-decision-4')).toBeTruthy();
   });
 });

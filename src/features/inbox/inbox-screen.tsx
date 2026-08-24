@@ -211,10 +211,17 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
 }
 
 function FailedCaptureCard({ captureId }: { captureId: string }) {
-  const { data, retryCapture, retryCaptureWithLocalRules, capturing, proposalServiceKind } = useReflowStore();
+  const { data, retryCapture, retryCaptureWithLocalRules, proposalServiceKind } = useReflowStore();
+  const [retrying, setRetrying] = useState(false);
   const capture = data.captures.find((item) => item.id === captureId);
   if (!capture?.failure) return null;
-  return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>暂未能整理这条输入</Text><Text style={textStyles.meta}>{capture.failure.message}</Text><View style={styles.actions}>{capture.failure.retryable ? <ActionButton label={capturing ? '正在重试…' : proposalServiceKind === 'cloud' ? '重新使用云端整理' : '重新使用本地规则整理'} disabled={capturing} onPress={() => { void retryCapture(capture.id); }} /> : null}{proposalServiceKind === 'cloud' ? <ActionButton testID={`fallback-local-${capture.id}`} label="使用本地规则整理" disabled={capturing} onPress={() => { void retryCaptureWithLocalRules(capture.id); }} /> : null}</View></Card>;
+  const retryCaptureId = capture.id;
+  async function retry(local = false) {
+    setRetrying(true);
+    await (local ? retryCaptureWithLocalRules(retryCaptureId) : retryCapture(retryCaptureId));
+    setRetrying(false);
+  }
+  return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>输入已保留，暂未整理完成</Text><Text style={textStyles.meta}>{capture.failure.message}</Text><View style={styles.actions}>{capture.failure.retryable ? <ActionButton label={retrying ? '已加入整理队列' : proposalServiceKind === 'cloud' ? '重新使用云端整理' : '重新使用本地规则整理'} disabled={retrying} onPress={() => { void retry(); }} /> : null}{proposalServiceKind === 'cloud' ? <ActionButton testID={`fallback-local-${capture.id}`} label="使用本地规则整理" disabled={retrying} onPress={() => { void retry(true); }} /> : null}</View></Card>;
 }
 
 function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undoable: boolean }) {
@@ -248,7 +255,7 @@ export function InboxScreen() {
   const proposals = selectPendingProposals(data);
   const failedCaptures = selectFailedCaptures(data);
   const latestDecision = selectLatestUndoableDecision(data);
-  const recentDecisions = selectRecentDecisions(data);
+  const recentDecisions = selectRecentDecisions(data, 1);
   const pendingCount = proposals.length + failedCaptures.length;
   return (
     <Page testID="screen-inbox">
@@ -259,8 +266,7 @@ export function InboxScreen() {
       {failedCaptures.map((capture) => <FailedCaptureCard key={capture.id} captureId={capture.id} />)}
       {proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} />)}
       {!pendingCount ? <EmptyState title="收件箱已清空" detail="从任意页面使用“+”捕捉新事项，AI 整理后会回到这里等待你确认。" /> : null}
-      <SectionHeader title="最近处理" meta={`${recentDecisions.length} 条`} />
-      {recentDecisions.length ? recentDecisions.map((decision) => <RecentDecisionCard key={decision.id} decisionId={decision.id} undoable={decision.id === latestDecision?.id} />) : <EmptyState title="还没有处理记录" detail="确认、保存、忽略后的结果会显示在这里。" />}
+      {recentDecisions.length ? <><SectionHeader title="最近处理" /><RecentDecisionCard decisionId={recentDecisions[0].id} undoable={recentDecisions[0].id === latestDecision?.id} /></> : null}
     </Page>
   );
 }
