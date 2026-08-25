@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { addDays, dateKey, formatShortDate, formatTime, localDateToDate, minutesOfDay, startOfWeek } from '@/core/date-utils';
+import { addDays, compareLocalDates, dateKey, formatShortDate, formatTime, localDateToDate, minutesOfDay, startOfWeek } from '@/core/date-utils';
 import { isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectFirstAvailableSlot } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { CalendarTaskEntry, CalendarViewMode, DomainData, LocalDate, TaskItem } from '@/core/types';
 import { colors, radius, shadows, spacing, typography } from '../shared/theme';
 import { ActionButton, Card, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
+import { useCurrentTime } from '../shared/use-current-time';
 import { ScheduleTaskModal } from './schedule-task-modal';
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -146,7 +147,7 @@ function WeekOverview({ selected, data, onSelect }: { selected: LocalDate; data:
   );
 }
 
-function TimeGrid({ date, data, now, onTaskPress, onUnschedule }: { date: LocalDate; data: DomainData; now: Date; onTaskPress: (task: TaskItem) => void; onUnschedule: (taskId: string) => void }) {
+function TimeGrid({ date, data, now, readOnly, onTaskPress, onUnschedule }: { date: LocalDate; data: DomainData; now: Date; readOnly: boolean; onTaskPress: (task: TaskItem) => void; onUnschedule: (taskId: string) => void }) {
   const entries = taskSections(selectCalendarEntriesForDate(data, date)).scheduled;
   const earliest = entries.reduce((value, entry) => Math.min(value, minutesOfDay(entry.plannedStartAt!)), 7 * 60);
   const latest = entries.reduce((value, entry) => Math.max(value, minutesOfDay(entry.plannedEndAt!)), 23 * 60);
@@ -166,13 +167,11 @@ function TimeGrid({ date, data, now, onTaskPress, onUnschedule }: { date: LocalD
             const height = Math.max(34, (minutesOfDay(entry.plannedEndAt!) - minutesOfDay(entry.plannedStartAt!)) * pixelsPerMinute);
             const status = executionStatus(data, entry.task, now);
             const compactStatus = entry.task.status === 'inProgress' ? '进行中' : status ? '已延迟' : undefined;
+            const content = <><Text style={styles.timeBlockMeta}>{formatTime(entry.plannedStartAt)}–{formatTime(entry.plannedEndAt)}{compactStatus ? ` · ${compactStatus}` : ''}</Text><Text numberOfLines={2} style={styles.timeBlockTitle}>{entry.task.title}</Text></>;
             return (
               <View key={entry.task.id} testID={`calendar-grid-${entry.task.id}`} style={[styles.timeBlock, { top, height }]}>
-                <Pressable accessibilityLabel={`调整 ${entry.task.title}`} onPress={() => onTaskPress(entry.task)} style={styles.timeBlockMain}>
-                  <Text style={styles.timeBlockMeta}>{formatTime(entry.plannedStartAt)}–{formatTime(entry.plannedEndAt)}{compactStatus ? ` · ${compactStatus}` : ''}</Text>
-                  <Text numberOfLines={2} style={styles.timeBlockTitle}>{entry.task.title}</Text>
-                </Pressable>
-                <Pressable testID={`calendar-grid-unschedule-${entry.task.id}`} accessibilityLabel={`取消具体时间 ${entry.task.title}`} onPress={() => onUnschedule(entry.task.id)} style={styles.timeBlockAction}><Text style={styles.timeBlockActionText}>×</Text></Pressable>
+                {readOnly ? <View style={styles.timeBlockMain}>{content}</View> : <Pressable accessibilityLabel={`调整 ${entry.task.title}`} onPress={() => onTaskPress(entry.task)} style={styles.timeBlockMain}>{content}</Pressable>}
+                {!readOnly ? <Pressable testID={`calendar-grid-unschedule-${entry.task.id}`} accessibilityLabel={`取消具体时间 ${entry.task.title}`} onPress={() => onUnschedule(entry.task.id)} style={styles.timeBlockAction}><Text style={styles.timeBlockActionText}>×</Text></Pressable> : null}
               </View>
             );
           })}
@@ -182,22 +181,19 @@ function TimeGrid({ date, data, now, onTaskPress, onUnschedule }: { date: LocalD
   );
 }
 
-function TaskRows({ entries, kind, data, now, onSchedule, onUnschedule }: { entries: CalendarTaskEntry[]; kind: 'scheduled' | 'dateOnly' | 'completed'; data: DomainData; now: Date; onSchedule: (task: TaskItem) => void; onUnschedule: (taskId: string) => void }) {
+function TaskRows({ entries, kind, data, now, readOnly = false, onSchedule, onUnschedule }: { entries: CalendarTaskEntry[]; kind: 'scheduled' | 'dateOnly' | 'completed'; data: DomainData; now: Date; readOnly?: boolean; onSchedule: (task: TaskItem) => void; onUnschedule: (taskId: string) => void }) {
   return (
     <Card style={styles.listCard}>
       {entries.map((entry, index) => {
         const status = kind === 'completed' ? undefined : executionStatus(data, entry.task, now);
+        const content = <><Text numberOfLines={1} style={[styles.taskTitle, kind === 'completed' && styles.taskTitleDone]}>{entry.task.title}</Text>{kind === 'dateOnly' && entry.task.estimatedMinutes ? <Text style={styles.taskMeta}>预计 {entry.task.estimatedMinutes} 分</Text> : null}{status ? <Text style={[styles.executionStatus, entry.task.status !== 'inProgress' && styles.delayedStatus]}>{status}</Text> : null}</>;
         return (
         <View key={entry.task.id} testID={`calendar-entry-${entry.task.id}`} style={[styles.taskRow, index > 0 && styles.taskRowBorder, kind === 'completed' && styles.completedRow]}>
           {kind === 'scheduled' ? <View style={styles.taskDot} /> : kind === 'completed' ? <View style={styles.completedDot}><Text style={styles.completedDotText}>✓</Text></View> : <View style={styles.dateOnlyDot} />}
-          <Pressable accessibilityLabel={`${kind === 'scheduled' ? '调整' : kind === 'dateOnly' ? '安排' : '查看'} ${entry.task.title}`} disabled={kind === 'completed'} onPress={() => onSchedule(entry.task)} style={styles.taskMain}>
-            <Text numberOfLines={1} style={[styles.taskTitle, kind === 'completed' && styles.taskTitleDone]}>{entry.task.title}</Text>
-            {kind === 'dateOnly' && entry.task.estimatedMinutes ? <Text style={styles.taskMeta}>预计 {entry.task.estimatedMinutes} 分</Text> : null}
-            {status ? <Text style={[styles.executionStatus, entry.task.status !== 'inProgress' && styles.delayedStatus]}>{status}</Text> : null}
-          </Pressable>
+          {readOnly || kind === 'completed' ? <View style={styles.taskMain}>{content}</View> : <Pressable accessibilityLabel={`${kind === 'scheduled' ? '调整' : '安排'} ${entry.task.title}`} onPress={() => onSchedule(entry.task)} style={styles.taskMain}>{content}</Pressable>}
           {kind === 'scheduled' ? <Text style={styles.taskTime}>{formatTime(entry.plannedStartAt)}–{formatTime(entry.plannedEndAt)}</Text> : null}
-          {kind === 'dateOnly' ? <Pressable accessibilityLabel={`安排时间 ${entry.task.title}`} onPress={() => onSchedule(entry.task)} style={styles.rowAction}><Text style={styles.rowActionText}>›</Text></Pressable> : null}
-          {kind === 'scheduled' ? <Pressable testID={`calendar-unschedule-${entry.task.id}`} accessibilityLabel={`取消具体时间 ${entry.task.title}`} onPress={() => onUnschedule(entry.task.id)} style={styles.unscheduleAction}><Text style={styles.unscheduleText}>取消时间</Text></Pressable> : null}
+          {kind === 'dateOnly' && !readOnly ? <Pressable accessibilityLabel={`安排时间 ${entry.task.title}`} onPress={() => onSchedule(entry.task)} style={styles.rowAction}><Text style={styles.rowActionText}>›</Text></Pressable> : null}
+          {kind === 'scheduled' && !readOnly ? <Pressable testID={`calendar-unschedule-${entry.task.id}`} accessibilityLabel={`取消具体时间 ${entry.task.title}`} onPress={() => onUnschedule(entry.task.id)} style={styles.unscheduleAction}><Text style={styles.unscheduleText}>取消时间</Text></Pressable> : null}
         </View>
         );
       })}
@@ -206,36 +202,43 @@ function TaskRows({ entries, kind, data, now, onSchedule, onUnschedule }: { entr
 }
 
 function SelectedDateContent({ data, selected, now, showScheduled, onSchedule, onUnschedule, onAcceptSuggestion }: { data: DomainData; selected: LocalDate; now: Date; showScheduled: boolean; onSchedule: (task: TaskItem) => void; onUnschedule: (taskId: string) => void; onAcceptSuggestion: (task: TaskItem, startAt: string, endAt: string) => void }) {
+  const [showAllCompleted, setShowAllCompleted] = useState(false);
   const entries = selectCalendarEntriesForDate(data, selected);
   const sections = taskSections(entries);
   const candidate = sections.dateOnly[0]?.task;
-  const suggestion = candidate ? selectFirstAvailableSlot(data, selected, Math.min(candidate.estimatedMinutes, 120)) : undefined;
+  const isPast = compareLocalDates(selected, dateKey(now)) < 0;
+  const suggestion = candidate ? selectFirstAvailableSlot(data, selected, Math.min(candidate.estimatedMinutes, 120), 7, 23, now) : undefined;
   const hasTasks = sections.scheduled.length || sections.dateOnly.length || sections.completed.length;
+  const completedEntries = [...sections.completed].reverse();
+  const visibleCompletedEntries = showAllCompleted ? completedEntries : completedEntries.slice(0, 3);
 
   return (
     <>
       <SectionHeader title={`选中 · ${formatShortDate(selected)}`} meta={`${entries.length} 项`} />
       {!hasTasks ? <EmptyState title="这一天还没有事项" detail="选择其他日期，或先为任务设置计划日期。" /> : null}
-      {showScheduled && sections.scheduled.length ? <><SectionHeader title="时间安排" meta={`${sections.scheduled.length} 项`} /><TaskRows entries={sections.scheduled} kind="scheduled" data={data} now={now} onSchedule={onSchedule} onUnschedule={onUnschedule} /></> : null}
-      {sections.dateOnly.length ? <><SectionHeader title="当天事项" meta={`${sections.dateOnly.length} 项`} /><TaskRows entries={sections.dateOnly} kind="dateOnly" data={data} now={now} onSchedule={onSchedule} onUnschedule={onUnschedule} /></> : null}
-      <SectionHeader title="规划建议" />
-      <Card accent="ai" testID="calendar-suggestion">
-        <Text style={textStyles.cardTitle}>{candidate && suggestion ? `规则建议：${formatTime(suggestion.startAt)} 有空档，可安排“${candidate.title}”` : '暂时没有适合的规则建议'}</Text>
-        <Text style={textStyles.meta}>{candidate && suggestion ? '建议不会自动修改计划，由你确认后才会安排。' : '保留空档也可以，需要时再为当天事项安排具体时间。'}</Text>
-        {candidate && suggestion ? <View style={styles.suggestionActions}><ActionButton testID="accept-calendar-suggestion" label="采用这个时间" variant="orange" onPress={() => onAcceptSuggestion(candidate, suggestion.startAt, suggestion.endAt)} /><ActionButton label="手动安排" onPress={() => onSchedule(candidate)} /></View> : null}
-      </Card>
-      {sections.completed.length ? <><SectionHeader title="已完成" meta={`${sections.completed.length} 项`} /><TaskRows entries={sections.completed} kind="completed" data={data} now={now} onSchedule={onSchedule} onUnschedule={onUnschedule} /></> : null}
+      {showScheduled && sections.scheduled.length ? <><SectionHeader title="时间安排" meta={`${sections.scheduled.length} 项`} /><TaskRows entries={sections.scheduled} kind="scheduled" data={data} now={now} readOnly={isPast} onSchedule={onSchedule} onUnschedule={onUnschedule} /></> : null}
+      {sections.dateOnly.length ? <><SectionHeader title="当天事项" meta={`${sections.dateOnly.length} 项`} /><TaskRows entries={sections.dateOnly} kind="dateOnly" data={data} now={now} readOnly={isPast} onSchedule={onSchedule} onUnschedule={onUnschedule} /></> : null}
+      {!isPast && candidate ? <><SectionHeader title="可用时间" /><Card testID="calendar-suggestion"><Text style={textStyles.cardTitle}>{suggestion ? `${formatTime(suggestion.startAt)} 有空档，可安排“${candidate.title}”` : '当天工作时间内暂时没有足够空档'}</Text><Text style={textStyles.meta}>{suggestion ? '采用后才会写入计划，你也可以手动选择其他时间。' : '可以调整已有安排，或保留为当天事项。'}</Text>{suggestion ? <View style={styles.suggestionActions}><ActionButton testID="accept-calendar-suggestion" label="采用这个时间" variant="orange" onPress={() => onAcceptSuggestion(candidate, suggestion.startAt, suggestion.endAt)} /><ActionButton label="手动安排" onPress={() => onSchedule(candidate)} /></View> : null}</Card></> : null}
+      {visibleCompletedEntries.length ? <><SectionHeader title="已完成" meta={`${sections.completed.length} 项`} /><TaskRows entries={visibleCompletedEntries} kind="completed" data={data} now={now} onSchedule={onSchedule} onUnschedule={onUnschedule} />{completedEntries.length > 3 ? <ActionButton testID="toggle-calendar-completed" label={showAllCompleted ? '收起已完成' : `查看全部 ${completedEntries.length} 项`} onPress={() => setShowAllCompleted((current) => !current)} /> : null}</> : null}
     </>
   );
 }
 
 export function CalendarScreen() {
   const store = useReflowStore();
-  const now = new Date();
-  const today = useMemo(() => dateKey(new Date()), []);
+  const now = useCurrentTime();
+  const today = dateKey(now);
   const [mode, setMode] = useState<CalendarViewMode>('month');
   const [selected, setSelected] = useState<LocalDate>(today);
   const [scheduleTask, setScheduleTask] = useState<TaskItem | undefined>();
+  const previousToday = useRef(today);
+
+  useEffect(() => {
+    const previous = previousToday.current;
+    if (previous === today) return;
+    setSelected((current) => current === previous ? today : current);
+    previousToday.current = today;
+  }, [today]);
 
   return (
     <>
@@ -244,8 +247,9 @@ export function CalendarScreen() {
         <PeriodNavigation mode={mode} selected={selected} today={today} onChange={setSelected} />
         {mode === 'month' ? <MonthOverview selected={selected} today={today} data={store.data} onSelect={setSelected} /> : null}
         {mode === 'week' ? <WeekOverview selected={selected} data={store.data} onSelect={setSelected} /> : null}
-        {mode === 'day' ? <TimeGrid date={selected} data={store.data} now={now} onTaskPress={setScheduleTask} onUnschedule={store.unscheduleTask} /> : null}
+        {mode === 'day' ? <TimeGrid date={selected} data={store.data} now={now} readOnly={compareLocalDates(selected, today) < 0} onTaskPress={setScheduleTask} onUnschedule={store.unscheduleTask} /> : null}
         <SelectedDateContent
+          key={selected}
           data={store.data}
           selected={selected}
           now={now}

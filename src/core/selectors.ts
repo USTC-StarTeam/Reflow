@@ -277,10 +277,16 @@ export function deriveReview(data: DomainData, period: ReviewPeriod, now = new D
   };
 }
 
-export function selectFirstAvailableSlot(data: DomainData, date: LocalDate, durationMinutes: number, startHour = 7, endHour = 23): { startAt: ZonedDateTime; endAt: ZonedDateTime } | undefined {
+export function selectFirstAvailableSlot(data: DomainData, date: LocalDate, durationMinutes: number, startHour = 7, endHour = 23, now?: Date): { startAt: ZonedDateTime; endAt: ZonedDateTime } | undefined {
   const duration = Math.max(15, Math.ceil(durationMinutes / 15) * 15);
   const day = localDateToDate(date);
-  for (let minute = startHour * 60; minute + duration <= endHour * 60; minute += 15) {
+  const today = now ? dateKey(now) : undefined;
+  if (today && compareLocalDates(date, today) < 0) return undefined;
+  const currentMinute = now && date === today
+    ? (Math.floor((now.getHours() * 60 + now.getMinutes()) / 15) + 1) * 15
+    : startHour * 60;
+  const firstMinute = Math.max(startHour * 60, currentMinute);
+  for (let minute = firstMinute; minute + duration <= endHour * 60; minute += 15) {
     const start = new Date(day);
     start.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
     const end = new Date(start.getTime() + duration * 60_000);

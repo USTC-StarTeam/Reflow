@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { dateKey, formatShortDate, formatTime } from '@/core/date-utils';
@@ -7,6 +7,7 @@ import { useReflowStore } from '@/core/store';
 import type { ProgressLog, TaskItem } from '@/core/types';
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, textStyles } from '../shared/ui';
+import { useCurrentTime } from '../shared/use-current-time';
 
 function executionSummary(logs: ProgressLog[], currentMinutes: number, totalMinutes: number): string {
   const pauses = logs.filter((log) => log.kind === 'pause').length;
@@ -36,12 +37,8 @@ export function ActiveScreen() {
   const [progress, setProgress] = useState('');
   const [recordingInterruption, setRecordingInterruption] = useState(false);
   const [interruptionReason, setInterruptionReason] = useState('');
-  const [clock, setClock] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setClock(new Date()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  const today = dateKey(new Date());
+  const clock = useCurrentTime(30_000);
+  const today = dateKey(clock);
   const latestPause = [...data.progressLogs]
     .filter((log) => log.kind === 'pause')
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
