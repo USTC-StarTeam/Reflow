@@ -134,6 +134,8 @@ export function createSeedData(baseDate = new Date()): DomainData {
     progressLogs: [
       { id: 'log-start-demo', taskId: 'task-reflow-demo', createdAt: toZonedISOString(atTime(today, 10)), text: '开始搭建五页应用外壳', kind: 'start' },
       { id: 'log-progress-demo', taskId: 'task-reflow-demo', createdAt: toZonedISOString(atTime(today, 10, 40)), text: '完成 Today 页面结构和设计令牌', kind: 'progress' },
+      { id: 'log-pause-demo', taskId: 'task-reflow-demo', createdAt: toZonedISOString(atTime(today, 10, 45)), text: '暂停任务，保留当前进度', kind: 'pause' },
+      { id: 'log-resume-demo', taskId: 'task-reflow-demo', createdAt: toZonedISOString(atTime(today, 11)), text: '继续执行任务', kind: 'start' },
       { id: 'log-interrupt-demo', taskId: 'task-reflow-demo', createdAt: toZonedISOString(atTime(today, 11, 15)), text: '突发：客户询问报价口径', kind: 'interrupt' },
     ],
     taskPlanEvents,

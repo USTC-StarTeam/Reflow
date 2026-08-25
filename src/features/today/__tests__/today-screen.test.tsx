@@ -63,8 +63,10 @@ function storeValue(): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    restoreTask: jest.fn(),
     updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
+    updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
@@ -103,6 +105,7 @@ describe('TodayScreen information hierarchy', () => {
     const screen = await renderToday();
 
     expect(screen.getByTestId('quick-capture-input')).toBeTruthy();
+    expect(screen.queryByTestId('needs-attention')).toBeNull();
     expect(screen.getByText('轻量捕捉与今日重点')).toBeTruthy();
     expect(screen.getByText('AI')).toBeTruthy();
     expect(screen.getByText('当前正在进行“完成 Reflow Demo 页面结构”，继续推进即可。')).toBeTruthy();
@@ -112,12 +115,12 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.getByText('今天要做')).toBeTruthy();
     expect(screen.getAllByText('已完成')).toHaveLength(2);
     expect(screen.getByTestId('task-task-reflow-demo')).toBeTruthy();
-    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/进行中.*10:00.*开始/);
+    expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/进行中.*11:00.*继续/);
     expect(screen.getByTestId('task-task-reflow-demo')).toHaveTextContent(/原计划.*10:00.*11:30/);
     expect(screen.getByTestId('task-task-today-date-only')).toBeTruthy();
     expect(screen.getByText('整理本周实验报告')).toBeTruthy();
     expect(screen.getByText('预计 60 分')).toBeTruthy();
-    expect(screen.getByTestId('today-completed-task-inbox-cleanup')).toBeTruthy();
+    expect(screen.getByTestId('restore-completed-task-inbox-cleanup')).toBeTruthy();
     expect(screen.getByLabelText('完成 完成 Reflow Demo 页面结构')).toBeTruthy();
     expect(screen.getByLabelText('完成 整理本周实验报告')).toBeTruthy();
   });
@@ -271,5 +274,74 @@ describe('TodayScreen information hierarchy', () => {
     fireEvent.press(adjust);
 
     expect(store.reorderTasks).not.toHaveBeenCalled();
+  });
+
+  it('restores a completed task through its explicit recovery control', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    await fireEvent.press(screen.getByLabelText('恢复未完成 晨间整理收件箱'));
+    expect(store.restoreTask).toHaveBeenCalledWith('task-inbox-cleanup');
+  });
+
+  it('surfaces overdue, due waiting, and cross-day active items with explicit recovery actions', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    const source = store.data.tasks.find((task) => task.id === 'task-client-quote')!;
+    store.data = {
+      ...store.data,
+      tasks: [
+        ...store.data.tasks.map((task) => task.id === 'task-reflow-demo' ? { ...task, plannedDate: '2026-07-16' } : task),
+        { ...source, id: 'task-overdue', title: '昨日未完成', plannedDate: '2026-07-16', plannedStartAt: undefined, plannedEndAt: undefined },
+        { ...source, id: 'task-waiting-due', title: '等待供应商回复', bucket: 'waiting', plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, waitingDetails: { waitingFor: '供应商', waitingOn: '确认回复', followUpDate: '2026-07-17' } },
+      ],
+      progressLogs: [
+        ...store.data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || (log.kind !== 'start' && log.kind !== 'pause' && log.kind !== 'complete')),
+        { id: 'open-yesterday', taskId: 'task-reflow-demo', kind: 'start', text: '昨日开始', createdAt: '2026-07-16T23:30:00+08:00' },
+      ],
+    };
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    expect(screen.getByTestId('needs-attention')).toBeTruthy();
+    expect(screen.getByText('1 项逾期 · 1 项待跟进 · 1 项跨日进行中')).toBeTruthy();
+    expect(screen.queryByTestId('attention-crossDayActive-task-reflow-demo')).toBeNull();
+    await fireEvent.press(screen.getByTestId('open-needs-attention'));
+    expect(screen.getByTestId('needs-attention-sheet')).toBeTruthy();
+    expect(screen.getByTestId('attention-crossDayActive-task-reflow-demo')).toBeTruthy();
+    expect(screen.getByTestId('attention-overdue-task-overdue')).toBeTruthy();
+    expect(screen.getByTestId('attention-waitingDue-task-waiting-due')).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('attention-today-task-overdue'));
+    expect(store.planTaskForDate).toHaveBeenCalledWith('task-overdue', '2026-07-17');
+    await fireEvent.press(screen.getByTestId('attention-regular-task-waiting-due'));
+    expect(store.moveTask).toHaveBeenCalledWith('task-waiting-due', 'today');
+    await fireEvent.press(screen.getByTestId('attention-follow-up-task-waiting-due'));
+    await fireEvent.press(screen.getByTestId('proposal-date-today'));
+    expect(store.updateWaitingFollowUp).toHaveBeenCalledWith('task-waiting-due', '2026-07-17');
+    await fireEvent.press(screen.getByTestId('open-needs-attention'));
+    await fireEvent.press(screen.getByTestId('attention-pause-today-task-reflow-demo'));
+    expect(store.pauseTask).toHaveBeenCalledWith('task-reflow-demo');
+    expect(store.planTaskForDate).toHaveBeenCalledWith('task-reflow-demo', '2026-07-17');
+  });
+
+  it('provides a secondary Someday list and can bring an item back to today', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const store = storeValue();
+    const source = store.data.tasks.find((task) => task.id === 'task-client-quote')!;
+    store.data = {
+      ...store.data,
+      tasks: [...store.data.tasks, { ...source, id: 'task-someday', title: '整理旅行照片', bucket: 'someday', plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined }],
+    };
+    mockedUseReflowStore.mockReturnValue(store);
+
+    const screen = await renderToday();
+    expect(screen.getByTestId('someday-entry')).toHaveTextContent(/1 件尚未安排的事项/);
+    await fireEvent.press(screen.getByTestId('open-someday'));
+    expect(screen.getByTestId('someday-list')).toHaveTextContent(/整理旅行照片/);
+    await fireEvent.press(screen.getByTestId('someday-today-task-someday'));
+    expect(store.planTaskForDate).toHaveBeenCalledWith('task-someday', '2026-07-17');
   });
 });

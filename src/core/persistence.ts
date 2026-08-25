@@ -158,6 +158,37 @@ export function isDomainData(value: unknown): value is DomainData {
   return validateCurrentDomainData(value);
 }
 
+export function recoverInterruptedCaptures(data: DomainData): DomainData {
+  let changed = false;
+  const captures = data.captures.map((capture) => {
+    if (capture.pipelineState === 'captured' || capture.pipelineState === 'proposing') {
+      changed = true;
+      return {
+        ...capture,
+        pipelineState: 'proposalFailed' as const,
+        failure: {
+          code: 'proposal_unavailable' as const,
+          message: '上次整理被中断，原始输入已保留，可以重试。',
+          retryable: true,
+        },
+      };
+    }
+    if (capture.pipelineState === 'proposalFailed' && !capture.failure) {
+      changed = true;
+      return {
+        ...capture,
+        failure: {
+          code: 'proposal_unavailable' as const,
+          message: '这条输入暂未整理完成，可以重试。',
+          retryable: true,
+        },
+      };
+    }
+    return capture;
+  });
+  return changed ? { ...data, captures } : data;
+}
+
 function migrateSource(source: unknown): CaptureSource {
   if (source === '语音' || source === 'voice') return 'voice';
   if (source === '邮件' || source === 'email') return 'email';
@@ -240,10 +271,11 @@ function migrateV3ToV4(value: RecordValue, now: Date): DomainData | undefined {
 }
 
 export function migrateStoredData(value: unknown, now = new Date()): DomainData | undefined {
-  if (validateCurrentDomainData(value)) return value;
+  if (validateCurrentDomainData(value)) return recoverInterruptedCaptures(value);
   if (!isRecord(value) || ![1, 2, 3].includes(value.version as number)) return undefined;
   const v3 = migrateToV3(value);
-  return v3 ? migrateV3ToV4(v3, now) : undefined;
+  const migrated = v3 ? migrateV3ToV4(v3, now) : undefined;
+  return migrated ? recoverInterruptedCaptures(migrated) : undefined;
 }
 
 export function parseStoredData(raw: string | null, fallback: DomainData, now = new Date()): DomainData {

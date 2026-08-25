@@ -10,7 +10,7 @@ import { runProposalPipeline } from './proposal-pipeline';
 import { createProposalService } from './proposal-service-config';
 import { reduceDomain, type DomainAction } from './reducer';
 import { selectLatestUndoableDecision } from './selectors';
-import type { CaptureSource, DomainData, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
+import type { DomainData, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
 
 export type StoreCommandResult = { status: 'success' } | { status: 'failure'; failure: PipelineFailure };
 
@@ -46,8 +46,10 @@ export interface ReflowStoreValue {
   startTask(taskId: string): void;
   pauseTask(taskId: string): void;
   completeTask(taskId: string): void;
+  restoreTask(taskId: string): void;
   updateTaskDetails(taskId: string, details: { title: string; estimatedMinutes: number; nextAction: string }): void;
   moveTask(taskId: string, bucket: WorkflowBucket): void;
+  updateWaitingFollowUp(taskId: string, followUpDate: LocalDate): void;
   recordTime(taskId: string, minutes: number): void;
   recordProgress(taskId: string, text: string): void;
   recordInterruption(taskId: string, text: string): void;
@@ -61,7 +63,7 @@ export interface ReflowStoreValue {
   retryPersistence(): Promise<void>;
   importBackup(raw: string): Promise<{ status: 'success'; counts: Record<string, number> } | { status: 'failure'; failure: PipelineFailure }>;
   startEmpty(): void;
-  resetDemo(): void;
+  resetDemo(): Promise<StoreCommandResult>;
 }
 
 const defaultProposalService = createProposalService();
@@ -114,6 +116,10 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
   const latestPersistenceSnapshot = useRef<string | null>(null);
   const persistenceFailure = useRef(false);
   const skipNextPersistence = useRef(false);
+  const dataRef = useRef(initialState.data);
+  const hydratedRef = useRef(false);
+  const proposalQueue = useRef(Promise.resolve());
+  const queuedCaptureIds = useRef(new Set<string>());
 
   const setPersistenceFailure = useCallback((value: boolean) => {
     if (persistenceFailure.current === value) return;
@@ -121,7 +127,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
     dispatch({ type: 'setPersistenceFailure', value });
   }, []);
 
-  const enqueuePersistence = useCallback((snapshot: string): Promise<void> => {
+  const enqueuePersistence = useCallback((snapshot: string): Promise<boolean> => {
     latestPersistenceSnapshot.current = snapshot;
     const attempt = persistenceQueue.current
       .catch(() => undefined)
@@ -132,15 +138,18 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         await AsyncStorage.setItem(PERSISTENCE_KEY, snapshot);
         lastPersistedSnapshot.current = snapshot;
     });
-    persistenceQueue.current = attempt.then(
+    const result = attempt.then(
       () => {
         if (latestPersistenceSnapshot.current === snapshot) setPersistenceFailure(false);
+        return true;
       },
       () => {
         if (latestPersistenceSnapshot.current === snapshot) setPersistenceFailure(true);
+        return false;
       },
     );
-    return persistenceQueue.current;
+    persistenceQueue.current = result.then(() => undefined);
+    return result;
   }, [setPersistenceFailure]);
 
   useEffect(() => {
@@ -152,11 +161,18 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
           const recoveryFailure = result.status === 'failure';
           const data = result.status === 'success' ? result.data : createEmptyData();
           lastPersistedSnapshot.current = recoveryFailure ? null : JSON.stringify(data);
+          dataRef.current = data;
+          hydratedRef.current = true;
           dispatch({ type: 'hydrate', data, recoveryFailure });
         }
       })
       .catch(() => {
-        if (active) dispatch({ type: 'hydrate', data: createEmptyData(), recoveryFailure: true });
+        if (active) {
+          const data = createEmptyData();
+          dataRef.current = data;
+          hydratedRef.current = true;
+          dispatch({ type: 'hydrate', data, recoveryFailure: true });
+        }
       });
     return () => { active = false; };
   }, []);
@@ -164,6 +180,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
   useEffect(() => {
     if (!state.hydrated || state.recoveryFailure) return;
     const snapshot = JSON.stringify(state.data);
+    if (latestPersistenceSnapshot.current === snapshot) return;
     if (skipNextPersistence.current) {
       skipNextPersistence.current = false;
       lastPersistedSnapshot.current = snapshot;
@@ -172,14 +189,27 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
     void enqueuePersistence(snapshot);
   }, [enqueuePersistence, state.data, state.hydrated, state.recoveryFailure]);
 
+  useEffect(() => {
+    dataRef.current = state.data;
+    hydratedRef.current = state.hydrated;
+  }, [state.data, state.hydrated]);
+
   const value = useMemo<ReflowStoreValue>(() => {
     const now = () => toZonedISOString(new Date());
-    const perform = (action: DomainAction) => dispatch({ type: 'domain', action });
+    const perform = (action: DomainAction) => {
+      if (!hydratedRef.current) return undefined;
+      const transition = reduceDomain(dataRef.current, action);
+      dataRef.current = transition.data;
+      dispatch({ type: 'domain', action });
+      return transition;
+    };
 
-    async function requestProposals(captureId: string, captureText: string, source: CaptureSource, createdAt: string, existingTasks: DomainData['tasks'], service = proposalService): Promise<StoreCommandResult> {
+    async function requestProposals(captureId: string, service = proposalService): Promise<StoreCommandResult> {
+      const capture = dataRef.current.captures.find((item) => item.id === captureId);
+      if (!capture) return { status: 'failure', failure: { code: 'invalid_proposal', message: '找不到需要整理的捕捉。', retryable: false } };
       const result = await runProposalPipeline({
-        capture: { id: captureId, rawText: captureText, source, createdAt, pipelineState: 'proposing' },
-        existingTasks,
+        capture: { ...capture, pipelineState: 'proposing' },
+        existingTasks: dataRef.current.tasks.filter((task) => !task.deletedAt),
         proposalService: service,
       });
       if (result.status === 'success') {
@@ -188,6 +218,32 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       }
       perform({ type: 'proposalFailed', captureId, failure: result.failure });
       return { status: 'failure', failure: result.failure };
+    }
+
+    function enqueueProposal(captureId: string, service = proposalService) {
+      if (queuedCaptureIds.current.has(captureId)) return;
+      queuedCaptureIds.current.add(captureId);
+      const job = proposalQueue.current
+        .catch(() => undefined)
+        .then(async () => {
+          const capture = dataRef.current.captures.find((item) => item.id === captureId);
+          if (!capture || (capture.pipelineState !== 'captured' && capture.pipelineState !== 'proposalFailed')) return;
+          const requested = perform({ type: 'proposalRequested', captureId });
+          if (!requested || requested.status === 'failure') return;
+          dispatch({ type: 'setCapturing', value: true });
+          await requestProposals(captureId, service);
+        })
+        .finally(() => {
+          queuedCaptureIds.current.delete(captureId);
+          dispatch({ type: 'setCapturing', value: false });
+        });
+      proposalQueue.current = job.then(() => undefined, () => undefined);
+    }
+
+    function enqueueCapturedProposals() {
+      dataRef.current.captures
+        .filter((capture) => capture.pipelineState === 'captured')
+        .forEach((capture) => enqueueProposal(capture.id));
     }
 
     return {
@@ -199,45 +255,35 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       proposalServiceKind: proposalService.kind ?? 'mock',
       lastActionFailure: state.lastActionFailure,
       async capture(text) {
-        if (state.capturing) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '正在生成上一条建议，请稍候。', retryable: true } };
         const createdAt = now();
         const created = createWebTextCapture({ id: runtimeId('capture'), rawText: text, createdAt });
         if (created.status === 'failure') return created;
-        perform({ type: 'captureCreated', capture: created.capture });
-        dispatch({ type: 'setCapturing', value: true });
-        try {
-          return await requestProposals(created.capture.id, created.capture.rawText, created.capture.source, created.capture.createdAt, state.data.tasks.filter((task) => !task.deletedAt));
-        } finally {
-          dispatch({ type: 'setCapturing', value: false });
+        const transition = perform({ type: 'captureCreated', capture: created.capture });
+        if (!transition || transition.status === 'failure') {
+          return transition?.status === 'failure'
+            ? { status: 'failure', failure: transition.failure }
+            : { status: 'failure', failure: { code: 'proposal_unavailable', message: '本地数据尚未载入完成。', retryable: true } };
         }
+        const persisted = await enqueuePersistence(JSON.stringify(transition.data));
+        if (!persisted) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '本地保存失败，输入仍保留在当前页面，请先重试保存。', retryable: true } };
+        enqueueProposal(created.capture.id);
+        return { status: 'success' };
       },
       async retryCapture(captureId) {
-        const capture = state.data.captures.find((item) => item.id === captureId);
+        const capture = dataRef.current.captures.find((item) => item.id === captureId);
         if (!capture || capture.pipelineState !== 'proposalFailed') {
           return { status: 'failure', failure: { code: 'invalid_proposal', message: '这条捕捉当前不能重试。', retryable: false } };
         }
-        if (state.capturing) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '正在生成另一条建议，请稍候。', retryable: true } };
-        perform({ type: 'proposalRequested', captureId });
-        dispatch({ type: 'setCapturing', value: true });
-        try {
-          return await requestProposals(capture.id, capture.rawText, capture.source, capture.createdAt, state.data.tasks.filter((task) => !task.deletedAt));
-        } finally {
-          dispatch({ type: 'setCapturing', value: false });
-        }
+        enqueueProposal(captureId);
+        return { status: 'success' };
       },
       async retryCaptureWithLocalRules(captureId) {
-        const capture = state.data.captures.find((item) => item.id === captureId);
+        const capture = dataRef.current.captures.find((item) => item.id === captureId);
         if (!capture || capture.pipelineState !== 'proposalFailed') {
           return { status: 'failure', failure: { code: 'invalid_proposal', message: '这条捕捉当前不能使用本地规则重试。', retryable: false } };
         }
-        if (state.capturing) return { status: 'failure', failure: { code: 'proposal_unavailable', message: '正在生成另一条建议，请稍候。', retryable: true } };
-        perform({ type: 'proposalRequested', captureId });
-        dispatch({ type: 'setCapturing', value: true });
-        try {
-          return await requestProposals(capture.id, capture.rawText, capture.source, capture.createdAt, state.data.tasks.filter((task) => !task.deletedAt), localProposalService);
-        } finally {
-          dispatch({ type: 'setCapturing', value: false });
-        }
+        enqueueProposal(captureId, localProposalService);
+        return { status: 'success' };
       },
       submitUserDecision(decision) {
         perform({ type: 'submitUserDecision', decisionId: runtimeId('decision'), decision, at: now() });
@@ -249,8 +295,10 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       startTask(taskId) { perform({ type: 'startTask', taskId, at: now() }); },
       pauseTask(taskId) { perform({ type: 'pauseTask', taskId, at: now() }); },
       completeTask(taskId) { perform({ type: 'completeTask', taskId, at: now() }); },
+      restoreTask(taskId) { perform({ type: 'restoreTask', taskId }); },
       updateTaskDetails(taskId, details) { perform({ type: 'updateTaskDetails', taskId, ...details }); },
       moveTask(taskId, bucket) { perform({ type: 'moveTask', taskId, bucket, at: now() }); },
+      updateWaitingFollowUp(taskId, followUpDate) { perform({ type: 'updateWaitingFollowUp', taskId, followUpDate }); },
       recordTime(taskId, minutes) { perform({ type: 'recordTime', taskId, minutes, at: now() }); },
       recordProgress(taskId, text) { perform({ type: 'recordProgress', taskId, text, kind: 'progress', at: now() }); },
       recordInterruption(taskId, text) { perform({ type: 'recordInterruption', taskId, text: text.trim() || '突发事项打断当前任务', at: now() }); },
@@ -261,11 +309,14 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       deleteTask(taskId) { perform({ type: 'deleteTask', taskId, at: now() }); },
       reorderTasks(taskIds) { perform({ type: 'reorderTasks', taskIds }); },
       exportBackup() { return serializeBackup(state.data); },
-      retryPersistence() { return enqueuePersistence(JSON.stringify(state.data)); },
+      async retryPersistence() {
+        const persisted = await enqueuePersistence(JSON.stringify(dataRef.current));
+        if (persisted) enqueueCapturedProposals();
+      },
       async importBackup(raw) {
         const parsed = parseBackup(raw);
         if (parsed.status === 'failure') return { status: 'failure', failure: { code: 'invalid_backup', message: parsed.message, retryable: false } };
-        const current = JSON.stringify(state.data);
+        const current = JSON.stringify(dataRef.current);
         const incoming = JSON.stringify(parsed.data);
         try {
           await AsyncStorage.setItem(RECOVERY_KEY, current);
@@ -273,6 +324,7 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
           lastPersistedSnapshot.current = incoming;
           setPersistenceFailure(false);
           skipNextPersistence.current = true;
+          dataRef.current = parsed.data;
           dispatch({ type: 'reset', data: parsed.data });
           return { status: 'success', counts: parsed.counts };
         } catch {
@@ -280,11 +332,34 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         }
       },
       startEmpty() {
-        dispatch({ type: 'reset', data: createEmptyData() });
-      },
-      resetDemo() {
-        const data = createSeedData();
+        const data = createEmptyData();
+        dataRef.current = data;
         dispatch({ type: 'reset', data });
+      },
+      async resetDemo() {
+        const current = JSON.stringify(dataRef.current);
+        const data = createSeedData();
+        const incoming = JSON.stringify(data);
+        latestPersistenceSnapshot.current = incoming;
+        const replacement = persistenceQueue.current
+          .catch(() => undefined)
+          .then(async () => {
+            await AsyncStorage.setItem(RECOVERY_KEY, current);
+            await AsyncStorage.setItem(PERSISTENCE_KEY, incoming);
+          });
+        persistenceQueue.current = replacement.then(() => undefined, () => undefined);
+        try {
+          await replacement;
+          lastPersistedSnapshot.current = incoming;
+          setPersistenceFailure(false);
+          dataRef.current = data;
+          dispatch({ type: 'reset', data });
+          return { status: 'success' };
+        } catch {
+          latestPersistenceSnapshot.current = current;
+          setPersistenceFailure(true);
+          return { status: 'failure', failure: { code: 'invalid_backup', message: '加载演示数据失败，个人数据保持不变。', retryable: true } };
+        }
       },
     };
   }, [enqueuePersistence, proposalService, setPersistenceFailure, state]);

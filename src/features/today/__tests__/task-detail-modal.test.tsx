@@ -18,8 +18,9 @@ jest.mock('@/core/store', () => ({
 const mockedUseReflowStore = jest.mocked(useReflowStore);
 
 function storeValue(): ReflowStoreValue {
+  const data = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
   return {
-    data: createSeedData(new Date('2026-07-17T12:00:00+08:00')),
+    data: { ...data, tasks: data.tasks.map((task) => task.id === 'task-reflow-demo' ? { ...task, status: 'notStarted' } : task) },
     hydrated: true,
     recoveryFailure: false,
     persistenceFailure: false,
@@ -34,8 +35,10 @@ function storeValue(): ReflowStoreValue {
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    restoreTask: jest.fn(),
     updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
+    updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
@@ -267,6 +270,26 @@ describe('TaskDetailModal', () => {
     const complete = await render(<TaskDetailModal task={task} visible onClose={close} />);
     await fireEvent.press(complete.getByTestId('complete-task-from-detail'));
     expect(store.completeTask).toHaveBeenCalledWith(task.id);
+  });
+
+  it('requires an explicit switch before pausing the current task and starting another', async () => {
+    const store = storeValue();
+    store.data = {
+      ...store.data,
+      tasks: store.data.tasks.map((task) => task.id === 'task-reflow-demo' ? { ...task, status: 'inProgress' } : task),
+    };
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.press(screen.getByTestId('start-task-from-detail'));
+    expect(screen.getByTestId('confirm-task-switch')).toBeTruthy();
+    expect(screen.getByText(/切换后会先暂停它并保留实际执行时间/)).toBeTruthy();
+    expect(store.startTask).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('confirm-task-switch-action'));
+    expect(store.startTask).toHaveBeenCalledWith(task.id);
+    expect(mockPush).toHaveBeenCalledWith('/active');
   });
 
   it('rejects empty fields, invalid duration, and invalid dates before dispatch', async () => {

@@ -1,6 +1,7 @@
 import { addDays, addLocalDays, compareLocalDates, dateKey, durationMilliseconds, intervalOverlapMilliseconds, localDateOf, localDateToDate, localDayInterval, startOfDay, startOfWeek, timestampOf, toZonedISOString } from './date-utils';
 import { resolveProposalVisibleClassification } from './classification';
 import { findScheduleConflicts } from './planning';
+import { findOpenExecutionSegment } from './execution';
 import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type ZonedDateTime } from './types';
 
 export interface CurrentExecutionSession {
@@ -30,11 +31,15 @@ export function selectCurrentTask(data: DomainData) {
 export function selectCurrentExecutionSession(data: DomainData, taskId: string): CurrentExecutionSession | undefined {
   const task = activeTasks(data).find((candidate) => candidate.id === taskId);
   if (task?.status !== 'inProgress') return undefined;
-  const starts = data.progressLogs
-    .filter((log) => log.taskId === taskId && log.kind === 'start' && Number.isFinite(new Date(log.createdAt).getTime()))
-    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
-  const latest = starts.at(-1);
-  return latest ? { startedAt: latest.createdAt, resumed: starts.length > 1 } : undefined;
+  return findOpenExecutionSegment(data, taskId);
+}
+
+export function selectTaskExecutionMinutes(data: DomainData, taskId: string, now: Date = new Date()) {
+  const closedMinutes = selectTaskMinutes(data, taskId);
+  const current = selectCurrentExecutionSession(data, taskId);
+  const start = current ? new Date(current.startedAt).getTime() : Number.NaN;
+  const currentSegmentMinutes = Number.isFinite(start) ? Math.max(0, Math.round((now.getTime() - start) / 60_000)) : 0;
+  return { currentSegmentMinutes, totalMinutes: closedMinutes + currentSegmentMinutes };
 }
 
 export function isTaskDelayed(task: TaskItem, now: Date): boolean {
@@ -45,6 +50,10 @@ export function isTaskDelayed(task: TaskItem, now: Date): boolean {
 
 export function selectPendingProposals(data: DomainData) {
   return data.proposals.filter((proposal) => proposal.status === 'pending');
+}
+
+export function selectInboxAttentionCount(data: DomainData): number {
+  return selectPendingProposals(data).length + selectCapturedCaptures(data).length + selectFailedCaptures(data).length;
 }
 
 export function selectProposalVisibleClassification(data: DomainData, proposalId: string) {
@@ -60,6 +69,10 @@ export function selectFailedCaptures(data: DomainData) {
   return data.captures.filter((capture) => capture.pipelineState === 'proposalFailed');
 }
 
+export function selectCapturedCaptures(data: DomainData) {
+  return data.captures.filter((capture) => capture.pipelineState === 'captured');
+}
+
 export function selectLatestUndoableDecision(data: DomainData) {
   return [...data.decisions.filter((decision) => decision.status === 'applied')]
     .sort((left, right) => right.appliedAt.localeCompare(left.appliedAt))[0];
@@ -69,6 +82,37 @@ export interface TodaySections {
   scheduled: TaskItem[];
   unscheduled: TaskItem[];
   completed: TaskItem[];
+}
+
+export type NeedsAttentionItem = {
+  kind: 'overdue' | 'waitingDue' | 'crossDayActive';
+  task: TaskItem;
+};
+
+export function selectNeedsAttention(data: DomainData, today: LocalDate = dateKey(new Date())): NeedsAttentionItem[] {
+  const tasks = activeTasks(data).filter((task) => task.status !== 'completed');
+  const crossDayIds = new Set(tasks
+    .filter((task) => {
+      if (task.status !== 'inProgress') return false;
+      const segment = findOpenExecutionSegment(data, task.id);
+      if (segment) return compareLocalDates(localDateOf(segment.startedAt), today) < 0;
+      return Boolean(task.plannedDate && compareLocalDates(task.plannedDate, today) < 0);
+    })
+    .map((task) => task.id));
+
+  return [
+    ...tasks.filter((task) => crossDayIds.has(task.id)).map((task) => ({ kind: 'crossDayActive' as const, task })),
+    ...tasks.filter((task) => task.bucket !== 'waiting' && task.status !== 'inProgress' && Boolean(task.plannedDate && compareLocalDates(task.plannedDate, today) < 0))
+      .map((task) => ({ kind: 'overdue' as const, task })),
+    ...tasks.filter((task) => task.bucket === 'waiting' && Boolean(task.waitingDetails?.followUpDate && compareLocalDates(task.waitingDetails.followUpDate, today) <= 0))
+      .map((task) => ({ kind: 'waitingDue' as const, task })),
+  ];
+}
+
+export function selectSomedayTasks(data: DomainData): TaskItem[] {
+  return activeTasks(data)
+    .filter((task) => task.bucket === 'someday' && task.status !== 'completed')
+    .sort((left, right) => left.sortIndex - right.sortIndex);
 }
 
 export function selectTodaySections(data: DomainData, today: LocalDate = dateKey(new Date())): TodaySections {

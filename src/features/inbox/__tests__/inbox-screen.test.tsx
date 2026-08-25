@@ -21,7 +21,7 @@ function storeValue(data = createSeedData(new Date('2026-07-17T12:00:00+08:00'))
     proposalServiceKind: 'mock',
     lastActionFailure: null,
     capture: jest.fn(), retryCapture: jest.fn(), retryCaptureWithLocalRules: jest.fn(),
-    submitUserDecision: jest.fn(), undoLastDecision: jest.fn(), updateTaskDetails: jest.fn(), startTask: jest.fn(), pauseTask: jest.fn(), completeTask: jest.fn(), moveTask: jest.fn(), recordTime: jest.fn(), recordProgress: jest.fn(), recordInterruption: jest.fn(), planTaskForDate: jest.fn(), scheduleTask: jest.fn(), unscheduleTask: jest.fn(), deferTask: jest.fn(), deleteTask: jest.fn(), reorderTasks: jest.fn(), exportBackup: jest.fn(), retryPersistence: jest.fn(), importBackup: jest.fn(), startEmpty: jest.fn(), resetDemo: jest.fn(),
+    submitUserDecision: jest.fn(), undoLastDecision: jest.fn(), updateTaskDetails: jest.fn(), startTask: jest.fn(), pauseTask: jest.fn(), completeTask: jest.fn(), restoreTask: jest.fn(), moveTask: jest.fn(), updateWaitingFollowUp: jest.fn(), recordTime: jest.fn(), recordProgress: jest.fn(), recordInterruption: jest.fn(), planTaskForDate: jest.fn(), scheduleTask: jest.fn(), unscheduleTask: jest.fn(), deferTask: jest.fn(), deleteTask: jest.fn(), reorderTasks: jest.fn(), exportBackup: jest.fn(), retryPersistence: jest.fn(), importBackup: jest.fn(), startEmpty: jest.fn(), resetDemo: jest.fn(),
   } as ReflowStoreValue;
 }
 
@@ -45,8 +45,12 @@ describe('InboxScreen first-level presentation', () => {
     expect(row.queryByText(/识别到明确截止时间/)).toBeNull();
     expect(row.queryByText('先标出付款周期风险点')).toBeNull();
     expect(row.queryByText('AI 归类结果')).toBeNull();
+    expect(row.queryByText('≡')).toBeNull();
     expect(row.getByText('确认')).toBeTruthy();
     expect(row.getByText('修改')).toBeTruthy();
+    expect(screen.getByText('整理完成，等待你的决定')).toBeTruthy();
+    expect(screen.getByText('待你确认')).toBeTruthy();
+    expect(screen.queryByText(/已整理为 .* 条待确认建议/)).toBeNull();
   });
 
   it('selects a missing date locally before confirmation writes the decision', async () => {
@@ -112,6 +116,7 @@ describe('InboxScreen first-level presentation', () => {
     const screen = await renderInbox(store);
 
     expect(within(screen.getByTestId('failed-capture-capture-contract')).getByText(/合同条款今晚前审阅/)).toBeTruthy();
+    expect(screen.getByText('输入已保留，暂未整理完成')).toBeTruthy();
     await fireEvent.press(screen.getByText('重新使用本地规则整理'));
     expect(store.retryCapture).toHaveBeenCalledWith('capture-contract');
     const recent = screen.getByTestId('recent-decision-decision-recent');
@@ -120,5 +125,38 @@ describe('InboxScreen first-level presentation', () => {
     expect(recentRow.getByText(/已加入今天/)).toBeTruthy();
     expect(recentRow.queryByText(/合同条款今晚前审阅/)).toBeNull();
     expect(recentRow.getByText('撤销')).toBeTruthy();
+  });
+
+  it('keeps a captured input visible while local persistence is waiting to recover', async () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const captured = { ...seed.captures[0], pipelineState: 'captured' as const };
+    const data = {
+      ...seed,
+      captures: [captured, ...seed.captures.slice(1)],
+      proposals: seed.proposals.map((proposal) => ({ ...proposal, status: 'accepted' as const })),
+    };
+    const screen = await renderInbox(storeValue(data));
+
+    const card = within(screen.getByTestId('captured-capture-capture-contract'));
+    expect(card.getByText(/合同条款今晚前审阅/)).toBeTruthy();
+    expect(card.getByText('输入已保留，等待本地保存后继续整理。')).toBeTruthy();
+    expect(screen.getByText('1 条')).toBeTruthy();
+  });
+
+  it('projects only the latest decision feedback instead of five history cards', async () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const decisions = Array.from({ length: 5 }, (_, index) => ({
+      id: `decision-${index}`,
+      captureId: 'capture-contract',
+      proposalId: 'proposal-contract',
+      kind: 'ignore' as const,
+      outcome: 'ignored' as const,
+      appliedAt: `2026-07-17T0${index}:00:00+08:00`,
+      status: 'applied' as const,
+      effect: { type: 'ignored' as const },
+    }));
+    const screen = await renderInbox(storeValue({ ...seed, decisions }));
+    expect(screen.getAllByTestId(/^recent-decision-/)).toHaveLength(1);
+    expect(screen.getByTestId('recent-decision-decision-4')).toBeTruthy();
   });
 });

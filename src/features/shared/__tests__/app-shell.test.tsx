@@ -5,6 +5,7 @@ import { Platform, Text } from 'react-native';
 import { createSeedData } from '@/core/demo-data';
 import { useReflowStore, type ReflowStoreValue } from '@/core/store';
 import { AppShell } from '../app-shell';
+import { PageHeader } from '../ui';
 
 jest.mock('expo-router', () => ({
   usePathname: () => '/inbox',
@@ -34,8 +35,10 @@ function storeValue(hydrated: boolean, recoveryFailure = false, persistenceFailu
     startTask: jest.fn(),
     pauseTask: jest.fn(),
     completeTask: jest.fn(),
+    restoreTask: jest.fn(),
     updateTaskDetails: jest.fn(),
     moveTask: jest.fn(),
+    updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
@@ -49,7 +52,7 @@ function storeValue(hydrated: boolean, recoveryFailure = false, persistenceFailu
     retryPersistence: jest.fn(),
     importBackup: jest.fn(),
     startEmpty: jest.fn(),
-    resetDemo: jest.fn(),
+    resetDemo: jest.fn(async () => ({ status: 'success' as const })),
   } as ReflowStoreValue;
 }
 
@@ -154,5 +157,38 @@ describe('AppShell hydration boundary', () => {
     }
     expect(screen.getByTestId('nav-收件箱').props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId('nav-inbox-badge')).toBeTruthy();
+  });
+
+  it('keeps the Inbox badge visible when only a failed Capture needs attention', async () => {
+    const value = storeValue(true);
+    value.data = {
+      ...value.data,
+      proposals: value.data.proposals.map((proposal) => ({ ...proposal, status: 'accepted' })),
+      captures: value.data.captures.map((capture, index) => index === 0 ? {
+        ...capture,
+        pipelineState: 'proposalFailed',
+        failure: { code: 'proposal_unavailable', message: '暂时不可用', retryable: true },
+      } : capture),
+    };
+    mockedUseReflowStore.mockReturnValue(value);
+    const screen = await render(<AppShell><PageHeader title="测试" subtitle="设置入口" /></AppShell>);
+    expect(screen.getByTestId('nav-inbox-badge')).toHaveTextContent('1');
+  });
+
+  it('requires confirmation before replacing personal data with the demo', async () => {
+    const value = storeValue(true);
+    mockedUseReflowStore.mockReturnValue(value);
+    const screen = await render(<AppShell><PageHeader title="测试" subtitle="设置入口" /></AppShell>);
+
+    await fireEvent.press(screen.getByLabelText('打开设置'));
+    await fireEvent.press(screen.getByTestId('reset-demo'));
+    expect(screen.getByTestId('confirm-demo-reset')).toHaveTextContent(/替换前的个人数据会保存为本地恢复副本/);
+    expect(value.resetDemo).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('cancel-demo-reset'));
+    expect(screen.getByTestId('settings-modal-surface')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('reset-demo'));
+    await fireEvent.press(screen.getByTestId('confirm-demo-reset-action'));
+    expect(value.resetDemo).toHaveBeenCalledTimes(1);
   });
 });

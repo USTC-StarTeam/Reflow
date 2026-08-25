@@ -4,12 +4,12 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { isTaskCategory, resolveProposalVisibleClassification } from '@/core/classification';
 import { formatShortDate, isLocalDate, localDateOf } from '@/core/date-utils';
 import { editProposal } from '@/core/reducer';
-import { selectFailedCaptures, selectLatestUndoableDecision, selectPendingProposals, selectRecentDecisions } from '@/core/selectors';
+import { selectCapturedCaptures, selectFailedCaptures, selectLatestUndoableDecision, selectPendingProposals, selectRecentDecisions } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { type AIProposal, type ProposalEdit, type TaskCategory, type VisibleClassification, visibleClassificationLabels, type WaitingDetails, type WorkflowBucket } from '@/core/types';
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
-import { LocalDatePicker } from './local-date-picker';
+import { LocalDatePicker } from '../shared/local-date-picker';
 
 const visibleClassifications: VisibleClassification[] = ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown'];
 
@@ -153,7 +153,6 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   return (
     <Card testID={`proposal-${proposal.id}`} style={styles.proposalCard}>
       <View style={styles.proposalRow}>
-        <View style={styles.reorderMark}><Text style={styles.reorderGlyph}>≡</Text></View>
         <View style={styles.proposalCopy}>
           <Text style={styles.proposalTitle}>{title}</Text>
           <Text style={styles.proposalMeta}>{proposalMeta(classification, plannedDate, minutes)}</Text>
@@ -211,10 +210,24 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
 }
 
 function FailedCaptureCard({ captureId }: { captureId: string }) {
-  const { data, retryCapture, retryCaptureWithLocalRules, capturing, proposalServiceKind } = useReflowStore();
+  const { data, retryCapture, retryCaptureWithLocalRules, proposalServiceKind } = useReflowStore();
+  const [retrying, setRetrying] = useState(false);
   const capture = data.captures.find((item) => item.id === captureId);
   if (!capture?.failure) return null;
-  return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>暂未能整理这条输入</Text><Text style={textStyles.meta}>{capture.failure.message}</Text><View style={styles.actions}>{capture.failure.retryable ? <ActionButton label={capturing ? '正在重试…' : proposalServiceKind === 'cloud' ? '重新使用云端整理' : '重新使用本地规则整理'} disabled={capturing} onPress={() => { void retryCapture(capture.id); }} /> : null}{proposalServiceKind === 'cloud' ? <ActionButton testID={`fallback-local-${capture.id}`} label="使用本地规则整理" disabled={capturing} onPress={() => { void retryCaptureWithLocalRules(capture.id); }} /> : null}</View></Card>;
+  const retryCaptureId = capture.id;
+  async function retry(local = false) {
+    setRetrying(true);
+    await (local ? retryCaptureWithLocalRules(retryCaptureId) : retryCapture(retryCaptureId));
+    setRetrying(false);
+  }
+  return <Card testID={`failed-capture-${capture.id}`} accent="ai"><Field label="原始输入">{capture.rawText}</Field><Text style={textStyles.cardTitle}>输入已保留，暂未整理完成</Text><Text style={textStyles.meta}>{capture.failure.message}</Text><View style={styles.actions}>{capture.failure.retryable ? <ActionButton label={retrying ? '已加入整理队列' : proposalServiceKind === 'cloud' ? '重新使用云端整理' : '重新使用本地规则整理'} disabled={retrying} onPress={() => { void retry(); }} /> : null}{proposalServiceKind === 'cloud' ? <ActionButton testID={`fallback-local-${capture.id}`} label="使用本地规则整理" disabled={retrying} onPress={() => { void retry(true); }} /> : null}</View></Card>;
+}
+
+function CapturedCaptureCard({ captureId }: { captureId: string }) {
+  const { data } = useReflowStore();
+  const capture = data.captures.find((item) => item.id === captureId);
+  if (!capture || capture.pipelineState !== 'captured') return null;
+  return <Card testID={`captured-capture-${capture.id}`} accent="ai"><Text style={textStyles.cardTitle}>{capture.rawText}</Text><Text style={textStyles.meta}>输入已保留，等待本地保存后继续整理。</Text></Card>;
 }
 
 function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undoable: boolean }) {
@@ -246,21 +259,21 @@ function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undo
 export function InboxScreen() {
   const { data, lastActionFailure } = useReflowStore();
   const proposals = selectPendingProposals(data);
+  const capturedCaptures = selectCapturedCaptures(data);
   const failedCaptures = selectFailedCaptures(data);
   const latestDecision = selectLatestUndoableDecision(data);
-  const recentDecisions = selectRecentDecisions(data);
-  const pendingCount = proposals.length + failedCaptures.length;
+  const recentDecisions = selectRecentDecisions(data, 1);
+  const pendingCount = proposals.length + capturedCaptures.length + failedCaptures.length;
   return (
     <Page testID="screen-inbox">
-      <PageHeader title="收件箱" subtitle={pendingCount ? `已整理，剩 ${pendingCount} 个待确认` : '收件箱已整理完毕'} right={<Chip label="整理" size="header" />} />
+      <PageHeader title="收件箱" subtitle={pendingCount ? '整理完成，等待你的决定' : '收件箱已整理完毕'} right={<Chip label="整理" size="header" />} />
       {lastActionFailure ? <Card style={styles.failure}><Text style={textStyles.cardTitle}>操作未完成</Text><Text style={textStyles.meta}>{lastActionFailure.message}</Text></Card> : null}
-      {pendingCount ? <Card accent="ai"><Text style={textStyles.cardTitle}>已整理为 {pendingCount} 条待确认建议</Text><Text style={textStyles.meta}>确认后才会写入任务、等待列表或知识卡片。</Text></Card> : null}
       <SectionHeader title="待你确认" meta={`${pendingCount} 条`} />
+      {capturedCaptures.map((capture) => <CapturedCaptureCard key={capture.id} captureId={capture.id} />)}
       {failedCaptures.map((capture) => <FailedCaptureCard key={capture.id} captureId={capture.id} />)}
       {proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} />)}
       {!pendingCount ? <EmptyState title="收件箱已清空" detail="从任意页面使用“+”捕捉新事项，AI 整理后会回到这里等待你确认。" /> : null}
-      <SectionHeader title="最近处理" meta={`${recentDecisions.length} 条`} />
-      {recentDecisions.length ? recentDecisions.map((decision) => <RecentDecisionCard key={decision.id} decisionId={decision.id} undoable={decision.id === latestDecision?.id} />) : <EmptyState title="还没有处理记录" detail="确认、保存、忽略后的结果会显示在这里。" />}
+      {recentDecisions.length ? <><SectionHeader title="最近处理" /><RecentDecisionCard decisionId={recentDecisions[0].id} undoable={recentDecisions[0].id === latestDecision?.id} /></> : null}
     </Page>
   );
 }
@@ -268,7 +281,7 @@ export function InboxScreen() {
 const styles = StyleSheet.create({
   field: { gap: 2 }, fieldLabel: { color: colors.muted, fontSize: 10, fontWeight: '800' }, fieldValue: { minHeight: 18, justifyContent: 'center' }, fieldText: { color: colors.ink, fontSize: 13, lineHeight: 19 }, fieldTextEmphasis: { fontWeight: '900', fontSize: 15, lineHeight: 21 },
   classificationButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, minHeight: 34 }, disclosure: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  proposalCard: { padding: 12 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, reorderMark: { width: 18, alignItems: 'center' }, reorderGlyph: { color: colors.subtle, fontSize: 18, lineHeight: 20 }, proposalCopy: { flex: 1, minWidth: 0, gap: 3 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 6 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  proposalCard: { paddingHorizontal: 11, paddingVertical: 9 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, proposalCopy: { flex: 1, minWidth: 0, gap: 1 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 4 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   editor: { gap: 6, padding: 10, backgroundColor: colors.surface, borderRadius: radius.medium }, input: { minHeight: 42, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 }, summaryInput: { minHeight: 74, paddingTop: 9, textAlignVertical: 'top' }, inputError: { color: colors.danger, fontSize: 11, fontWeight: '700' },
   dateButton: { minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, dateButtonPressed: { opacity: 0.72 }, dateButtonText: { color: colors.ink, fontSize: 13, fontWeight: '800' }, dateButtonPlaceholder: { color: colors.muted },
   modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(24, 32, 45, 0.34)', padding: 14 }, sheet: { width: '100%', maxWidth: 452, gap: 10, maxHeight: '84%', borderRadius: radius.large, backgroundColor: colors.card, padding: 14 }, sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, optionList: { gap: 8 }, editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
+import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
 import type { TaskItem } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
@@ -112,5 +112,53 @@ describe('selectors', () => {
     expect(selectProposalVisibleClassification(seed, 'proposal-knowledge')).toBe('knowledge');
     const decisions = Array.from({ length: 6 }, (_, index) => ({ id: `decision-${index}`, captureId: 'capture-contract', proposalId: 'proposal-contract', kind: 'ignore' as const, outcome: 'ignored' as const, appliedAt: `2026-07-17T0${index}:00:00+08:00`, status: 'applied' as const, effect: { type: 'ignored' as const } }));
     expect(selectRecentDecisions({ ...seed, decisions })).toHaveLength(5);
+  });
+
+  it('counts failed captures together with pending proposals for Inbox attention', () => {
+    const seed = createSeedData(new Date(at));
+    const failed = {
+      ...seed.captures[0],
+      pipelineState: 'proposalFailed' as const,
+      failure: { code: 'proposal_unavailable' as const, message: '暂时不可用', retryable: true },
+    };
+    const captured = { ...seed.captures[1], pipelineState: 'captured' as const };
+    const data = {
+      ...seed,
+      captures: [failed, captured, ...seed.captures.slice(2)],
+      proposals: seed.proposals.map((proposal) => ({ ...proposal, status: 'accepted' as const })),
+    };
+    expect(selectInboxAttentionCount(data)).toBe(2);
+  });
+
+  it('uses an open execution segment before plannedDate when identifying cross-day active tasks', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const overdue = { ...seed.tasks[1], id: 'overdue', status: 'notStarted' as const, plannedDate: '2026-07-16' };
+    const waiting = { ...seed.tasks[1], id: 'waiting', status: 'notStarted' as const, bucket: 'waiting' as const, plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, waitingDetails: { waitingFor: '供应商', waitingOn: '送货时间', followUpDate: '2026-07-17' } };
+    const data = {
+      ...seed,
+      tasks: [
+        { ...seed.tasks[0], plannedDate: '2026-07-16' },
+        overdue,
+        waiting,
+      ],
+    };
+
+    expect(selectNeedsAttention(data, '2026-07-17').map((item) => [item.kind, item.task.id])).toEqual([
+      ['overdue', 'overdue'],
+      ['waitingDue', 'waiting'],
+    ]);
+
+    const crossDaySegment = {
+      ...data,
+      progressLogs: [
+        ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || (log.kind !== 'start' && log.kind !== 'pause' && log.kind !== 'complete')),
+        { id: 'open-yesterday', taskId: 'task-reflow-demo', kind: 'start' as const, text: '昨日开始', createdAt: '2026-07-16T23:30:00+08:00' },
+      ],
+    };
+    expect(selectNeedsAttention(crossDaySegment, '2026-07-17')[0]).toMatchObject({ kind: 'crossDayActive', task: { id: 'task-reflow-demo' } });
+
+    const legacyWithoutSegment = { ...data, progressLogs: data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo') };
+    expect(selectNeedsAttention(legacyWithoutSegment, '2026-07-17')[0]).toMatchObject({ kind: 'crossDayActive', task: { id: 'task-reflow-demo' } });
+    expect(selectNeedsAttention(data, '2026-07-16')).toEqual([]);
   });
 });

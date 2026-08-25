@@ -15,6 +15,21 @@ describe('persistence v4', () => {
     expect(restored.taskPlanEvents.length).toBeGreaterThan(0);
   });
 
+  it('recovers captured and proposing inputs as visible retryable failures', () => {
+    const interrupted = {
+      ...fallback,
+      captures: fallback.captures.map((capture, index) => index === 0
+        ? { ...capture, pipelineState: 'captured' as const }
+        : index === 1 ? { ...capture, pipelineState: 'proposing' as const } : capture),
+    };
+    const restored = parseStoredData(JSON.stringify(interrupted), createEmptyData(), now);
+    expect(restored.captures.slice(0, 2)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pipelineState: 'proposalFailed', failure: expect.objectContaining({ retryable: true }) }),
+      expect.objectContaining({ pipelineState: 'proposalFailed', failure: expect.objectContaining({ retryable: true }) }),
+    ]));
+    expect(restored.captures[0].rawText).toBe(interrupted.captures[0].rawText);
+  });
+
   it('migrates v3 planned times and legacy today tasks to plannedDate with synthetic events', () => {
     const legacy = JSON.parse(JSON.stringify(fallback)) as Record<string, unknown>;
     legacy.version = 3;

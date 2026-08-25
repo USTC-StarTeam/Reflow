@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { useReflowStore, type ReflowStoreValue } from '@/core/store';
@@ -32,9 +32,13 @@ describe('ReviewScreen presentation', () => {
     expect(screen.getByText(/回顾今天：完成 \d+ 项，未完成 \d+ 项/)).toBeTruthy();
     expect(screen.getByText('AI：你低估了沟通跟进耗时')).toBeTruthy();
 
-    for (const label of ['生成今晚复盘', '查看本周', '查看本月', '查看知识沉淀']) {
+    for (const label of ['生成今晚复盘', '查看本周', '查看本月']) {
       expect(screen.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
     }
+    expect(screen.getByLabelText('查看知识沉淀').props.accessibilityState.disabled).toBe(false);
+    await fireEvent.press(screen.getByLabelText('查看知识沉淀'));
+    expect(screen.getByTestId('knowledge-list')).toHaveTextContent(/报价沟通检查单/);
+    expect(screen.getByTestId('knowledge-list')).toHaveTextContent(/回复客户前先核对预算口径、付款周期和有效期。/);
 
     expect(screen.queryByText('确定性统计')).toBeNull();
     expect(screen.queryByText('计划完成率')).toBeNull();
