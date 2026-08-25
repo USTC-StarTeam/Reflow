@@ -37,16 +37,15 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
         style={styles.input}
       />
       <View style={styles.toolbar}>
-        <View style={styles.tools}><Text style={styles.toolPrimary}>▦ 今天</Text><Text style={styles.tool}>⚑</Text><Text style={styles.tool}>◇</Text><Text style={styles.tool}>•••</Text></View>
         <Pressable
           testID="quick-capture-submit"
           accessibilityRole="button"
-          accessibilityLabel={value.trim() ? '提交捕捉' : '语音输入尚未开放'}
+          accessibilityLabel="提交捕捉"
           disabled={!value.trim()}
           onPress={submit}
           style={[styles.send, value.trim() && styles.sendActive]}
         >
-          <Text style={[styles.sendText, value.trim() && styles.sendTextActive]}>{value.trim() ? '↑' : '⌁'}</Text>
+          <Text style={[styles.sendText, value.trim() && styles.sendTextActive]}>↑</Text>
         </Pressable>
       </View>
       {submitted ? <Text style={styles.success}>{proposalServiceKind === 'cloud' ? '已保存，正在交给云端 AI 整理，可以继续记录。' : '已保存，正在用本地规则整理，可以继续记录。'}</Text> : null}
@@ -58,10 +57,7 @@ export function QuickComposer({ autoFocus = false, onSubmitted }: { autoFocus?: 
 const styles = StyleSheet.create({
   wrap: { minHeight: 112, borderRadius: radius.large, backgroundColor: colors.card, borderWidth: border.width, borderColor: border.color, padding: spacing.xl, gap: spacing.sm, ...shadows.soft },
   input: { minHeight: 54, color: colors.ink, fontSize: 15, lineHeight: 22, padding: 0, textAlignVertical: 'top' },
-  toolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  tools: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  toolPrimary: { color: colors.primary, ...typography.meta, fontWeight: '800' },
-  tool: { color: colors.subtle, fontSize: 12, fontWeight: '800' },
+  toolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   send: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   sendActive: { backgroundColor: colors.primary },
   sendText: { color: colors.subtle, fontSize: 14, fontWeight: '900' },

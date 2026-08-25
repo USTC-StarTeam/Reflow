@@ -1,51 +1,76 @@
-import { describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render } from '@testing-library/react-native';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { useReflowStore, type ReflowStoreValue } from '@/core/store';
 import { ShellContext } from '@/features/shared/shell-context';
 import { ReviewScreen } from '../review-screen';
 
-jest.mock('@/core/store', () => ({
-  useReflowStore: jest.fn(),
-}));
+jest.mock('@/core/store', () => ({ useReflowStore: jest.fn() }));
 
 const mockedUseReflowStore = jest.mocked(useReflowStore);
 
+async function renderReview() {
+  return render(
+    <ShellContext.Provider value={{ openCapture: jest.fn(), openSettings: jest.fn() }}>
+      <ReviewScreen />
+    </ShellContext.Provider>,
+  );
+}
+
 describe('ReviewScreen presentation', () => {
-  it('presents five lightweight review entries without the analytics dashboard', async () => {
-    mockedUseReflowStore.mockReturnValue({ data: createSeedData() } as ReflowStoreValue);
-    const screen = await render(
-      <ShellContext.Provider value={{ openCapture: jest.fn(), openSettings: jest.fn() }}>
-        <ReviewScreen />
-      </ShellContext.Provider>,
-    );
+  afterEach(() => { jest.useRealTimers(); });
 
-    expect(screen.getByText('复盘、知识和个人模式')).toBeTruthy();
-    expect(screen.getAllByTestId(/^review-/).map((node) => node.props.testID)).toEqual([
-      'review-nightly',
-      'review-weekly',
-      'review-monthly',
-      'review-ai-observation',
-      'review-knowledge',
-    ]);
-    expect(screen.getByText(/回顾今天：完成 \d+ 项，未完成 \d+ 项/)).toBeTruthy();
-    expect(screen.getByText('AI：你低估了沟通跟进耗时')).toBeTruthy();
+  it('shows scoped daily facts and removes unimplemented review surfaces', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const data = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const source = data.tasks.find((task) => task.id === 'task-client-quote')!;
+    const attentionData = {
+      ...data,
+      tasks: [
+        ...data.tasks,
+        { ...source, id: 'task-overdue-review', plannedDate: '2026-07-16', plannedStartAt: undefined, plannedEndAt: undefined },
+        { ...source, id: 'task-waiting-review', bucket: 'waiting' as const, plannedDate: undefined, plannedStartAt: undefined, plannedEndAt: undefined, waitingDetails: { waitingFor: '供应商', waitingOn: '确认时间', followUpDate: '2026-07-17' } },
+      ],
+      progressLogs: [
+        ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || log.kind === 'interrupt'),
+        { id: 'cross-day-start', taskId: 'task-reflow-demo', kind: 'start' as const, text: '开始', createdAt: '2026-07-16T23:30:00+08:00' },
+      ],
+    };
+    mockedUseReflowStore.mockReturnValue({ data: attentionData } as ReflowStoreValue);
+    const screen = await renderReview();
 
-    for (const label of ['生成今晚复盘', '查看本周', '查看本月']) {
-      expect(screen.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
-    }
-    expect(screen.getByLabelText('查看知识沉淀').props.accessibilityState.disabled).toBe(false);
+    expect(screen.getByText('今日事实与知识沉淀')).toBeTruthy();
+    expect(screen.getAllByTestId(/^review-(daily|knowledge)$/).map((node) => node.props.testID)).toEqual(['review-daily', 'review-knowledge']);
+    const daily = screen.getByTestId('review-daily');
+    expect(daily).toHaveTextContent(/统计范围：7月17日/);
+    expect(daily).toHaveTextContent(/今日原计划/);
+    expect(daily).toHaveTextContent(/今日完成/);
+    expect(daily).toHaveTextContent(/今日未完成/);
+    expect(daily).toHaveTextContent(/需要重新安排.*1/);
+    expect(daily).toHaveTextContent(/到期等待.*1/);
+    expect(daily).toHaveTextContent(/跨日进行中.*1/);
+    expect(daily).toHaveTextContent(/实际投入时间.*60 分/);
+    expect(daily).toHaveTextContent(/中断次数.*1/);
+    expect(screen.queryByText('每周复盘')).toBeNull();
+    expect(screen.queryByText('每月复盘')).toBeNull();
+    expect(screen.queryByText('AI 观察')).toBeNull();
+
     await fireEvent.press(screen.getByLabelText('查看知识沉淀'));
     expect(screen.getByTestId('knowledge-list')).toHaveTextContent(/报价沟通检查单/);
-    expect(screen.getByTestId('knowledge-list')).toHaveTextContent(/回复客户前先核对预算口径、付款周期和有效期。/);
+  });
 
-    expect(screen.queryByText('确定性统计')).toBeNull();
-    expect(screen.queryByText('计划完成率')).toBeNull();
-    expect(screen.queryByText('今日计划结果')).toBeNull();
-    expect(screen.queryByText('今日计划去向')).toBeNull();
-    expect(screen.queryByText('移到明天')).toBeNull();
-    expect(screen.queryByText('保存到稍后')).toBeNull();
-    expect(screen.queryByText('时间流向')).toBeNull();
+  it('changes the daily review range after midnight without reopening the app', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T23:59:30+08:00'));
+    mockedUseReflowStore.mockReturnValue({ data: createSeedData(new Date('2026-07-17T12:00:00+08:00')) } as ReflowStoreValue);
+    const screen = await renderReview();
+    expect(screen.getByTestId('review-daily')).toHaveTextContent(/7月17日/);
+
+    await act(async () => {
+      jest.setSystemTime(new Date('2026-07-18T00:00:30+08:00'));
+      jest.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.getByTestId('review-daily')).toHaveTextContent(/7月18日/);
   });
 });

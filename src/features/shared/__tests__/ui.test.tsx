@@ -33,7 +33,7 @@ describe('shared UI foundation', () => {
     expect(screen.getByText('P')).toBeTruthy();
     expect(screen.getByText('今天')).toBeTruthy();
     expect(screen.getByText('轻量捕捉与今日重点')).toBeTruthy();
-    expect(screen.getByText('AI')).toBeTruthy();
+    expect(screen.queryByText('AI')).toBeNull();
     fireEvent.press(screen.getByLabelText('打开设置'));
     expect(openSettings).toHaveBeenCalledTimes(1);
   });

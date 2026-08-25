@@ -1,53 +1,41 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { dateKey } from '@/core/date-utils';
-import { deriveDailyReviewFacts } from '@/core/selectors';
+import { dateKey, formatShortDate } from '@/core/date-utils';
+import { deriveDailyReviewFacts, selectNeedsAttention } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import { colors, spacing } from '../shared/theme';
-import { ActionButton, Card, Chip, EmptyState, ModalSurface, Page, PageHeader, textStyles } from '../shared/ui';
-
-const unavailableAction = () => undefined;
+import { ActionButton, Card, EmptyState, ModalSurface, Page, PageHeader, textStyles } from '../shared/ui';
+import { useCurrentTime } from '../shared/use-current-time';
 
 export function ReviewScreen() {
   const store = useReflowStore();
-  const today = useMemo(() => dateKey(new Date()), []);
+  const now = useCurrentTime();
+  const today = dateKey(now);
   const daily = deriveDailyReviewFacts(store.data, today);
+  const attention = selectNeedsAttention(store.data, today);
+  const overdueCount = attention.filter((item) => item.kind === 'overdue').length;
+  const waitingDueCount = attention.filter((item) => item.kind === 'waitingDue').length;
+  const crossDayActiveCount = attention.filter((item) => item.kind === 'crossDayActive').length;
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
 
   return (
     <Page testID="screen-review">
-      <PageHeader title="回顾" subtitle="复盘、知识和个人模式" />
+      <PageHeader title="回顾" subtitle="今日事实与知识沉淀" />
 
-      <ReviewEntry
-        testID="review-nightly"
-        title="每晚复盘"
-        summary={`回顾今天：完成 ${daily.completedTotalCount} 项，未完成 ${daily.unfinishedCount} 项，记录时间 ${daily.actualMinutes} 分钟，被打断 ${daily.interruptions} 次。`}
-        detail="适合在一天结束时梳理进展和明日提醒。"
-        actionLabel="生成今晚复盘"
-      />
-
-      <ReviewEntry
-        testID="review-weekly"
-        title="每周复盘"
-        summary="从一周尺度回顾任务执行、时间投入和不同事务的节奏。"
-        actionLabel="查看本周"
-      />
-
-      <ReviewEntry
-        testID="review-monthly"
-        title="每月复盘"
-        summary="从更长周期回顾长期拖延、时间分布和个人模式。"
-        actionLabel="查看本月"
-      />
-
-      <Card accent="ai" testID="review-ai-observation" style={styles.entryCard}>
-        <View style={styles.titleRow}>
-          <Text style={textStyles.cardTitle}>AI 观察</Text>
-          <Chip label="展示占位" tone="orange" />
+      <Card accent="review" testID="review-daily" style={styles.entryCard}>
+        <Text style={textStyles.cardTitle}>今日回顾</Text>
+        <Text style={styles.summary}>统计范围：{formatShortDate(today)} 当天的计划事实与实际记录。</Text>
+        <View style={styles.metrics}>
+          <Metric testID="review-metric-planned" label="今日原计划" value={daily.plannedCount} />
+          <Metric testID="review-metric-completed" label="今日完成" value={daily.completedTotalCount} />
+          <Metric testID="review-metric-unfinished" label="今日未完成" value={daily.unfinishedCount} />
+          <Metric testID="review-metric-reschedule" label="需要重新安排" value={overdueCount} />
+          <Metric testID="review-metric-waiting-due" label="到期等待" value={waitingDueCount} />
+          <Metric testID="review-metric-cross-day" label="跨日进行中" value={crossDayActiveCount} />
+          <Metric testID="review-metric-actual-minutes" label="实际投入时间" value={`${daily.actualMinutes} 分`} />
+          <Metric testID="review-metric-interruptions" label="中断次数" value={daily.interruptions} />
         </View>
-        <Text style={styles.observation}>AI：你低估了沟通跟进耗时</Text>
-        <Text style={textStyles.meta}>示例：未来只基于确定性事实解释个人模式，不会自动修改任务。</Text>
       </Card>
 
       <ReviewEntry
@@ -81,7 +69,7 @@ function ReviewEntry({ testID, title, summary, detail, actionLabel, onPress }: {
   summary: string;
   detail?: string;
   actionLabel: string;
-  onPress?: () => void;
+  onPress: () => void;
 }) {
   return (
     <Card accent="review" testID={testID} style={styles.entryCard}>
@@ -89,10 +77,14 @@ function ReviewEntry({ testID, title, summary, detail, actionLabel, onPress }: {
       <Text style={styles.summary}>{summary}</Text>
       {detail ? <Text style={textStyles.meta}>{detail}</Text> : null}
       <View style={styles.actionRow}>
-        <ActionButton label={actionLabel} variant="purple" disabled={!onPress} onPress={onPress ?? unavailableAction} />
+        <ActionButton label={actionLabel} variant="purple" onPress={onPress} />
       </View>
     </Card>
   );
+}
+
+function Metric({ testID, label, value }: { testID: string; label: string; value: string | number }) {
+  return <View testID={testID} style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
 }
 
 const styles = StyleSheet.create({
@@ -100,23 +92,15 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.sm,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
   summary: {
     color: colors.muted,
     fontSize: 13,
     lineHeight: 20,
   },
-  observation: {
-    color: colors.ink,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: '800',
-  },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  metric: { width: '48%', minHeight: 58, justifyContent: 'center', borderRadius: 10, backgroundColor: '#F7F4FF', paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  metricLabel: { color: colors.muted, fontSize: 10, lineHeight: 15, fontWeight: '700' },
+  metricValue: { color: colors.ink, fontSize: 17, lineHeight: 22, fontWeight: '900' },
   actionRow: {
     alignItems: 'flex-start',
     marginTop: spacing.xs,

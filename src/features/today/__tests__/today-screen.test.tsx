@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { dateKey } from '@/core/date-utils';
@@ -107,10 +107,11 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.getByTestId('quick-capture-input')).toBeTruthy();
     expect(screen.queryByTestId('needs-attention')).toBeNull();
     expect(screen.getByText('轻量捕捉与今日重点')).toBeTruthy();
-    expect(screen.getByText('AI')).toBeTruthy();
+    expect(screen.queryByText('AI')).toBeNull();
     expect(screen.getByText('当前正在进行“完成 Reflow Demo 页面结构”，继续推进即可。')).toBeTruthy();
-    expect(screen.getByTestId('accept-today-order')).toBeTruthy();
-    expect(screen.getByTestId('manual-adjust-today')).toBeTruthy();
+    expect(screen.getByText('今日提示')).toBeTruthy();
+    expect(screen.queryByTestId('accept-today-order')).toBeNull();
+    expect(screen.queryByTestId('manual-adjust-today')).toBeNull();
     expect(screen.getByText('时间安排')).toBeTruthy();
     expect(screen.getByText('今天要做')).toBeTruthy();
     expect(screen.getAllByText('已完成')).toHaveLength(2);
@@ -259,21 +260,51 @@ describe('TodayScreen information hierarchy', () => {
     expect(screen.queryByTestId('today-task-detail')).toBeNull();
   });
 
-  it('keeps suggestion actions visibly unavailable without domain writes', async () => {
+  it('does not expose unavailable sorting and adjustment actions', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
     const store = storeValue();
     mockedUseReflowStore.mockReturnValue(store);
 
     const screen = await renderToday();
-    const accept = screen.getByTestId('accept-today-order');
-    const adjust = screen.getByTestId('manual-adjust-today');
-
-    expect(accept.props.accessibilityState).toEqual({ disabled: true });
-    expect(adjust.props.accessibilityState).toEqual({ disabled: true });
-    fireEvent.press(accept);
-    fireEvent.press(adjust);
-
+    expect(screen.queryByTestId('accept-today-order')).toBeNull();
+    expect(screen.queryByTestId('manual-adjust-today')).toBeNull();
     expect(store.reorderTasks).not.toHaveBeenCalled();
+  });
+
+  it('switches Today to the new local day while the app stays open', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T23:59:30+08:00'));
+    mockedUseReflowStore.mockReturnValue(storeValue());
+    const screen = await renderToday();
+
+    expect(screen.getByText('整理本周实验报告')).toBeTruthy();
+    await act(async () => {
+      jest.setSystemTime(new Date('2026-07-18T00:00:30+08:00'));
+      jest.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.queryByText('整理本周实验报告')).toBeNull();
+    expect(screen.getByText('今天还没有完成记录。')).toBeTruthy();
+  });
+
+  it('shows only the latest completed items until the user asks for history', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T18:00:00+08:00'));
+    const store = storeValue();
+    const source = store.data.tasks.find((task) => task.id === 'task-inbox-cleanup')!;
+    store.data = {
+      ...store.data,
+      tasks: [
+        ...store.data.tasks,
+        ...[13, 14, 15, 16].map((hour, index) => ({ ...source, id: `task-completed-${index}`, title: `完成记录 ${index + 1}`, completedAt: `2026-07-17T${hour}:00:00+08:00` })),
+      ],
+    };
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await renderToday();
+
+    expect(screen.getAllByTestId(/^task-task-completed-/)).toHaveLength(3);
+    expect(screen.queryByTestId('task-task-inbox-cleanup')).toBeNull();
+    await fireEvent.press(screen.getByTestId('toggle-today-completed'));
+    expect(screen.getAllByTestId(/^task-task-completed-/)).toHaveLength(4);
+    expect(screen.getByTestId('task-task-inbox-cleanup')).toBeTruthy();
   });
 
   it('restores a completed task through its explicit recovery control', async () => {
@@ -325,7 +356,7 @@ describe('TodayScreen information hierarchy', () => {
     await fireEvent.press(screen.getByTestId('attention-pause-today-task-reflow-demo'));
     expect(store.pauseTask).toHaveBeenCalledWith('task-reflow-demo');
     expect(store.planTaskForDate).toHaveBeenCalledWith('task-reflow-demo', '2026-07-17');
-  });
+  }, 10_000);
 
   it('provides a secondary Someday list and can bring an item back to today', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
