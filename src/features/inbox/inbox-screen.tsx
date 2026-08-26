@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { isTaskCategory, resolveProposalVisibleClassification } from '@/core/classification';
-import { formatShortDate, isLocalDate, localDateOf } from '@/core/date-utils';
+import { formatShortDate, formatTime, isLocalDate, localDateOf } from '@/core/date-utils';
 import { editProposal } from '@/core/reducer';
 import { selectCapturedCaptures, selectFailedCaptures, selectLatestUndoableDecision, selectPendingProposals, selectRecentDecisions } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
-import { type AIProposal, type ProposalEdit, type TaskCategory, type VisibleClassification, visibleClassificationLabels, type WaitingDetails, type WorkflowBucket } from '@/core/types';
+import { type AIProposal, captureSourceLabels, type ProposalEdit, type TaskCategory, type VisibleClassification, visibleClassificationLabels, type WaitingDetails, type WorkflowBucket } from '@/core/types';
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
 import { LocalDatePicker } from '../shared/local-date-picker';
@@ -51,7 +51,8 @@ function Sheet({ children, visible, onClose, title }: { children: React.ReactNod
 }
 
 function ProposalCard({ proposal }: { proposal: AIProposal }) {
-  const { submitUserDecision } = useReflowStore();
+  const { data, submitUserDecision } = useReflowStore();
+  const capture = data.captures.find((item) => item.id === proposal.captureId);
   const originalClassification = resolveProposalVisibleClassification(proposal);
   const [classification, setClassification] = useState<VisibleClassification>(originalClassification);
   const [editing, setEditing] = useState(false);
@@ -153,10 +154,11 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
   return (
     <Card testID={`proposal-${proposal.id}`} style={styles.proposalCard}>
       <View style={styles.proposalRow}>
-        <View style={styles.proposalCopy}>
+        <Pressable accessibilityRole="button" accessibilityLabel="修改" onPress={() => setEditing(true)} style={({ pressed }) => [styles.proposalCopy, pressed && styles.proposalCopyPressed]}>
           <Text style={styles.proposalTitle}>{title}</Text>
-          <Text style={styles.proposalMeta}>{proposalMeta(classification, plannedDate, minutes)}</Text>
-        </View>
+          <Text numberOfLines={1} style={styles.proposalMeta}>{proposalMeta(classification, plannedDate, minutes)}</Text>
+          {capture ? <Text numberOfLines={1} style={styles.proposalSource}>{captureSourceLabels[capture.source]} · {formatShortDate(capture.createdAt)} {formatTime(capture.createdAt)} 捕捉</Text> : null}
+        </Pressable>
         <View style={styles.proposalActions}>
           {isKnowledge ? <ActionButton testID={`accept-knowledge-${proposal.id}`} label="保存为知识" variant="purple" onPress={acceptKnowledge} /> : null}
           {isWaiting ? <ActionButton testID={`accept-waiting-${proposal.id}`} label="放入等待列表" variant="primary" onPress={() => acceptTask('waiting')} /> : null}
@@ -164,7 +166,6 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
           {isUnknown ? <ActionButton label="补充信息" variant="primary" onPress={() => setEditing(true)} /> : null}
           {!isKnowledge && !isWaiting && !isSomeday && !isUnknown && plannedDate ? <ActionButton testID={`accept-${proposal.id}`} label="确认" variant="primary" onPress={() => acceptTask('today')} /> : null}
           {!isKnowledge && !isWaiting && !isSomeday && !isUnknown && !plannedDate ? <ActionButton testID={`select-date-${proposal.id}`} label="选择日期" variant="primary" onPress={() => setDatePickerContext('firstLevel')} /> : null}
-          {!isUnknown ? <ActionButton label="修改" onPress={() => setEditing(true)} /> : <ActionButton label="忽略" variant="danger" onPress={ignoreProposal} />}
         </View>
       </View>
 
@@ -266,7 +267,7 @@ export function InboxScreen() {
   const pendingCount = proposals.length + capturedCaptures.length + failedCaptures.length;
   return (
     <Page testID="screen-inbox">
-      <PageHeader title="收件箱" subtitle={pendingCount ? '整理完成，等待你的决定' : '收件箱已整理完毕'} right={<Chip label="整理" size="header" />} />
+      <PageHeader title="收件箱" subtitle={pendingCount ? '整理完成，等待你的决定' : '收件箱已整理完毕'} />
       {lastActionFailure ? <Card style={styles.failure}><Text style={textStyles.cardTitle}>操作未完成</Text><Text style={textStyles.meta}>{lastActionFailure.message}</Text></Card> : null}
       <SectionHeader title="待你确认" meta={`${pendingCount} 条`} />
       {capturedCaptures.map((capture) => <CapturedCaptureCard key={capture.id} captureId={capture.id} />)}
@@ -281,7 +282,7 @@ export function InboxScreen() {
 const styles = StyleSheet.create({
   field: { gap: 2 }, fieldLabel: { color: colors.muted, fontSize: 10, fontWeight: '800' }, fieldValue: { minHeight: 18, justifyContent: 'center' }, fieldText: { color: colors.ink, fontSize: 13, lineHeight: 19 }, fieldTextEmphasis: { fontWeight: '900', fontSize: 15, lineHeight: 21 },
   classificationButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, minHeight: 34 }, disclosure: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  proposalCard: { paddingHorizontal: 11, paddingVertical: 9 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, proposalCopy: { flex: 1, minWidth: 0, gap: 1 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 4 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  proposalCard: { paddingHorizontal: 11, paddingVertical: 9 }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, proposalCopy: { flex: 1, minWidth: 0, gap: 1, paddingVertical: 5 }, proposalCopyPressed: { opacity: 0.7 }, proposalTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '900' }, proposalMeta: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposalSource: { color: colors.subtle, fontSize: 10, lineHeight: 14 }, proposalActions: { flexDirection: 'row', alignItems: 'center', gap: 4 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   editor: { gap: 6, padding: 10, backgroundColor: colors.surface, borderRadius: radius.medium }, input: { minHeight: 42, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, color: colors.ink, paddingHorizontal: 11, fontSize: 13 }, summaryInput: { minHeight: 74, paddingTop: 9, textAlignVertical: 'top' }, inputError: { color: colors.danger, fontSize: 11, fontWeight: '700' },
   dateButton: { minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, dateButtonPressed: { opacity: 0.72 }, dateButtonText: { color: colors.ink, fontSize: 13, fontWeight: '800' }, dateButtonPlaceholder: { color: colors.muted },
   modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(24, 32, 45, 0.34)', padding: 14 }, sheet: { width: '100%', maxWidth: 452, gap: 10, maxHeight: '84%', borderRadius: radius.large, backgroundColor: colors.card, padding: 14 }, sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, optionList: { gap: 8 }, editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

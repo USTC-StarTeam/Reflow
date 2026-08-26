@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render } from '@testing-library/react-native';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { dateKey } from '@/core/date-utils';
@@ -86,6 +86,8 @@ describe('CalendarScreen planning surface', () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
   });
 
+  afterEach(() => { jest.useRealTimers(); });
+
   it('defaults to Month and separates exact-time, date-only, suggestion, and completed sections', async () => {
     const screen = await renderCalendar(storeValue());
 
@@ -95,7 +97,8 @@ describe('CalendarScreen planning surface', () => {
     expect(screen.getByTestId('calendar-day-2026-07-17')).toBeTruthy();
     expect(screen.getByText('时间安排')).toBeTruthy();
     expect(screen.getByText('当天事项')).toBeTruthy();
-    expect(screen.getByText('规划建议')).toBeTruthy();
+    expect(screen.getByText('可用时间')).toBeTruthy();
+    expect(screen.getByText(/12:15 有空档/)).toBeTruthy();
     expect(screen.getByText('已完成')).toBeTruthy();
     expect(screen.getByText('整理会议纪要')).toBeTruthy();
     expect(screen.queryByText('未排期')).toBeNull();
@@ -176,5 +179,47 @@ describe('CalendarScreen planning surface', () => {
 
     await fireEvent.press(screen.getByTestId('calendar-mode-day'));
     expect(screen.getByTestId('calendar-grid-task-reflow-demo')).toHaveTextContent(/07:00.*07:45.*已延迟/);
+  });
+
+  it('keeps past dates as history without new planning actions', async () => {
+    const store = storeValue();
+    const source = store.data.tasks.find((task) => task.id === 'task-date-only')!;
+    store.data = { ...store.data, tasks: [...store.data.tasks, { ...source, id: 'task-past', title: '过去事项', plannedDate: '2026-07-16' }] };
+    const screen = await renderCalendar(store);
+
+    await fireEvent.press(screen.getByTestId('calendar-day-2026-07-16'));
+    expect(screen.getByText('过去事项')).toBeTruthy();
+    expect(screen.queryByText('可用时间')).toBeNull();
+    expect(screen.queryByTestId('calendar-suggestion')).toBeNull();
+    expect(screen.queryByLabelText('安排时间 过去事项')).toBeNull();
+  });
+
+  it('follows the new local day after midnight when the user was viewing today', async () => {
+    jest.setSystemTime(new Date('2026-07-17T23:59:30+08:00'));
+    const screen = await renderCalendar(storeValue());
+    expect(screen.getByText('选中 · 7月17日')).toBeTruthy();
+
+    await act(async () => {
+      jest.setSystemTime(new Date('2026-07-18T00:00:30+08:00'));
+      jest.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.getByText('选中 · 7月18日')).toBeTruthy();
+  });
+
+  it('limits completed history on the primary calendar surface', async () => {
+    const store = storeValue();
+    const source = store.data.tasks.find((task) => task.id === 'task-inbox-cleanup')!;
+    store.data = {
+      ...store.data,
+      tasks: [...store.data.tasks, ...[13, 14, 15, 16].map((hour, index) => ({ ...source, id: `task-calendar-completed-${index}`, completedAt: `2026-07-17T${hour}:00:00+08:00` }))],
+    };
+    const screen = await renderCalendar(store);
+
+    expect(screen.getAllByTestId(/^calendar-entry-task-calendar-completed-/)).toHaveLength(3);
+    expect(screen.queryByTestId('calendar-entry-task-inbox-cleanup')).toBeNull();
+    await fireEvent.press(screen.getByTestId('toggle-calendar-completed'));
+    expect(screen.getAllByTestId(/^calendar-entry-task-calendar-completed-/)).toHaveLength(4);
+    expect(screen.getByTestId('calendar-entry-task-inbox-cleanup')).toBeTruthy();
   });
 });

@@ -45,7 +45,6 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
     <View testID={`task-${task.id}`} style={[styles.row, completed && styles.completedRow]}>
       {completed ? (
         <View style={styles.rowBody}>
-          <Text style={styles.reorderGlyph} accessibilityElementsHidden>≡</Text>
           <View style={styles.copy}><Text numberOfLines={1} style={[styles.title, styles.completedTitle]}>{task.title}</Text></View>
           <View style={styles.completedTag}><Text style={styles.completedTagText}>已完成</Text></View>
         </View>
@@ -57,7 +56,6 @@ export function TodayTaskRow(props: TodayTaskRowProps) {
           style={({ pressed }) => [styles.rowBody, pressed && styles.rowBodyPressed]}
           testID={`open-today-task-${task.id}`}
         >
-          <Text style={styles.reorderGlyph} accessibilityElementsHidden>≡</Text>
           {time ? <Text style={styles.time}>{time}</Text> : null}
           <View style={styles.copy}>
             <Text numberOfLines={1} style={styles.title}>{task.title}</Text>
@@ -95,7 +93,6 @@ const styles = StyleSheet.create({
   rowBody: { minHeight: 60, flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   rowBodyPressed: { opacity: 0.72 },
   completedRow: { backgroundColor: '#FBFCFE' },
-  reorderGlyph: { width: 14, flexShrink: 0, color: colors.subtle, fontSize: 16, lineHeight: 18, fontWeight: '800' },
   actionTouch: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },
   actionTouchPressed: { backgroundColor: colors.primarySoft, opacity: 0.78 },
   actionCircle: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: border.width, borderColor: colors.line, backgroundColor: colors.card },

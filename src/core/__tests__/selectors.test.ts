@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
+import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectFirstAvailableSlot, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
 import type { TaskItem } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
@@ -53,6 +53,15 @@ describe('selectors', () => {
     const splitDates = { ...sameDay, plannedDate: '2026-07-18', plannedStartAt: '2026-07-18T09:00:00+08:00', plannedEndAt: '2026-07-18T09:30:00+08:00' };
     expect(selectCalendarEntriesForDate({ ...seed, tasks: [splitDates] }, '2026-07-17')).toMatchObject([{ kind: 'completed' }]);
     expect(selectCalendarEntriesForDate({ ...seed, tasks: [splitDates] }, '2026-07-18')).toMatchObject([{ kind: 'planned' }]);
+  });
+
+  it('only suggests future slots for today and keeps past dates read-only', () => {
+    const data = { ...createSeedData(new Date(at)), tasks: [] };
+    const now = new Date('2026-07-17T12:07:00+08:00');
+
+    expect(selectFirstAvailableSlot(data, '2026-07-16', 30, 7, 23, now)).toBeUndefined();
+    expect(selectFirstAvailableSlot(data, '2026-07-17', 30, 7, 23, now)?.startAt).toContain('T12:15:00');
+    expect(selectFirstAvailableSlot(data, '2026-07-18', 30, 7, 23, now)?.startAt).toContain('T07:00:00');
   });
 
   it('keeps the original day planned denominator and deferred outcome after later completion', () => {

@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { dateKey } from '@/core/date-utils';
 import { isTaskDelayed, selectCurrentExecutionSession, selectCurrentTask, selectNeedsAttention, selectSomedayTasks, selectTodaySections } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
+import type { LocalDate } from '@/core/types';
 import { QuickComposer } from '../shared/quick-composer';
 import { colors, spacing, typography } from '../shared/theme';
 import { ActionButton, Card, ModalSurface, Page, PageHeader, SectionLabel, textStyles } from '../shared/ui';
+import { useCurrentTime } from '../shared/use-current-time';
 import { NeedsAttentionSection } from './needs-attention-section';
 import { TodayTaskRow } from './today-task-row';
 import { TaskDetailModal } from './task-detail-modal';
@@ -26,12 +28,10 @@ function TodayEmptyRow({ children }: { children: string }) {
   return <View style={styles.emptyRow}><Text style={styles.emptyText}>{children}</Text></View>;
 }
 
-const unavailableSuggestionAction = () => undefined;
-
 export function TodayScreen() {
   const store = useReflowStore();
-  const now = new Date();
-  const today = useMemo(() => dateKey(new Date()), []);
+  const now = useCurrentTime();
+  const today = dateKey(now);
   const sections = selectTodaySections(store.data, today);
   const attentionItems = selectNeedsAttention(store.data, today);
   const somedayTasks = selectSomedayTasks(store.data);
@@ -40,7 +40,11 @@ export function TodayScreen() {
   const suggestion = todaySuggestion(activeTask?.title, delayedCount, sections.scheduled.length, sections.unscheduled.length, sections.completed.length);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [somedayOpen, setSomedayOpen] = useState(false);
+  const [expandedCompletedDate, setExpandedCompletedDate] = useState<LocalDate>();
   const selectedTask = selectedTaskId ? store.data.tasks.find((task) => task.id === selectedTaskId && !task.deletedAt && task.status !== 'completed') : undefined;
+  const showAllCompleted = expandedCompletedDate === today;
+  const completedTasks = [...sections.completed].reverse();
+  const visibleCompletedTasks = showAllCompleted ? completedTasks : completedTasks.slice(0, 3);
 
   return (
     <>
@@ -49,13 +53,9 @@ export function TodayScreen() {
         <QuickComposer />
         <NeedsAttentionSection items={attentionItems} today={today} onOpen={setSelectedTaskId} />
         <View style={styles.sectionGroup}>
-          <SectionLabel title="今日建议" />
-          <Card testID="today-suggestion" accent="ai" style={styles.suggestionCard}>
-            <View style={styles.suggestionCopy}><Text style={styles.suggestionAI}>AI:</Text><Text style={styles.suggestionText}>{suggestion}</Text></View>
-            <View style={styles.suggestionActions}>
-              <ActionButton testID="accept-today-order" label="接受排序" variant="green" disabled onPress={unavailableSuggestionAction} />
-              <ActionButton testID="manual-adjust-today" label="手动调整" disabled onPress={unavailableSuggestionAction} />
-            </View>
+          <SectionLabel title="今日提示" />
+          <Card testID="today-suggestion" style={styles.suggestionCard}>
+            <Text style={styles.suggestionText}>{suggestion}</Text>
           </Card>
         </View>
 
@@ -71,7 +71,8 @@ export function TodayScreen() {
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="已完成" meta={`${sections.completed.length} 项`} />
-          {sections.completed.length ? sections.completed.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" onRestore={() => store.restoreTask(task.id)} />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
+          {visibleCompletedTasks.length ? visibleCompletedTasks.map((task) => <TodayTaskRow key={task.id} task={task} variant="completed" onRestore={() => store.restoreTask(task.id)} />) : <TodayEmptyRow>今天还没有完成记录。</TodayEmptyRow>}
+          {completedTasks.length > 3 ? <ActionButton testID="toggle-today-completed" label={showAllCompleted ? '收起已完成' : `查看全部 ${completedTasks.length} 项`} onPress={() => setExpandedCompletedDate((current) => current === today ? undefined : today)} /> : null}
         </View>
 
         <Card testID="someday-entry" style={styles.secondaryEntry}>
@@ -104,11 +105,8 @@ export function TodayScreen() {
 
 const styles = StyleSheet.create({
   sectionGroup: { gap: spacing.md },
-  suggestionCard: { padding: spacing.xl, gap: spacing.lg },
-  suggestionCopy: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  suggestionAI: { color: colors.orange, flexShrink: 0, fontSize: 15, lineHeight: 21, fontWeight: '900' },
+  suggestionCard: { padding: spacing.xl },
   suggestionText: { color: colors.muted, flex: 1, fontSize: 13, lineHeight: 21, fontWeight: '500' },
-  suggestionActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   emptyRow: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md },
   emptyText: { color: colors.subtle, ...typography.meta },
   secondaryEntry: { flexDirection: 'row', alignItems: 'center', padding: spacing.lg },

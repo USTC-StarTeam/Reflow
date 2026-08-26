@@ -26,7 +26,7 @@ export function PageHeader({ title, subtitle, right }: { title: string; subtitle
         <Text testID="page-header-title" style={styles.headerTitle}>{title}</Text>
         <Text style={styles.headerSubtitle}>{subtitle}</Text>
       </View>
-      <View style={[styles.headerSide, styles.headerRight]}>{right ?? <View style={styles.topPill}><Text style={styles.topPillText}>AI</Text></View>}</View>
+      <View style={[styles.headerSide, styles.headerRight]}>{right}</View>
     </View>
   );
 }
@@ -137,8 +137,6 @@ const styles = StyleSheet.create({
   headerTitle: { color: colors.ink, textAlign: 'center', ...typography.appTitle },
   headerSubtitle: { color: colors.muted, marginTop: spacing.xxs, textAlign: 'center', ...typography.meta },
   headerRight: { alignItems: 'flex-end' },
-  topPill: { minWidth: 62, height: 40, paddingHorizontal: spacing.xl, borderRadius: radius.pill, borderWidth: border.width, borderColor: border.color, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
-  topPillText: { color: colors.ink, ...typography.control },
   card: { backgroundColor: colors.card, borderWidth: border.width, borderColor: border.color, borderRadius: radius.medium, padding: 11, gap: spacing.sm, ...shadows.soft },
   cardAI: { backgroundColor: '#FFFCF8', borderLeftWidth: 4, borderLeftColor: colors.orange },
   cardActive: { backgroundColor: '#FBFFFD', borderLeftWidth: 4, borderLeftColor: colors.green },
