@@ -1,4 +1,7 @@
-import type { DomainData, ProgressLog, TimeEntry } from './types';
+import { addMinutes, localDateOf, toZonedISOString } from './date-utils';
+import type { DomainData, ExecutionTimeDecision, ProgressLog, TimeEntry } from './types';
+
+export const EXECUTION_CONFIRMATION_THRESHOLD_MINUTES = 6 * 60;
 
 export interface OpenExecutionSegment {
   startedAt: string;
@@ -24,17 +27,35 @@ export function findOpenExecutionSegment(data: DomainData, taskId: string): Open
   };
 }
 
-export function closeOpenExecutionSegment(data: DomainData, taskId: string, endedAt: string, id: string): TimeEntry | undefined {
+export function executionDurationMinutes(startedAt: string, endedAt: string): number {
+  const start = new Date(startedAt).getTime();
+  const end = new Date(endedAt).getTime();
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? (end - start) / 60_000 : 0;
+}
+
+export function executionNeedsConfirmation(startedAt: string, endedAt: string): boolean {
+  const minutes = executionDurationMinutes(startedAt, endedAt);
+  return minutes > 0 && (localDateOf(startedAt) !== localDateOf(endedAt) || minutes > EXECUTION_CONFIRMATION_THRESHOLD_MINUTES);
+}
+
+export function timeEntryNeedsCorrection(entry: TimeEntry): boolean {
+  return !entry.confirmedAt && executionNeedsConfirmation(entry.startedAt, entry.endedAt);
+}
+
+export function closeOpenExecutionSegment(data: DomainData, taskId: string, endedAt: string, id: string, decision?: ExecutionTimeDecision): TimeEntry | undefined {
   const segment = findOpenExecutionSegment(data, taskId);
   if (!segment) return undefined;
-  const start = new Date(segment.startedAt).getTime();
-  const end = new Date(endedAt).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return undefined;
+  const minutes = executionDurationMinutes(segment.startedAt, endedAt);
+  if (minutes <= 0) return undefined;
+  const correctedEnd = decision?.kind === 'adjust'
+    ? toZonedISOString(addMinutes(new Date(segment.startedAt), decision.minutes))
+    : endedAt;
   return {
     id,
     taskId,
     startedAt: segment.startedAt,
-    endedAt,
-    minutes: (end - start) / 60_000,
+    endedAt: correctedEnd,
+    minutes: decision?.kind === 'adjust' ? decision.minutes : minutes,
+    confirmedAt: decision ? endedAt : undefined,
   };
 }

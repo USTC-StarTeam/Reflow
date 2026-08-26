@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { addLocalDays, compareLocalDates, intervalOverlapMilliseconds, isLocalDate, isZonedDateTime, localDateOf, localDayInterval, toZonedISOString } from '../date-utils';
+import { addLocalDays, compareLocalDates, formatDuration, intervalOverlapMilliseconds, isLocalDate, isZonedDateTime, localDateOf, localDayInterval, toZonedISOString } from '../date-utils';
 
 describe('local date utilities', () => {
   it('validates local dates and offset ISO values', () => {
@@ -23,5 +23,11 @@ describe('local date utilities', () => {
   it('computes interval overlap using actual instants', () => {
     const range = localDayInterval('2026-07-17');
     expect(intervalOverlapMilliseconds('2026-07-17T23:50:00+08:00', '2026-07-18T00:10:00+08:00', range.start, range.end) / 60_000).toBe(10);
+  });
+
+  it('formats longer durations as natural hours and minutes', () => {
+    expect(formatDuration(45)).toBe('45 分');
+    expect(formatDuration(95)).toBe('1小时35分');
+    expect(formatDuration(743)).toBe('12小时23分');
   });
 });

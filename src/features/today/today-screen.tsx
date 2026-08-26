@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { dateKey } from '@/core/date-utils';
+import { dateKey, toZonedISOString } from '@/core/date-utils';
+import { executionDurationMinutes, executionNeedsConfirmation } from '@/core/execution';
 import { isTaskDelayed, selectCurrentExecutionSession, selectCurrentTask, selectNeedsAttention, selectSomedayTasks, selectTodaySections } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
-import type { LocalDate } from '@/core/types';
+import type { LocalDate, TaskItem } from '@/core/types';
 import { QuickComposer } from '../shared/quick-composer';
+import { ExecutionCorrectionModal } from '../shared/execution-correction-modal';
 import { colors, spacing, typography } from '../shared/theme';
 import { ActionButton, Card, ModalSurface, Page, PageHeader, SectionLabel, textStyles } from '../shared/ui';
 import { useCurrentTime } from '../shared/use-current-time';
@@ -41,10 +43,23 @@ export function TodayScreen() {
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [somedayOpen, setSomedayOpen] = useState(false);
   const [expandedCompletedDate, setExpandedCompletedDate] = useState<LocalDate>();
+  const [completionCorrection, setCompletionCorrection] = useState<{ taskId: string; startedAt: string; endedAt: string }>();
   const selectedTask = selectedTaskId ? store.data.tasks.find((task) => task.id === selectedTaskId && !task.deletedAt && task.status !== 'completed') : undefined;
   const showAllCompleted = expandedCompletedDate === today;
   const completedTasks = [...sections.completed].reverse();
   const visibleCompletedTasks = showAllCompleted ? completedTasks : completedTasks.slice(0, 3);
+
+  function completeTask(task: TaskItem) {
+    if (task.status === 'inProgress') {
+      const execution = selectCurrentExecutionSession(store.data, task.id);
+      const endedAt = toZonedISOString(now);
+      if (execution && executionNeedsConfirmation(execution.startedAt, endedAt)) {
+        setCompletionCorrection({ taskId: task.id, startedAt: execution.startedAt, endedAt });
+        return;
+      }
+    }
+    store.completeTask(task.id);
+  }
 
   return (
     <>
@@ -61,12 +76,12 @@ export function TodayScreen() {
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="时间安排" meta={`${sections.scheduled.length} 项`} />
-          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" delayed={isTaskDelayed(task, now)} execution={task.status === 'inProgress' ? selectCurrentExecutionSession(store.data, task.id) : undefined} onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
+          {sections.scheduled.length ? sections.scheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="scheduled" delayed={isTaskDelayed(task, now)} execution={task.status === 'inProgress' ? selectCurrentExecutionSession(store.data, task.id) : undefined} onOpen={() => setSelectedTaskId(task.id)} onComplete={() => completeTask(task)} />) : <TodayEmptyRow>今天还没有明确时间事项。</TodayEmptyRow>}
         </View>
 
         <View style={styles.sectionGroup}>
           <SectionLabel title="今天要做" meta={`${sections.unscheduled.length} 项`} />
-          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" execution={task.status === 'inProgress' ? selectCurrentExecutionSession(store.data, task.id) : undefined} onOpen={() => setSelectedTaskId(task.id)} onComplete={() => store.completeTask(task.id)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
+          {sections.unscheduled.length ? sections.unscheduled.map((task) => <TodayTaskRow key={task.id} task={task} variant="dateOnly" execution={task.status === 'inProgress' ? selectCurrentExecutionSession(store.data, task.id) : undefined} onOpen={() => setSelectedTaskId(task.id)} onComplete={() => completeTask(task)} />) : <TodayEmptyRow>今天没有其他要做的事项。</TodayEmptyRow>}
         </View>
 
         <View style={styles.sectionGroup}>
@@ -84,6 +99,16 @@ export function TodayScreen() {
         </Card>
       </Page>
       {selectedTask ? <TaskDetailModal task={selectedTask} visible onClose={() => setSelectedTaskId(undefined)} /> : null}
+      {completionCorrection ? (
+        <ExecutionCorrectionModal
+          elapsedMinutes={executionDurationMinutes(completionCorrection.startedAt, completionCorrection.endedAt)}
+          onClose={() => setCompletionCorrection(undefined)}
+          onDecision={(decision) => {
+            store.completeTask(completionCorrection.taskId, decision);
+            setCompletionCorrection(undefined);
+          }}
+        />
+      ) : null}
       {somedayOpen ? (
         <ModalSurface visible title="稍后" subtitle="这些事项一直保留在 Reflow 中，需要时再安排。" onClose={() => setSomedayOpen(false)} testID="someday-list">
           <ScrollView contentContainerStyle={styles.somedayList} showsVerticalScrollIndicator={false}>

@@ -1,8 +1,8 @@
 import { addDays, addLocalDays, compareLocalDates, dateKey, durationMilliseconds, intervalOverlapMilliseconds, localDateOf, localDateToDate, localDayInterval, startOfDay, startOfWeek, timestampOf, toZonedISOString } from './date-utils';
 import { resolveProposalVisibleClassification } from './classification';
 import { findScheduleConflicts } from './planning';
-import { findOpenExecutionSegment } from './execution';
-import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type ZonedDateTime } from './types';
+import { findOpenExecutionSegment, timeEntryNeedsCorrection } from './execution';
+import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type TimeEntry, type ZonedDateTime } from './types';
 
 export interface CurrentExecutionSession {
   startedAt: string;
@@ -22,6 +22,10 @@ export function selectTaskMinutes(data: DomainData, taskId: string): number {
     .filter((entry) => entry.taskId === taskId)
     .reduce((sum, entry) => sum + Math.max(0, durationMilliseconds(entry.startedAt, entry.endedAt)), 0);
   return Math.round(milliseconds / 60_000);
+}
+
+export function selectTimeEntriesNeedingCorrection(data: DomainData): TimeEntry[] {
+  return data.timeEntries.filter(timeEntryNeedsCorrection).sort((left, right) => right.endedAt.localeCompare(left.endedAt));
 }
 
 export function selectCurrentTask(data: DomainData) {

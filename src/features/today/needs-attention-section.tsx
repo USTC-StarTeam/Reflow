@@ -2,11 +2,13 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { formatShortDate } from '@/core/date-utils';
-import type { NeedsAttentionItem } from '@/core/selectors';
+import { formatShortDate, toZonedISOString } from '@/core/date-utils';
+import { executionDurationMinutes, executionNeedsConfirmation } from '@/core/execution';
+import { selectCurrentExecutionSession, type NeedsAttentionItem } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { LocalDate } from '@/core/types';
 import { LocalDatePicker } from '../shared/local-date-picker';
+import { ExecutionCorrectionModal } from '../shared/execution-correction-modal';
 import { colors, spacing } from '../shared/theme';
 import { ActionButton, Card, ModalSurface, textStyles } from '../shared/ui';
 
@@ -30,6 +32,7 @@ export function NeedsAttentionSection({ items, today, onOpen }: { items: NeedsAt
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<PickerState>();
+  const [pauseCorrection, setPauseCorrection] = useState<{ taskId: string; startedAt: string; endedAt: string }>();
   if (!items.length) return null;
 
   function selectDate(date: LocalDate) {
@@ -42,6 +45,18 @@ export function NeedsAttentionSection({ items, today, onOpen }: { items: NeedsAt
   function openPicker(next: PickerState) {
     setOpen(false);
     setPicker(next);
+  }
+
+  function pauseAndPlanToday(taskId: string) {
+    const execution = selectCurrentExecutionSession(store.data, taskId);
+    const endedAt = toZonedISOString(new Date());
+    if (execution && executionNeedsConfirmation(execution.startedAt, endedAt)) {
+      setOpen(false);
+      setPauseCorrection({ taskId, startedAt: execution.startedAt, endedAt });
+      return;
+    }
+    store.pauseTask(taskId);
+    store.planTaskForDate(taskId, today);
   }
 
   return (
@@ -77,7 +92,7 @@ export function NeedsAttentionSection({ items, today, onOpen }: { items: NeedsAt
                   {item.kind === 'crossDayActive' ? (
                     <>
                       <ActionButton testID={`attention-active-${item.task.id}`} label="前往进行中" variant="green" onPress={() => { setOpen(false); router.push('/active'); }} />
-                      <ActionButton testID={`attention-pause-today-${item.task.id}`} label="暂停并安排今天" onPress={() => { store.pauseTask(item.task.id); store.planTaskForDate(item.task.id, today); }} />
+                      <ActionButton testID={`attention-pause-today-${item.task.id}`} label="暂停并安排今天" onPress={() => pauseAndPlanToday(item.task.id)} />
                     </>
                   ) : null}
                 </View>
@@ -87,6 +102,17 @@ export function NeedsAttentionSection({ items, today, onOpen }: { items: NeedsAt
         </ModalSurface>
       ) : null}
       {picker ? <LocalDatePicker value={picker.value} onClose={() => setPicker(undefined)} onSelect={selectDate} /> : null}
+      {pauseCorrection ? (
+        <ExecutionCorrectionModal
+          elapsedMinutes={executionDurationMinutes(pauseCorrection.startedAt, pauseCorrection.endedAt)}
+          onClose={() => setPauseCorrection(undefined)}
+          onDecision={(decision) => {
+            store.pauseTask(pauseCorrection.taskId, decision);
+            store.planTaskForDate(pauseCorrection.taskId, today);
+            setPauseCorrection(undefined);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

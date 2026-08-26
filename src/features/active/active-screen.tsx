@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { dateKey, formatShortDate, formatTime } from '@/core/date-utils';
-import { selectCurrentTask, selectTaskExecutionMinutes } from '@/core/selectors';
+import { dateKey, formatShortDate, formatTime, toZonedISOString } from '@/core/date-utils';
+import { executionDurationMinutes, executionNeedsConfirmation } from '@/core/execution';
+import { selectCurrentExecutionSession, selectCurrentTask, selectTaskExecutionMinutes } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
-import type { ProgressLog, TaskItem } from '@/core/types';
+import type { ExecutionTimeDecision, ProgressLog, TaskItem } from '@/core/types';
 import { colors, radius } from '../shared/theme';
+import { ExecutionCorrectionModal } from '../shared/execution-correction-modal';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, textStyles } from '../shared/ui';
 import { useCurrentTime } from '../shared/use-current-time';
 
@@ -37,6 +39,7 @@ export function ActiveScreen() {
   const [progress, setProgress] = useState('');
   const [recordingInterruption, setRecordingInterruption] = useState(false);
   const [interruptionReason, setInterruptionReason] = useState('');
+  const [pendingExecutionAction, setPendingExecutionAction] = useState<'pause' | 'complete'>();
   const clock = useCurrentTime(30_000);
   const today = dateKey(clock);
   const latestPause = [...data.progressLogs]
@@ -45,6 +48,7 @@ export function ActiveScreen() {
     .find((log) => data.tasks.some((task) => task.id === log.taskId && !task.deletedAt && task.status === 'notStarted'));
   const pausedTask = latestPause ? data.tasks.find((task) => task.id === latestPause.taskId) : undefined;
   const activeLogs = active ? data.progressLogs.filter((log) => log.taskId === active.id) : [];
+  const currentExecution = active ? selectCurrentExecutionSession(data, active.id) : undefined;
   const recentProgress = [...activeLogs].filter((log) => log.kind === 'progress').sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 2);
   const executionMinutes = active ? selectTaskExecutionMinutes(data, active.id, clock) : { currentSegmentMinutes: 0, totalMinutes: 0 };
   const todayCandidates = data.tasks
@@ -60,11 +64,16 @@ export function ActiveScreen() {
     setProgress('');
   }
 
-  function pauseActive() {
+  function requestExecutionAction(action: 'pause' | 'complete') {
     if (!active) return;
     setRecordingInterruption(false);
     setInterruptionReason('');
-    store.pauseTask(active.id);
+    if (currentExecution && executionNeedsConfirmation(currentExecution.startedAt, toZonedISOString(clock))) {
+      setPendingExecutionAction(action);
+      return;
+    }
+    if (action === 'pause') store.pauseTask(active.id);
+    else store.completeTask(active.id);
   }
 
   function recordInterruption() {
@@ -79,11 +88,11 @@ export function ActiveScreen() {
     setInterruptionReason('');
   }
 
-  function completeActive() {
+  function confirmExecutionTime(decision: ExecutionTimeDecision) {
     if (!active) return;
-    setRecordingInterruption(false);
-    setInterruptionReason('');
-    store.completeTask(active.id);
+    if (pendingExecutionAction === 'pause') store.pauseTask(active.id, decision);
+    if (pendingExecutionAction === 'complete') store.completeTask(active.id, decision);
+    setPendingExecutionAction(undefined);
   }
 
   return (
@@ -127,8 +136,8 @@ export function ActiveScreen() {
           </Card>
 
           <View style={styles.primaryActions}>
-            <View style={styles.primaryAction}><ActionButton testID="pause-task" label="暂停" onPress={pauseActive} /></View>
-            <View style={styles.primaryAction}><ActionButton testID="complete-task" label="完成" variant="primary" onPress={completeActive} /></View>
+            <View style={styles.primaryAction}><ActionButton testID="pause-task" label="暂停" onPress={() => requestExecutionAction('pause')} /></View>
+            <View style={styles.primaryAction}><ActionButton testID="complete-task" label="完成" variant="primary" onPress={() => requestExecutionAction('complete')} /></View>
           </View>
 
           <Card testID="execution-summary" style={styles.summaryCard}>
@@ -143,6 +152,13 @@ export function ActiveScreen() {
           {available.map((task) => <CandidateRow key={task.id} task={task} pausedAt={task.id === pausedTask?.id ? latestPause?.createdAt : undefined} today={today} onStart={() => store.startTask(task.id)} />)}
         </Card>
       )}
+      {pendingExecutionAction && currentExecution ? (
+        <ExecutionCorrectionModal
+          elapsedMinutes={executionDurationMinutes(currentExecution.startedAt, toZonedISOString(clock))}
+          onClose={() => setPendingExecutionAction(undefined)}
+          onDecision={confirmExecutionTime}
+        />
+      ) : null}
     </Page>
   );
 }

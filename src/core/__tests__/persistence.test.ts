@@ -15,6 +15,17 @@ describe('persistence v4', () => {
     expect(restored.taskPlanEvents.length).toBeGreaterThan(0);
   });
 
+  it('round-trips an explicitly confirmed execution correction without changing the persistence version', () => {
+    const confirmedAt = '2026-07-17T12:00:00+08:00';
+    const data = {
+      ...fallback,
+      timeEntries: fallback.timeEntries.map((entry, index) => index === 0 ? { ...entry, confirmedAt } : entry),
+    };
+    const restored = parseStoredData(JSON.stringify(data), createEmptyData(), now);
+    expect(restored.timeEntries[0].confirmedAt).toBe(confirmedAt);
+    expect(restored.version).toBe(fallback.version);
+  });
+
   it('recovers captured and proposing inputs as visible retryable failures', () => {
     const interrupted = {
       ...fallback,

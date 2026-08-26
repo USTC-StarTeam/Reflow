@@ -68,6 +68,7 @@ function storeValue(): ReflowStoreValue {
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
+    correctTimeEntry: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
     planTaskForDate: jest.fn(),
@@ -354,7 +355,12 @@ describe('TodayScreen information hierarchy', () => {
     expect(store.updateWaitingFollowUp).toHaveBeenCalledWith('task-waiting-due', '2026-07-17');
     await fireEvent.press(screen.getByTestId('open-needs-attention'));
     await fireEvent.press(screen.getByTestId('attention-pause-today-task-reflow-demo'));
-    expect(store.pauseTask).toHaveBeenCalledWith('task-reflow-demo');
+    expect(store.pauseTask).not.toHaveBeenCalled();
+    expect(screen.getByTestId('execution-correction')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('adjust-execution-time'));
+    await fireEvent.changeText(screen.getByTestId('execution-correction-minutes'), '45');
+    await fireEvent.press(screen.getByTestId('save-execution-correction'));
+    expect(store.pauseTask).toHaveBeenCalledWith('task-reflow-demo', { kind: 'adjust', minutes: 45 });
     expect(store.planTaskForDate).toHaveBeenCalledWith('task-reflow-demo', '2026-07-17');
   }, 10_000);
 

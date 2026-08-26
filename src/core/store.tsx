@@ -10,7 +10,7 @@ import { runProposalPipeline } from './proposal-pipeline';
 import { createProposalService } from './proposal-service-config';
 import { reduceDomain, type DomainAction } from './reducer';
 import { selectLatestUndoableDecision } from './selectors';
-import type { DomainData, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
+import type { DomainData, ExecutionTimeDecision, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
 
 export type StoreCommandResult = { status: 'success' } | { status: 'failure'; failure: PipelineFailure };
 
@@ -43,14 +43,15 @@ export interface ReflowStoreValue {
   retryCaptureWithLocalRules(captureId: string): Promise<StoreCommandResult>;
   submitUserDecision(decision: UserDecisionInput): void;
   undoLastDecision(): void;
-  startTask(taskId: string): void;
-  pauseTask(taskId: string): void;
-  completeTask(taskId: string): void;
+  startTask(taskId: string, previousTimeDecision?: ExecutionTimeDecision): void;
+  pauseTask(taskId: string, timeDecision?: ExecutionTimeDecision): void;
+  completeTask(taskId: string, timeDecision?: ExecutionTimeDecision): void;
   restoreTask(taskId: string): void;
   updateTaskDetails(taskId: string, details: { title: string; estimatedMinutes: number; nextAction: string }): void;
   moveTask(taskId: string, bucket: WorkflowBucket): void;
   updateWaitingFollowUp(taskId: string, followUpDate: LocalDate): void;
   recordTime(taskId: string, minutes: number): void;
+  correctTimeEntry(timeEntryId: string, actualMinutes: number): void;
   recordProgress(taskId: string, text: string): void;
   recordInterruption(taskId: string, text: string): void;
   planTaskForDate(taskId: string, date: LocalDate): void;
@@ -292,14 +293,15 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
         const decision = selectLatestUndoableDecision(state.data);
         if (decision) perform({ type: 'undoUserDecision', decisionId: decision.id, at: now() });
       },
-      startTask(taskId) { perform({ type: 'startTask', taskId, at: now() }); },
-      pauseTask(taskId) { perform({ type: 'pauseTask', taskId, at: now() }); },
-      completeTask(taskId) { perform({ type: 'completeTask', taskId, at: now() }); },
+      startTask(taskId, previousTimeDecision) { perform({ type: 'startTask', taskId, at: now(), previousTimeDecision }); },
+      pauseTask(taskId, timeDecision) { perform({ type: 'pauseTask', taskId, at: now(), timeDecision }); },
+      completeTask(taskId, timeDecision) { perform({ type: 'completeTask', taskId, at: now(), timeDecision }); },
       restoreTask(taskId) { perform({ type: 'restoreTask', taskId }); },
       updateTaskDetails(taskId, details) { perform({ type: 'updateTaskDetails', taskId, ...details }); },
       moveTask(taskId, bucket) { perform({ type: 'moveTask', taskId, bucket, at: now() }); },
       updateWaitingFollowUp(taskId, followUpDate) { perform({ type: 'updateWaitingFollowUp', taskId, followUpDate }); },
       recordTime(taskId, minutes) { perform({ type: 'recordTime', taskId, minutes, at: now() }); },
+      correctTimeEntry(timeEntryId, actualMinutes) { perform({ type: 'correctTimeEntry', timeEntryId, actualMinutes, at: now() }); },
       recordProgress(taskId, text) { perform({ type: 'recordProgress', taskId, text, kind: 'progress', at: now() }); },
       recordInterruption(taskId, text) { perform({ type: 'recordInterruption', taskId, text: text.trim() || '突发事项打断当前任务', at: now() }); },
       planTaskForDate(taskId, date) { perform({ type: 'planTaskForDate', taskId, date, at: now() }); },

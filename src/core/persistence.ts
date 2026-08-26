@@ -133,7 +133,7 @@ function validateCurrentDomainData(value: unknown): value is DomainData {
   if (!(value.proposals as unknown[]).every((proposal) => validProposal(proposal, captureIds))) return false;
   if (!(value.decisions as unknown[]).every((decision) => isRecord(decision) && typeof decision.captureId === 'string' && captureIds.has(decision.captureId) && typeof decision.proposalId === 'string' && proposalIds.has(decision.proposalId) && isZonedDateTime(decision.appliedAt) && (decision.revertedAt === undefined || isZonedDateTime(decision.revertedAt)) && isRecord(decision.effect))) return false;
   if (!(value.timeEntries as unknown[]).every((entry) => {
-    if (!isRecord(entry) || typeof entry.taskId !== 'string' || !taskIds.has(entry.taskId) || !isZonedDateTime(entry.startedAt) || !isZonedDateTime(entry.endedAt)) return false;
+    if (!isRecord(entry) || typeof entry.taskId !== 'string' || !taskIds.has(entry.taskId) || !isZonedDateTime(entry.startedAt) || !isZonedDateTime(entry.endedAt) || (entry.confirmedAt !== undefined && !isZonedDateTime(entry.confirmedAt))) return false;
     const duration = durationMilliseconds(entry.startedAt, entry.endedAt);
     return duration > 0 && typeof entry.minutes === 'number' && entry.minutes > 0;
   })) return false;
