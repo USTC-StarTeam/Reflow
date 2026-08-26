@@ -129,6 +129,14 @@ export function formatTime(date?: string): string {
   return `${pad(value.getHours())}:${pad(value.getMinutes())}`;
 }
 
+export function formatDuration(minutes: number): string {
+  const rounded = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(rounded / 60);
+  const remaining = rounded % 60;
+  if (!hours) return `${remaining} 分`;
+  return remaining ? `${hours}小时${remaining}分` : `${hours}小时`;
+}
+
 export function minutesOfDay(date: string): number {
   const value = new Date(date);
   if (!validDate(value)) throw new Error('Invalid date value');

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
@@ -40,6 +40,7 @@ function storeValue(): ReflowStoreValue {
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
+    correctTimeEntry: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
     planTaskForDate: jest.fn(),
@@ -57,7 +58,11 @@ function storeValue(): ReflowStoreValue {
 }
 
 describe('TaskDetailModal', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+  });
   afterEach(() => {
+    jest.useRealTimers();
     mockPush.mockReset();
   });
 

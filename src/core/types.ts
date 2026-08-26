@@ -14,6 +14,7 @@ export type ProposalKind = 'create' | 'merge' | 'split';
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
 export type ProgressKind = 'start' | 'pause' | 'progress' | 'interrupt' | 'complete';
 export type ReviewPeriod = 'daily' | 'weekly' | 'monthly';
+export type ExecutionTimeDecision = { kind: 'keep' } | { kind: 'adjust'; minutes: number };
 export type CalendarViewMode = 'day' | 'week' | 'month';
 export type CalendarTaskEntryKind = 'planned' | 'unscheduled' | 'completed' | 'plannedCompleted';
 export type TaskPlanEventKind = 'planned' | 'scheduled' | 'rescheduled' | 'deferred' | 'unscheduled' | 'movedToSomeday' | 'cancelled';
@@ -157,6 +158,7 @@ export interface TimeEntry {
   startedAt: string;
   endedAt: string;
   minutes: number;
+  confirmedAt?: string;
 }
 
 export interface ProgressLog {

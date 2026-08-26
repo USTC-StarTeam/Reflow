@@ -1,8 +1,8 @@
 import { addMinutes, isLocalDate, localDateOf, runtimeId, toZonedISOString } from './date-utils';
 import { categoryForVisibleClassification, defaultSuggestedBucket, resolveProposalVisibleClassification } from './classification';
 import { createTaskPlanEvent, findScheduleConflicts, samePlan, taskPlanSnapshot, validateSchedule } from './planning';
-import { closeOpenExecutionSegment, findOpenExecutionSegment } from './execution';
-import { captureSourceLabels, type AIProposal, type DomainData, type InboxCapture, type LocalDate, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type TaskPlanEvent, type TaskPlanEventKind, type TaskPlanEventSource, type UserDecision, type UserDecisionInput, type WaitingDetails, type WaitingDetailsDraft, type WorkflowBucket } from './types';
+import { closeOpenExecutionSegment, executionDurationMinutes, executionNeedsConfirmation, findOpenExecutionSegment, timeEntryNeedsCorrection } from './execution';
+import { captureSourceLabels, type AIProposal, type DomainData, type ExecutionTimeDecision, type InboxCapture, type LocalDate, type PipelineFailure, type ProgressKind, type ProposalEdit, type TaskCategory, type TaskItem, type TaskPlanEvent, type TaskPlanEventKind, type TaskPlanEventSource, type UserDecision, type UserDecisionInput, type WaitingDetails, type WaitingDetailsDraft, type WorkflowBucket } from './types';
 
 export type EditedProposal = ProposalEdit;
 
@@ -13,14 +13,15 @@ export type DomainAction =
   | { type: 'proposalFailed'; captureId: string; failure: PipelineFailure }
   | { type: 'submitUserDecision'; decisionId: string; decision: UserDecisionInput; at: string }
   | { type: 'undoUserDecision'; decisionId: string; at: string }
-  | { type: 'startTask'; taskId: string; at: string }
-  | { type: 'pauseTask'; taskId: string; at: string }
-  | { type: 'completeTask'; taskId: string; at: string }
+  | { type: 'startTask'; taskId: string; at: string; previousTimeDecision?: ExecutionTimeDecision }
+  | { type: 'pauseTask'; taskId: string; at: string; timeDecision?: ExecutionTimeDecision }
+  | { type: 'completeTask'; taskId: string; at: string; timeDecision?: ExecutionTimeDecision }
   | { type: 'restoreTask'; taskId: string }
   | { type: 'updateTaskDetails'; taskId: string; title: string; estimatedMinutes: number; nextAction: string }
   | { type: 'moveTask'; taskId: string; bucket: WorkflowBucket; at: string }
   | { type: 'updateWaitingFollowUp'; taskId: string; followUpDate: LocalDate }
   | { type: 'recordTime'; taskId: string; minutes: number; at: string }
+  | { type: 'correctTimeEntry'; timeEntryId: string; actualMinutes: number; at: string }
   | { type: 'recordProgress'; taskId: string; text: string; kind: ProgressKind; at: string }
   | { type: 'recordInterruption'; taskId: string; text: string; at: string }
   | { type: 'planTaskForDate'; taskId: string; date: LocalDate; at: string }
@@ -49,6 +50,19 @@ function success(data: DomainData, type: DomainAction['type'], decision?: UserDe
 
 function findTask(data: DomainData, taskId: string): TaskItem | undefined {
   return data.tasks.find((task) => task.id === taskId && !task.deletedAt);
+}
+
+function validateExecutionTimeDecision(data: DomainData, taskId: string, endedAt: string, decision?: ExecutionTimeDecision): PipelineFailure | undefined {
+  const segment = findOpenExecutionSegment(data, taskId);
+  if (!segment) return undefined;
+  const elapsedMinutes = executionDurationMinutes(segment.startedAt, endedAt);
+  if (executionNeedsConfirmation(segment.startedAt, endedAt) && !decision) {
+    return { code: 'invalid_time', message: '这次执行时间需要先确认或修正。', retryable: false };
+  }
+  if (decision?.kind === 'adjust' && (!Number.isInteger(decision.minutes) || decision.minutes <= 0 || decision.minutes > Math.ceil(elapsedMinutes))) {
+    return { code: 'invalid_time', message: '实际投入需填写不超过本次已经过时间的正整数分钟。', retryable: false };
+  }
+  return undefined;
 }
 
 function planEvent(input: {
@@ -373,7 +387,9 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可开始的任务。');
       if (task.status === 'inProgress' && findOpenExecutionSegment(data, task.id)) return success(data, action.type);
       const previous = data.tasks.find((item) => !item.deletedAt && item.id !== task.id && item.status === 'inProgress');
-      const previousEntry = previous ? closeOpenExecutionSegment(data, previous.id, action.at, runtimeId('time')) : undefined;
+      const previousDecisionFailure = previous ? validateExecutionTimeDecision(data, previous.id, action.at, action.previousTimeDecision) : undefined;
+      if (previousDecisionFailure) return failure(data, previousDecisionFailure.code, previousDecisionFailure.message);
+      const previousEntry = previous ? closeOpenExecutionSegment(data, previous.id, action.at, runtimeId('time'), action.previousTimeDecision) : undefined;
       const progressLogs = previous
         ? appendLog({ ...data, progressLogs: appendLog(data, previous.id, `已暂停“${previous.title}”，保留实际执行时间`, 'pause', action.at) }, action.taskId, '开始执行任务', 'start', action.at)
         : appendLog(data, action.taskId, '开始执行任务', 'start', action.at);
@@ -389,7 +405,9 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
     case 'pauseTask': {
       const task = findTask(data, action.taskId);
       if (!task || task.status !== 'inProgress') return failure(data, 'invalid_decision', '只有进行中的任务可以暂停。');
-      const entry = closeOpenExecutionSegment(data, task.id, action.at, runtimeId('time'));
+      const decisionFailure = validateExecutionTimeDecision(data, task.id, action.at, action.timeDecision);
+      if (decisionFailure) return failure(data, decisionFailure.code, decisionFailure.message);
+      const entry = closeOpenExecutionSegment(data, task.id, action.at, runtimeId('time'), action.timeDecision);
       return success({
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId ? { ...item, status: 'notStarted' } : item),
@@ -400,7 +418,9 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
     case 'completeTask': {
       const task = findTask(data, action.taskId);
       if (!task || task.status === 'completed') return failure(data, 'task_not_found', '找不到可完成的任务。');
-      const entry = task.status === 'inProgress' ? closeOpenExecutionSegment(data, task.id, action.at, runtimeId('time')) : undefined;
+      const decisionFailure = task.status === 'inProgress' ? validateExecutionTimeDecision(data, task.id, action.at, action.timeDecision) : undefined;
+      if (decisionFailure) return failure(data, decisionFailure.code, decisionFailure.message);
+      const entry = task.status === 'inProgress' ? closeOpenExecutionSegment(data, task.id, action.at, runtimeId('time'), action.timeDecision) : undefined;
       return success({
         ...data,
         tasks: data.tasks.map((item) => item.id === action.taskId ? { ...item, status: 'completed', completedAt: action.at } : item),
@@ -470,6 +490,25 @@ export function reduceDomain(data: DomainData, action: DomainAction): DomainTran
       return success({
         ...data,
         timeEntries: [...data.timeEntries, { id: runtimeId('time'), taskId: action.taskId, minutes: action.minutes, startedAt: toZonedISOString(startedAt), endedAt: toZonedISOString(endedAt) }],
+      }, action.type);
+    }
+    case 'correctTimeEntry': {
+      const entry = data.timeEntries.find((item) => item.id === action.timeEntryId);
+      if (!entry || !timeEntryNeedsCorrection(entry)) return failure(data, 'invalid_time', '找不到需要核对的执行记录。');
+      const elapsedMinutes = executionDurationMinutes(entry.startedAt, entry.endedAt);
+      if (!Number.isInteger(action.actualMinutes) || action.actualMinutes <= 0 || action.actualMinutes > Math.ceil(elapsedMinutes)) {
+        return failure(data, 'invalid_time', '实际投入需填写不超过原记录的正整数分钟。');
+      }
+      const startedAt = new Date(entry.startedAt);
+      if (Number.isNaN(startedAt.getTime())) return failure(data, 'invalid_time', '执行记录的开始时间无效。');
+      return success({
+        ...data,
+        timeEntries: data.timeEntries.map((item) => item.id === entry.id ? {
+          ...item,
+          endedAt: toZonedISOString(addMinutes(startedAt, action.actualMinutes)),
+          minutes: action.actualMinutes,
+          confirmedAt: action.at,
+        } : item),
       }, action.type);
     }
     case 'recordProgress': {

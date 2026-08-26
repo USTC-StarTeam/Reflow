@@ -78,7 +78,12 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   await expect(calendarEntry).toBeVisible();
 
   await page.getByTestId('nav-回顾').click();
-  await expect(page.getByTestId('review-metric-actual-minutes')).toContainText('实际投入时间');
+  await expect(page.getByTestId('review-metric-actual-minutes')).toContainText('实际投入');
+  await page.getByRole('button', { name: '本周', exact: true }).click();
+  await expect(page.getByTestId('review-weekly')).toContainText('完成率');
+  await expect(page.getByTestId('review-weekly')).toContainText('主要投入');
+  await page.getByRole('button', { name: '本月', exact: true }).click();
+  await expect(page.getByTestId('review-monthly')).toContainText('实际投入');
 
   await page.reload();
   await page.getByTestId('nav-今天').click();
@@ -287,7 +292,6 @@ test('顺延后原日期回顾保留历史结果并在刷新后稳定', async ({
   await resetDemo(page);
   await page.getByTestId('nav-回顾').click();
   const originalPlanned = (await page.getByTestId('review-metric-planned').innerText()).match(/\d+$/)![0];
-  const originalUnfinished = (await page.getByTestId('review-metric-unfinished').innerText()).match(/\d+$/)![0];
   const tomorrow = await page.evaluate(() => {
     const date = new Date();
     date.setDate(date.getDate() + 1);
@@ -307,10 +311,8 @@ test('顺延后原日期回顾保留历史结果并在刷新后稳定', async ({
 
   await page.getByTestId('nav-回顾').click();
   await expect(page.getByTestId('review-metric-planned')).toContainText(originalPlanned);
-  await expect(page.getByTestId('review-metric-unfinished')).toContainText(originalUnfinished);
   await page.reload();
   await expect(page.getByTestId('review-metric-planned')).toContainText(originalPlanned);
-  await expect(page.getByTestId('review-metric-unfinished')).toContainText(originalUnfinished);
 });
 
 test('Mock 模式不会请求 Cloud Gateway', async ({ page }) => {

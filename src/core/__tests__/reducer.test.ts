@@ -236,6 +236,45 @@ describe('domain reducer', () => {
     expect(data.tasks.find((task) => task.id === 'task-client-quote')?.status).toBe('completed');
   });
 
+  it('requires an explicit decision for cross-day or overlong execution and never caps it automatically', () => {
+    let crossDay = createSeedData(new Date('2026-07-17T09:00:00+08:00'));
+    crossDay = { ...crossDay, tasks: crossDay.tasks.map((task) => ({ ...task, status: 'notStarted' })), progressLogs: [], timeEntries: [] };
+    crossDay = domainReducer(crossDay, { type: 'startTask', taskId: 'task-client-quote', at: '2026-07-16T23:30:00+08:00' });
+
+    expect(reduceDomain(crossDay, { type: 'pauseTask', taskId: 'task-client-quote', at: '2026-07-17T12:00:00+08:00' })).toMatchObject({
+      status: 'failure',
+      failure: { code: 'invalid_time' },
+      data: crossDay,
+    });
+
+    const kept = domainReducer(crossDay, { type: 'pauseTask', taskId: 'task-client-quote', at: '2026-07-17T12:00:00+08:00', timeDecision: { kind: 'keep' } });
+    expect(kept.timeEntries).toEqual([expect.objectContaining({ minutes: 750, endedAt: '2026-07-17T12:00:00+08:00', confirmedAt: '2026-07-17T12:00:00+08:00' })]);
+
+    let overlong = createSeedData(new Date('2026-07-17T09:00:00+08:00'));
+    overlong = { ...overlong, tasks: overlong.tasks.map((task) => ({ ...task, status: 'notStarted' })), progressLogs: [], timeEntries: [] };
+    overlong = domainReducer(overlong, { type: 'startTask', taskId: 'task-client-quote', at: '2026-07-17T08:00:00+08:00' });
+    expect(reduceDomain(overlong, { type: 'completeTask', taskId: 'task-client-quote', at: '2026-07-17T15:00:00+08:00' })).toMatchObject({ status: 'failure', failure: { code: 'invalid_time' } });
+
+    const adjusted = domainReducer(overlong, { type: 'completeTask', taskId: 'task-client-quote', at: '2026-07-17T15:00:00+08:00', timeDecision: { kind: 'adjust', minutes: 45 } });
+    expect(adjusted.timeEntries).toEqual([expect.objectContaining({ minutes: 45, startedAt: '2026-07-17T08:00:00+08:00', confirmedAt: '2026-07-17T15:00:00+08:00' })]);
+    expect(new Date(adjusted.timeEntries[0].endedAt).getTime() - new Date(adjusted.timeEntries[0].startedAt).getTime()).toBe(45 * 60_000);
+  });
+
+  it('corrects an existing abnormal TimeEntry through one explicit domain action', () => {
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    const data = {
+      ...seed,
+      timeEntries: [{ id: 'time-forgotten-stop', taskId: 'task-reflow-demo', startedAt: '2026-07-16T23:30:00+08:00', endedAt: '2026-07-17T11:53:00+08:00', minutes: 743 }],
+    };
+    const corrected = domainReducer(data, { type: 'correctTimeEntry', timeEntryId: 'time-forgotten-stop', actualMinutes: 50, at: '2026-07-17T12:00:00+08:00' });
+    expect(corrected.timeEntries).toEqual([expect.objectContaining({
+      id: 'time-forgotten-stop',
+      minutes: 50,
+      confirmedAt: '2026-07-17T12:00:00+08:00',
+    })]);
+    expect(new Date(corrected.timeEntries[0].endedAt).getTime() - new Date(corrected.timeEntries[0].startedAt).getTime()).toBe(50 * 60_000);
+  });
+
   it('explicitly pauses and records the old task before starting another one', () => {
     let data = createSeedData(new Date('2026-07-17T09:00:00+08:00'));
     data = { ...data, tasks: data.tasks.map((task) => ({ ...task, status: 'notStarted' })), progressLogs: [], timeEntries: [] };

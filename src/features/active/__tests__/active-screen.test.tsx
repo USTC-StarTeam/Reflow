@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
@@ -36,6 +36,7 @@ function storeValue(data: DomainData): ReflowStoreValue {
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
+    correctTimeEntry: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
     planTaskForDate: jest.fn(),
@@ -62,6 +63,9 @@ async function renderActive(store: ReflowStoreValue) {
 }
 
 describe('ActiveScreen presentation', () => {
+  beforeEach(() => { jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00')); });
+  afterEach(() => { jest.useRealTimers(); });
+
   it('keeps the current task central and summarizes execution without management controls', async () => {
     const data = createSeedData();
     const screen = await renderActive(storeValue(data));
@@ -98,6 +102,42 @@ describe('ActiveScreen presentation', () => {
     expect(store.recordTime).not.toHaveBeenCalled();
     expect(store.recordInterruption).not.toHaveBeenCalled();
     expect(store.deleteTask).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation for a cross-day execution before pausing and can keep the original duration', async () => {
+    const data = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    data.progressLogs = [
+      ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || !['start', 'pause', 'complete'].includes(log.kind)),
+      { id: 'cross-day-start', taskId: 'task-reflow-demo', kind: 'start', text: '昨日开始', createdAt: '2026-07-16T23:37:00+08:00' },
+    ];
+    const store = storeValue(data);
+    const screen = await renderActive(store);
+
+    await fireEvent.press(screen.getByTestId('pause-task'));
+    expect(store.pauseTask).not.toHaveBeenCalled();
+    expect(screen.getByTestId('execution-correction')).toHaveTextContent(/这次执行已经持续 12小时23分/);
+
+    await fireEvent.press(screen.getByTestId('keep-execution-time'));
+    expect(store.pauseTask).toHaveBeenCalledWith('task-reflow-demo', { kind: 'keep' });
+  });
+
+  it('requires confirmation for an over-six-hour execution and sends only the user-entered duration', async () => {
+    const data = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+    data.progressLogs = [
+      ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || !['start', 'pause', 'complete'].includes(log.kind)),
+      { id: 'long-start', taskId: 'task-reflow-demo', kind: 'start', text: '开始', createdAt: '2026-07-17T05:00:00+08:00' },
+    ];
+    const store = storeValue(data);
+    const screen = await renderActive(store);
+
+    await fireEvent.press(screen.getByTestId('complete-task'));
+    expect(store.completeTask).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('adjust-execution-time'));
+    expect(screen.getByTestId('save-execution-correction')).toBeDisabled();
+    await fireEvent.changeText(screen.getByTestId('execution-correction-minutes'), '55');
+    await fireEvent.press(screen.getByTestId('save-execution-correction'));
+
+    expect(store.completeTask).toHaveBeenCalledWith('task-reflow-demo', { kind: 'adjust', minutes: 55 });
   });
 
   it('records and cancels an interruption without changing task lifecycle', async () => {

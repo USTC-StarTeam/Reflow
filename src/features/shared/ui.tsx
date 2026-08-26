@@ -85,7 +85,7 @@ export function SegmentedControl<T extends string>({ values, selected, onChange 
   return (
     <View style={styles.segmented}>
       {values.map((item) => (
-        <Pressable key={item.value} accessibilityRole="button" accessibilityState={{ selected: item.value === selected }} onPress={() => onChange(item.value)} style={[styles.segment, item.value === selected && styles.segmentSelected]}>
+        <Pressable key={item.value} accessibilityRole="button" accessibilityLabel={item.label} accessibilityState={{ selected: item.value === selected }} onPress={() => onChange(item.value)} style={[styles.segment, item.value === selected && styles.segmentSelected]}>
           <Text style={[styles.segmentText, item.value === selected && styles.segmentTextSelected]}>{item.label}</Text>
         </Pressable>
       ))}

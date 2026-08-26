@@ -2,11 +2,13 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatDateTimeRange, isLocalDate } from '@/core/date-utils';
-import { selectCurrentTask } from '@/core/selectors';
+import { formatDateTimeRange, isLocalDate, toZonedISOString } from '@/core/date-utils';
+import { executionDurationMinutes, executionNeedsConfirmation } from '@/core/execution';
+import { selectCurrentExecutionSession, selectCurrentTask } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { LocalDate, TaskItem } from '@/core/types';
 import { ScheduleTaskModal } from '../calendar/schedule-task-modal';
+import { ExecutionCorrectionModal } from '../shared/execution-correction-modal';
 import { colors, radius, spacing, typography } from '../shared/theme';
 import { ActionButton, ModalSurface, textStyles } from '../shared/ui';
 
@@ -36,6 +38,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
   const [pendingAction, setPendingAction] = useState<GuardedAction>();
   const [confirmDateChange, setConfirmDateChange] = useState(false);
   const [confirmTaskSwitch, setConfirmTaskSwitch] = useState(false);
+  const [executionCorrection, setExecutionCorrection] = useState<{ kind: 'complete' | 'switch'; startedAt: string; endedAt: string }>();
   const [scheduleDateOverride, setScheduleDateOverride] = useState<LocalDate>();
   const planningIdentity = `${task.plannedDate ?? ''}|${task.plannedStartAt ?? ''}|${task.plannedEndAt ?? ''}`;
   const [previousPlanningIdentity, setPreviousPlanningIdentity] = useState(planningIdentity);
@@ -121,11 +124,29 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
       if (task.status !== 'inProgress' && current && current.id !== task.id) return setConfirmTaskSwitch(true);
       return startAndOpenActive();
     }
+    if (task.status === 'inProgress') {
+      const execution = selectCurrentExecutionSession(store.data, task.id);
+      const endedAt = toZonedISOString(new Date());
+      if (execution && executionNeedsConfirmation(execution.startedAt, endedAt)) {
+        setExecutionCorrection({ kind: 'complete', startedAt: execution.startedAt, endedAt });
+        return;
+      }
+    }
     store.completeTask(task.id);
     return onClose();
   }
 
   function startAndOpenActive() {
+    const current = selectCurrentTask(store.data);
+    if (task.status !== 'inProgress' && current && current.id !== task.id) {
+      const execution = selectCurrentExecutionSession(store.data, current.id);
+      const endedAt = toZonedISOString(new Date());
+      if (execution && executionNeedsConfirmation(execution.startedAt, endedAt)) {
+        setConfirmTaskSwitch(false);
+        setExecutionCorrection({ kind: 'switch', startedAt: execution.startedAt, endedAt });
+        return;
+      }
+    }
     if (task.status !== 'inProgress') store.startTask(task.id);
     setConfirmTaskSwitch(false);
     onClose();
@@ -151,7 +172,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
 
   return (
     <>
-      {!scheduleOpen && !pendingAction && !confirmDateChange && !confirmTaskSwitch ? (
+      {!scheduleOpen && !pendingAction && !confirmDateChange && !confirmTaskSwitch && !executionCorrection ? (
         <ModalSurface
           visible={visible}
           title="任务详情"
@@ -255,6 +276,20 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
             <ActionButton testID="confirm-task-switch-action" label={`暂停并开始“${task.title}”`} onPress={startAndOpenActive} />
           </View>
         </ModalSurface>
+      ) : null}
+
+      {executionCorrection ? (
+        <ExecutionCorrectionModal
+          elapsedMinutes={executionDurationMinutes(executionCorrection.startedAt, executionCorrection.endedAt)}
+          onClose={() => setExecutionCorrection(undefined)}
+          onDecision={(decision) => {
+            if (executionCorrection.kind === 'complete') store.completeTask(task.id, decision);
+            else store.startTask(task.id, decision);
+            setExecutionCorrection(undefined);
+            onClose();
+            if (executionCorrection.kind === 'switch') router.push('/active');
+          }}
+        />
       ) : null}
 
       {scheduleOpen ? (

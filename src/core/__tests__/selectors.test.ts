@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectFirstAvailableSlot, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTodaySections } from '../selectors';
+import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectFirstAvailableSlot, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTimeEntriesNeedingCorrection, selectTodaySections } from '../selectors';
 import type { TaskItem } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
@@ -83,6 +83,20 @@ describe('selectors', () => {
     };
     expect(deriveDailyReviewFacts(data, '2026-07-17').actualMinutes).toBe(10);
     expect(deriveDailyReviewFacts(data, '2026-07-18').actualMinutes).toBe(10);
+  });
+
+  it('surfaces only unconfirmed abnormal TimeEntries and recalculates Review after correction', () => {
+    const seed = createSeedData(new Date(at));
+    const data = {
+      ...seed,
+      timeEntries: [{ id: 'forgotten-stop', taskId: 'task-reflow-demo', startedAt: '2026-07-16T23:30:00+08:00', endedAt: '2026-07-17T11:53:00+08:00', minutes: 743 }],
+    };
+    expect(selectTimeEntriesNeedingCorrection(data).map((entry) => entry.id)).toEqual(['forgotten-stop']);
+    expect(deriveDailyReviewFacts(data, '2026-07-17').actualMinutes).toBe(713);
+
+    const corrected = domainReducer(data, { type: 'correctTimeEntry', timeEntryId: 'forgotten-stop', actualMinutes: 50, at });
+    expect(selectTimeEntriesNeedingCorrection(corrected)).toEqual([]);
+    expect(deriveDailyReviewFacts(corrected, '2026-07-17').actualMinutes).toBe(20);
   });
 
   it('reflects start and completion changes through current task selectors', () => {

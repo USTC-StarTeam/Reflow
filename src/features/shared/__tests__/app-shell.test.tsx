@@ -40,6 +40,7 @@ function storeValue(hydrated: boolean, recoveryFailure = false, persistenceFailu
     moveTask: jest.fn(),
     updateWaitingFollowUp: jest.fn(),
     recordTime: jest.fn(),
+    correctTimeEntry: jest.fn(),
     recordProgress: jest.fn(),
     recordInterruption: jest.fn(),
     planTaskForDate: jest.fn(),
