@@ -1,13 +1,16 @@
 # Reflow 本地 AI Gateway
 
-该 Gateway 只用于本地开发阶段的一次 Proposal 请求：
+该 Gateway 用于本地开发阶段的 Proposal 请求，以及按用户操作读取中科大邮箱：
 
 ```text
 Web Capture → CloudProposalService → POST /v1/proposals
 → DeepSeek 官方 Responses API → CloudProposalDraft
+
+Inbox → GET /messages → USTC IMAP metadata
+Inbox → GET /messages/:uid → 单封邮件文本
 ```
 
-它不保存数据库、会话、任务或 Capture 原文，也不执行任何 Reflow 领域 Action。
+它不保存数据库、会话、邮件、任务或 Capture 原文，也不执行任何 Reflow 领域 Action。邮箱始终通过 IMAP `EXAMINE` 只读打开。
 
 ## 配置
 
@@ -24,6 +27,9 @@ DEEPSEEK_API_KEY=本机密钥
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEK_REASONING_EFFORT=high
+
+USTC_EMAIL=完整学校邮箱地址
+USTC_EMAIL_APP_PASSWORD=客户端专用密码
 ```
 
 也可以直接使用当前终端环境变量。`DEEPSEEK_RESPONSES_URL` 可在代理或兼容层场景下直接覆盖 `/responses` 地址；普通官方配置不需要设置。
@@ -39,6 +45,8 @@ DeepSeek 官方 [Responses API 指南](https://api-docs.deepseek.com/guides/resp
 - Git；
 - 浏览器存储；
 - Issue、日志或聊天记录。
+
+邮箱账号和客户端专用密码同样只能存在于 Gateway 进程环境或被忽略的 `gateway/.dev.vars`，不得使用 `EXPO_PUBLIC_*`。
 
 ## 启动
 
@@ -59,6 +67,15 @@ http://127.0.0.1:8787
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8787/health
 ```
+
+邮箱接口：
+
+```text
+GET /messages       最近最多 10 封 metadata
+GET /messages/:uid  用户打开的一封邮件及纯文本正文
+```
+
+列表不会读取正文。详情只读取被打开邮件的首选纯文本 body part；没有纯文本时，将单个 HTML body part 转为文本。附件不会下载或返回。两类读取均使用 `BODY.PEEK`，不会设置 `\\Seen`，也没有删除、移动、回复、发信或 flags 修改能力。
 
 终端二：
 

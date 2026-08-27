@@ -16,4 +16,9 @@ describe('Capture Factory', () => {
     const result = createCapture({ id: 'capture-voice', rawText: '买药', source: 'voice', createdAt: '2026-07-17T08:00:00.000Z' });
     expect(result).toMatchObject({ status: 'success', capture: { source: 'voice', pipelineState: 'captured' } });
   });
+
+  it('uses the existing Capture shape for imported email content', () => {
+    const result = createCapture({ id: 'capture-email', rawText: '邮件标题：下周组会', source: 'email', createdAt: '2026-08-27T08:00:00.000Z' });
+    expect(result).toMatchObject({ status: 'success', capture: { source: 'email', pipelineState: 'captured' } });
+  });
 });

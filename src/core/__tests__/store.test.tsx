@@ -39,6 +39,8 @@ function StoreProbe() {
       <Text testID="decision-count">{store.data.decisions.length}</Text>
       <Text testID="plan-event-count">{store.data.taskPlanEvents.length}</Text>
       <Text testID="capture-count">{store.data.captures.length}</Text>
+      <Text testID="capture-sources">{store.data.captures.map((capture) => capture.source).join(',')}</Text>
+      <Text testID="proposal-count">{store.data.proposals.length}</Text>
       <Text testID="capture-states">{store.data.captures.map((capture) => capture.pipelineState).join(',')}</Text>
       <Pressable testID="start-empty" onPress={store.startEmpty}><Text>开始空白空间</Text></Pressable>
       <Pressable testID="load-demo" onPress={store.resetDemo}><Text>加载演示数据</Text></Pressable>
@@ -48,6 +50,7 @@ function StoreProbe() {
       <Pressable testID="import-empty-backup" onPress={() => { void store.importBackup(serializeBackup(createEmptyData())); }}><Text>导入空白备份</Text></Pressable>
       <Pressable testID="capture-first" onPress={() => { void store.capture('第一条捕捉'); }}><Text>捕捉第一条</Text></Pressable>
       <Pressable testID="capture-second" onPress={() => { void store.capture('第二条捕捉'); }}><Text>捕捉第二条</Text></Pressable>
+      <Pressable testID="capture-email" onPress={() => { void store.capture('邮件标题：下周组会', 'email'); }}><Text>导入邮件</Text></Pressable>
     </>
   );
 }
@@ -288,6 +291,25 @@ function proposalFor(request: ProposalRequest): ProposalResult {
 }
 
 describe('durable Capture queue', () => {
+  it('routes an email Capture through ProposalService without creating a formal Task', async () => {
+    mockedStorage.getItem.mockReset();
+    mockedStorage.setItem.mockReset();
+    mockedStorage.getItem.mockResolvedValue(null);
+    mockedStorage.setItem.mockResolvedValue();
+    const propose = jest.fn<ProposalService['propose']>(async (request) => proposalFor(request));
+    const service: ProposalService = { kind: 'mock', propose };
+    const screen = await render(<ReflowProvider proposalService={service}><StoreProbe /></ReflowProvider>);
+    await waitFor(() => expect(screen.getByTestId('hydrated').props.children).toBe('true'));
+
+    await press(screen, 'capture-email');
+
+    await waitFor(() => expect(propose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('proposal-count').props.children).toBe(1));
+    expect(propose.mock.calls[0][0].capture.source).toBe('email');
+    expect(screen.getByTestId('capture-sources').props.children).toBe('email');
+    expect(screen.getByTestId('task-count').props.children).toBe(0);
+  });
+
   it('queues each Capture only after its own durable write succeeds', async () => {
     mockedStorage.getItem.mockReset();
     mockedStorage.setItem.mockReset();

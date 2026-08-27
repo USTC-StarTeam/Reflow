@@ -52,6 +52,8 @@ describe('InboxScreen first-level presentation', () => {
     expect(row.getByText('邮件 · 7月17日 11:20 捕捉')).toBeTruthy();
     expect(screen.getByText('整理完成，等待你的决定')).toBeTruthy();
     expect(screen.getByText('待你确认')).toBeTruthy();
+    expect(screen.getByTestId('ustc-email-entry')).toBeTruthy();
+    expect(screen.getByLabelText('打开学校邮箱')).toBeTruthy();
     expect(screen.queryByText(/已整理为 .* 条待确认建议/)).toBeNull();
   });
 
