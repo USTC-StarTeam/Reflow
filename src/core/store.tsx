@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 
-import { createWebTextCapture } from './capture-factory';
+import { createCapture } from './capture-factory';
 import { createEmptyData, createSeedData } from './demo-data';
 import { runtimeId, toZonedISOString } from './date-utils';
 import { MockProposalService } from './mock-proposal-service';
@@ -10,7 +10,7 @@ import { runProposalPipeline } from './proposal-pipeline';
 import { createProposalService } from './proposal-service-config';
 import { reduceDomain, type DomainAction } from './reducer';
 import { selectLatestUndoableDecision } from './selectors';
-import type { DomainData, ExecutionTimeDecision, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
+import type { CaptureSource, DomainData, ExecutionTimeDecision, LocalDate, PipelineFailure, ProposalService, ProposalServiceKind, UserDecisionInput, WorkflowBucket } from './types';
 
 export type StoreCommandResult = { status: 'success' } | { status: 'failure'; failure: PipelineFailure };
 
@@ -38,7 +38,7 @@ export interface ReflowStoreValue {
   capturing: boolean;
   proposalServiceKind: ProposalServiceKind;
   lastActionFailure: PipelineFailure | null;
-  capture(text: string): Promise<StoreCommandResult>;
+  capture(text: string, source?: CaptureSource): Promise<StoreCommandResult>;
   retryCapture(captureId: string): Promise<StoreCommandResult>;
   retryCaptureWithLocalRules(captureId: string): Promise<StoreCommandResult>;
   submitUserDecision(decision: UserDecisionInput): void;
@@ -255,9 +255,9 @@ export function ReflowProvider({ children, proposalService = defaultProposalServ
       capturing: state.capturing,
       proposalServiceKind: proposalService.kind ?? 'mock',
       lastActionFailure: state.lastActionFailure,
-      async capture(text) {
+      async capture(text, source = 'webText') {
         const createdAt = now();
-        const created = createWebTextCapture({ id: runtimeId('capture'), rawText: text, createdAt });
+        const created = createCapture({ id: runtimeId('capture'), rawText: text, source, createdAt });
         if (created.status === 'failure') return created;
         const transition = perform({ type: 'captureCreated', capture: created.capture });
         if (!transition || transition.status === 'failure') {

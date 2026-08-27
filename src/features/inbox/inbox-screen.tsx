@@ -10,6 +10,7 @@ import { type AIProposal, captureSourceLabels, type ProposalEdit, type TaskCateg
 import { colors, radius } from '../shared/theme';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, SectionHeader, textStyles } from '../shared/ui';
 import { LocalDatePicker } from '../shared/local-date-picker';
+import { UstcEmailModal } from './ustc-email-modal';
 
 const visibleClassifications: VisibleClassification[] = ['work', 'communication', 'learning', 'life', 'health', 'waiting', 'someday', 'knowledge', 'unknown'];
 
@@ -259,6 +260,7 @@ function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undo
 
 export function InboxScreen() {
   const { data, lastActionFailure } = useReflowStore();
+  const [emailOpen, setEmailOpen] = useState(false);
   const proposals = selectPendingProposals(data);
   const capturedCaptures = selectCapturedCaptures(data);
   const failedCaptures = selectFailedCaptures(data);
@@ -269,12 +271,20 @@ export function InboxScreen() {
     <Page testID="screen-inbox">
       <PageHeader title="收件箱" subtitle={pendingCount ? '整理完成，等待你的决定' : '收件箱已整理完毕'} />
       {lastActionFailure ? <Card style={styles.failure}><Text style={textStyles.cardTitle}>操作未完成</Text><Text style={textStyles.meta}>{lastActionFailure.message}</Text></Card> : null}
+      <Card testID="ustc-email-entry" style={styles.emailEntry}>
+        <Pressable accessibilityRole="button" accessibilityLabel="打开学校邮箱" onPress={() => setEmailOpen(true)} style={({ pressed }) => [styles.emailEntryRow, pressed && styles.emailEntryPressed]}>
+          <View style={styles.emailEntryIcon}><Text style={styles.emailEntryIconText}>✉</Text></View>
+          <View style={styles.emailEntryCopy}><Text style={textStyles.cardTitle}>学校邮箱</Text><Text style={textStyles.meta}>查看最近邮件，按需加入 Reflow</Text></View>
+          <Text style={styles.emailEntryArrow}>›</Text>
+        </Pressable>
+      </Card>
       <SectionHeader title="待你确认" meta={`${pendingCount} 条`} />
       {capturedCaptures.map((capture) => <CapturedCaptureCard key={capture.id} captureId={capture.id} />)}
       {failedCaptures.map((capture) => <FailedCaptureCard key={capture.id} captureId={capture.id} />)}
       {proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} />)}
       {!pendingCount ? <EmptyState title="收件箱已清空" detail="从任意页面使用“+”捕捉新事项，AI 整理后会回到这里等待你确认。" /> : null}
       {recentDecisions.length ? <><SectionHeader title="最近处理" /><RecentDecisionCard decisionId={recentDecisions[0].id} undoable={recentDecisions[0].id === latestDecision?.id} /></> : null}
+      {emailOpen ? <UstcEmailModal visible onClose={() => setEmailOpen(false)} /> : null}
     </Page>
   );
 }
@@ -287,4 +297,5 @@ const styles = StyleSheet.create({
   dateButton: { minHeight: 44, borderRadius: radius.small, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, dateButtonPressed: { opacity: 0.72 }, dateButtonText: { color: colors.ink, fontSize: 13, fontWeight: '800' }, dateButtonPlaceholder: { color: colors.muted },
   modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(24, 32, 45, 0.34)', padding: 14 }, sheet: { width: '100%', maxWidth: 452, gap: 10, maxHeight: '84%', borderRadius: radius.large, backgroundColor: colors.card, padding: 14 }, sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, optionList: { gap: 8 }, editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   recentCard: { paddingVertical: 9 }, recentTop: { flexDirection: 'row', alignItems: 'center', gap: 9 }, recentIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }, recentIconText: { color: colors.muted, fontSize: 16 }, recentCopy: { flex: 1, minWidth: 0 }, failure: { borderLeftWidth: 4, borderLeftColor: colors.danger },
+  emailEntry: { padding: 0 }, emailEntryRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11 }, emailEntryPressed: { opacity: 0.72 }, emailEntryIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft }, emailEntryIconText: { color: colors.primary, fontSize: 16 }, emailEntryCopy: { flex: 1, minWidth: 0 }, emailEntryArrow: { color: colors.subtle, fontSize: 24, lineHeight: 26 },
 });

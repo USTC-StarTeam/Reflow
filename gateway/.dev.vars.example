@@ -12,6 +12,9 @@ DEEPSEEK_REASONING_EFFORT=high
 # OPENAI_REASONING_EFFORT=high
 
 # Optional local settings
+# USTC email credentials stay in this ignored Gateway-only file or process environment.
+USTC_EMAIL=
+USTC_EMAIL_APP_PASSWORD=
 AI_ENABLED=true
 GATEWAY_DIAGNOSTICS_ENABLED=false
 PORT=8787
