@@ -20,6 +20,14 @@ async function selectTodayForProposal(page: Page, proposal: ReturnType<Page['loc
   await proposal.getByRole('button', { name: '确认', exact: true }).click();
 }
 
+async function keepExecutionTimeIfConfirmationIsOpen(page: Page) {
+  const correction = page.getByTestId('execution-correction');
+  if (await correction.isVisible()) {
+    await page.getByTestId('keep-execution-time').click();
+    await expect(correction).toBeHidden();
+  }
+}
+
 test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新后保持可追踪', async ({ page }) => {
   await page.goto('/');
   await resetDemo(page);
@@ -53,6 +61,7 @@ test('Web 文本捕捉经过 Proposal、决定、执行日志、回顾和刷新�
   const currentTask = page.getByTestId('current-task-card');
   if (await currentTask.isVisible() && !await currentTask.getByText(taskText).isVisible()) {
     await page.getByTestId('complete-task').click();
+    await keepExecutionTimeIfConfirmationIsOpen(page);
   }
   await expect(currentTask).toBeHidden();
   const activeCandidate = page.locator('[data-testid^="active-candidate-"]', { hasText: taskText });
@@ -136,6 +145,7 @@ test('已排期任务完成后在同一天合并展示计划与实际完成', as
 
   await expect(page.getByTestId('current-task-card')).toContainText('完成 Reflow Demo 页面结构');
   await page.getByTestId('complete-task').click();
+  await keepExecutionTimeIfConfirmationIsOpen(page);
   await page.getByTestId('nav-日历').click();
 
   const calendarEntry = page.getByTestId('calendar-entry-task-reflow-demo');
@@ -175,6 +185,7 @@ test('Today 任务详情可编辑、取消具体时间并开始执行', async ({
   await page.getByTestId('open-today-task-task-client-quote').click();
   await page.getByTestId('start-task-from-detail').click();
   await page.getByTestId('confirm-task-switch-action').click();
+  await keepExecutionTimeIfConfirmationIsOpen(page);
   await expect(page).toHaveURL(/\/active$/);
   await expect(page.getByTestId('current-task-card')).toContainText('复核客户报价');
 });
