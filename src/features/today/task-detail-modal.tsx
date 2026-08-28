@@ -1,14 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatDateTimeRange, isLocalDate, toZonedISOString } from '@/core/date-utils';
+import { formatDateTimeRange, formatShortDate, isLocalDate, toZonedISOString } from '@/core/date-utils';
 import { executionDurationMinutes, executionNeedsConfirmation } from '@/core/execution';
 import { selectCurrentExecutionSession, selectCurrentTask } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { LocalDate, TaskItem } from '@/core/types';
 import { ScheduleTaskModal } from '../calendar/schedule-task-modal';
 import { ExecutionCorrectionModal } from '../shared/execution-correction-modal';
+import { LocalDatePicker } from '../shared/local-date-picker';
 import { colors, radius, spacing, typography } from '../shared/theme';
 import { ActionButton, ModalSurface, textStyles } from '../shared/ui';
 
@@ -29,6 +30,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
   const [plannedDate, setPlannedDate] = useState(task.plannedDate ?? '');
   const [error, setError] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [savedDetails, setSavedDetails] = useState({
     title: task.title,
     estimatedMinutes: String(task.estimatedMinutes),
@@ -74,7 +76,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
 
   function saveDate() {
     if (!isLocalDate(plannedDate)) {
-      setError('请输入 YYYY-MM-DD 格式的有效日期。');
+      setError('请先选择计划日期。');
       return;
     }
     if (plannedDate === savedDate) {
@@ -172,7 +174,7 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
 
   return (
     <>
-      {!scheduleOpen && !pendingAction && !confirmDateChange && !confirmTaskSwitch && !executionCorrection ? (
+      {!datePickerOpen && !scheduleOpen && !pendingAction && !confirmDateChange && !confirmTaskSwitch && !executionCorrection ? (
         <ModalSurface
           visible={visible}
           title="任务详情"
@@ -190,7 +192,16 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
           <View style={styles.row}>
             <View style={styles.growField}>
               <Text style={styles.label}>计划日期</Text>
-              <TextInput testID="task-detail-date" value={plannedDate} onChangeText={setPlannedDate} placeholder="YYYY-MM-DD" style={styles.input} />
+              <Pressable
+                testID="task-detail-date"
+                accessibilityRole="button"
+                accessibilityLabel={plannedDate ? `计划日期 ${formatShortDate(plannedDate)}，点击修改` : '计划日期尚未选择，点击选择'}
+                onPress={() => setDatePickerOpen(true)}
+                style={({ pressed }) => [styles.input, styles.dateButton, pressed && styles.dateButtonPressed]}
+              >
+                <Text style={textStyles.body}>{plannedDate ? formatShortDate(plannedDate) : '选择日期'}</Text>
+                <Text style={styles.dateDisclosure}>选择</Text>
+              </Pressable>
             </View>
             <View style={styles.durationField}>
               <Text style={styles.label}>预计耗时</Text>
@@ -227,6 +238,18 @@ export function TaskDetailModal({ task, visible, onClose }: TaskDetailModalProps
           </View>
           </ScrollView>
         </ModalSurface>
+      ) : null}
+
+      {datePickerOpen && visible ? (
+        <LocalDatePicker
+          value={plannedDate || undefined}
+          onClose={() => setDatePickerOpen(false)}
+          onSelect={(date) => {
+            setPlannedDate(date);
+            setError('');
+            setDatePickerOpen(false);
+          }}
+        />
       ) : null}
 
       {pendingAction ? (
@@ -322,6 +345,9 @@ const styles = StyleSheet.create({
   durationField: { width: 108, gap: spacing.sm },
   label: { color: colors.muted, ...typography.label },
   input: { minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radius.small, paddingHorizontal: spacing.xl, color: colors.ink, backgroundColor: colors.surface, ...typography.body },
+  dateButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  dateButtonPressed: { opacity: 0.72 },
+  dateDisclosure: { color: colors.primary, ...typography.label },
   multiline: { minHeight: 72, paddingVertical: spacing.md, textAlignVertical: 'top' },
   timeOverview: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.xl, borderRadius: radius.medium, backgroundColor: colors.surface },
   timeCopy: { flex: 1, minWidth: 0, gap: spacing.xs },

@@ -86,7 +86,12 @@ describe('TaskDetailModal', () => {
       nextAction: '核对付款条款',
     });
 
-    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    expect(screen.queryByTestId('today-task-detail')).toBeNull();
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-07-18'));
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月18日/);
+    expect(screen.queryByTestId('proposal-date-picker')).toBeNull();
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByTestId('save-task-date'));
     expect(store.planTaskForDate).toHaveBeenCalledWith(task.id, '2026-07-18');
   });
@@ -97,7 +102,8 @@ describe('TaskDetailModal', () => {
     mockedUseReflowStore.mockReturnValue(store);
     const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
 
-    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-07-18'));
     await fireEvent.press(screen.getByTestId('save-task-date'));
 
     expect(store.planTaskForDate).not.toHaveBeenCalled();
@@ -105,7 +111,7 @@ describe('TaskDetailModal', () => {
     expect(screen.queryByTestId('today-task-detail')).toBeNull();
 
     await fireEvent.press(screen.getByTestId('continue-editing-task-date'));
-    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月18日/);
     expect(screen.getByTestId('task-detail-time')).toHaveTextContent('16:00–16:30');
     expect(store.planTaskForDate).not.toHaveBeenCalled();
 
@@ -121,13 +127,14 @@ describe('TaskDetailModal', () => {
     mockedUseReflowStore.mockReturnValue(store);
     const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
 
-    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-07-18'));
     await fireEvent.press(screen.getByTestId('save-task-date'));
     await fireEvent.press(screen.getByTestId('reschedule-task-date'));
 
     expect(screen.queryByTestId('confirm-task-date-change')).toBeNull();
     expect(screen.queryByTestId('today-task-detail')).toBeNull();
-    expect(screen.getByTestId('schedule-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('schedule-date')).toHaveTextContent(/7月18日/);
     expect(screen.getByTestId('schedule-time')).toHaveProp('value', '16:00');
     expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '30');
 
@@ -138,7 +145,7 @@ describe('TaskDetailModal', () => {
       expect.stringContaining('2026-07-18T16:00:00'),
       expect.stringContaining('2026-07-18T16:30:00'),
     );
-    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月18日/);
     await fireEvent.press(screen.getByTestId('start-task-from-detail'));
     expect(screen.queryByTestId('discard-task-changes')).toBeNull();
   });
@@ -170,6 +177,45 @@ describe('TaskDetailModal', () => {
     expect(screen.queryByText('安排任务时间')).toBeNull();
   });
 
+  it('keeps scheduling drafts through calendar cancellation and selection, saving only on confirmation', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.press(screen.getByTestId('open-task-schedule'));
+    await fireEvent.changeText(screen.getByTestId('schedule-time'), '14:15');
+    await fireEvent.changeText(screen.getByTestId('schedule-duration'), '45');
+    await fireEvent.press(screen.getByTestId('schedule-date'));
+    expect(screen.queryByTestId('confirm-schedule')).toBeNull();
+    await fireEvent.press(screen.getByTestId('proposal-date-next-month'));
+    await fireEvent.press(screen.getByLabelText('关闭'));
+
+    expect(screen.getByTestId('schedule-date')).toHaveTextContent(/7月17日/);
+    expect(screen.getByTestId('schedule-time')).toHaveProp('value', '14:15');
+    expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '45');
+    expect(store.scheduleTask).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('schedule-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-next-month'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-08-03'));
+    expect(screen.queryByTestId('proposal-date-picker')).toBeNull();
+    expect(screen.getByTestId('schedule-date')).toHaveTextContent(/8月3日/);
+    expect(screen.getByTestId('schedule-time')).toHaveProp('value', '14:15');
+    expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '45');
+    expect(store.scheduleTask).not.toHaveBeenCalled();
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('confirm-schedule'));
+    expect(store.scheduleTask).toHaveBeenCalledTimes(1);
+    expect(store.scheduleTask).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining('2026-08-03T14:15:00'),
+      expect.stringContaining('2026-08-03T15:00:00'),
+    );
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/8月3日/);
+  });
+
   it('adopts a canonical cross-date schedule without making the returned date dirty', async () => {
     const store = storeValue();
     const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
@@ -186,7 +232,7 @@ describe('TaskDetailModal', () => {
     await screen.rerender(<TaskDetailModal task={scheduledTask} visible onClose={jest.fn()} />);
     await fireEvent.press(screen.getByLabelText('关闭排期'));
 
-    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月18日/);
     expect(screen.getByTestId('task-detail-time')).toHaveTextContent('14:00–14:45');
     await fireEvent.press(screen.getByTestId('save-task-date'));
     expect(store.planTaskForDate).not.toHaveBeenCalled();
@@ -200,7 +246,8 @@ describe('TaskDetailModal', () => {
     mockedUseReflowStore.mockReturnValue(store);
     const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
 
-    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-19');
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-07-19'));
     await screen.rerender(<TaskDetailModal task={{
       ...task,
       plannedDate: '2026-07-18',
@@ -208,7 +255,7 @@ describe('TaskDetailModal', () => {
       plannedEndAt: '2026-07-18T14:45:00+08:00',
     }} visible onClose={jest.fn()} />);
 
-    expect(screen.getByTestId('task-detail-date')).toHaveProp('value', '2026-07-19');
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月19日/);
   });
 
   it('guards scheduling and closing until the user explicitly discards dirty edits', async () => {
@@ -239,7 +286,8 @@ describe('TaskDetailModal', () => {
     const screen = await render(<TaskDetailModal task={task} visible onClose={close} />);
 
     await fireEvent.changeText(screen.getByTestId('task-detail-title'), '已保存的标题');
-    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-07-18');
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-07-18'));
     await fireEvent.press(screen.getByTestId('save-task-details'));
     expect(store.updateTaskDetails).toHaveBeenCalledTimes(1);
 
@@ -297,9 +345,31 @@ describe('TaskDetailModal', () => {
     expect(mockPush).toHaveBeenCalledWith('/active');
   });
 
-  it('rejects empty fields, invalid duration, and invalid dates before dispatch', async () => {
+  it('returns from the calendar without changing the draft or saving when cancelled', async () => {
     const store = storeValue();
     const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.changeText(screen.getByTestId('task-detail-title'), '未保存的标题');
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-next-month'));
+    await fireEvent.press(screen.getByLabelText('关闭'));
+
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月17日/);
+    expect(screen.getByTestId('task-detail-title')).toHaveProp('value', '未保存的标题');
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+    expect(store.updateTaskDetails).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty fields, invalid duration, and an unselected date before dispatch', async () => {
+    const store = storeValue();
+    const task = {
+      ...store.data.tasks.find((item) => item.id === 'task-client-quote')!,
+      plannedDate: undefined,
+      plannedStartAt: undefined,
+      plannedEndAt: undefined,
+    };
     mockedUseReflowStore.mockReturnValue(store);
     const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
 
@@ -314,9 +384,15 @@ describe('TaskDetailModal', () => {
     expect(screen.getByTestId('task-detail-error')).toHaveTextContent('预计耗时需填写 5～480 分钟的整数。');
     expect(store.updateTaskDetails).not.toHaveBeenCalled();
 
-    await fireEvent.changeText(screen.getByTestId('task-detail-date'), '2026-02-30');
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/选择日期/);
     await fireEvent.press(screen.getByTestId('save-task-date'));
-    expect(screen.getByTestId('task-detail-error')).toHaveTextContent('请输入 YYYY-MM-DD 格式的有效日期。');
+    expect(screen.getByTestId('task-detail-error')).toHaveTextContent('请先选择计划日期。');
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('task-detail-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-today'));
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/7月17日/);
+    expect(screen.queryByTestId('task-detail-error')).toBeNull();
     expect(store.planTaskForDate).not.toHaveBeenCalled();
   });
 });
