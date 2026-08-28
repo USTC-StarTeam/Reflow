@@ -8,7 +8,7 @@ Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
 - 稳定版本分支：[USTC-StarTeam/Reflow · main](https://github.com/USTC-StarTeam/Reflow/tree/main)
 - 当前产品版本：V1，本地时间规划 MVP
 
-> 当前开发环境已支持通过本地 Gateway 调用真实云端模型生成 Proposal；公开在线 Demo 仍默认使用确定性的本地规则，不会发起第三方 AI 请求。账号、云同步和第三方平台集成尚未实现。
+> 当前开发环境已支持通过本地 Gateway 调用真实云端模型生成 Proposal，并按用户操作只读访问中科大邮箱；公开在线 Demo 仍默认使用确定性的本地规则，也不会访问用户邮箱。账号、云同步和其他外部平台接入尚未实现。
 
 ## 当前版本能做什么
 
@@ -30,7 +30,7 @@ Capture → Proposal → UserDecision → Task / Knowledge
 - 开始、暂停和完成任务，记录进展与执行时长；
 - 将未完成任务顺延到其他日期或移到稍后；
 - 从计划历史与执行事实派生日历和确定性回顾事实；
-- 在回顾一级页查看每晚事实摘要，以及每周、每月、AI 观察和知识沉淀入口；
+- 在回顾页查看今天、本周和本月的确定性事实、待处理事项、异常执行记录核对与知识卡片；
 - 刷新后恢复数据，导出、校验并导入本地备份。
 
 ## 页面说明
@@ -41,9 +41,9 @@ Capture → Proposal → UserDecision → Task / Knowledge
 | `/inbox` | 收件箱 | 快速确认 AI / 本地规则整理后的建议；必要时补充日期或修改内容，失败输入可重试或改用本地规则，最近决定可撤销。 |
 | `/active` | 进行中 | 围绕唯一当前任务记录进展、暂停或完成，并显示轻量执行摘要；没有当前任务时只保留少量可开始或继续的候选。 |
 | `/calendar` | 日历 | 时间规划空间：Month 查看整体分布，Week 查看一周负载，Day 安排具体时间；明确区分当天事项与具体时间块。 |
-| `/review` | 回顾 | “复盘、知识和个人模式”的一级入口，依次展示每晚复盘、每周复盘、每月复盘、AI 观察和知识沉淀。 |
+| `/review` | 回顾 | 在今天、本周和本月三个周期查看确定性计划与执行事实；同时提供待处理事项、异常执行记录核对和知识沉淀入口。 |
 
-Review 当前只有“每晚复盘”展示由确定性事实派生的今日摘要；“每周复盘”和“每月复盘”是尚未实现二级能力的入口，“AI 观察”是明确标记的展示占位，不代表已经具备长期个性化分析。
+Review 的日 / 周 / 月数据都由任务、计划事件、TimeEntry 和中断记录确定性派生。当前尚未实现长期 AI Pattern、Personalized Review 或自动生成的个人模式。
 
 桌面端的普通页面保持居中单栏，日历使用更宽的布局；手机端铺满屏幕，Day 视图提供具体时间规划网格，Week 视图以一周负载和日期分布为主。
 
@@ -76,8 +76,12 @@ AI 不会绕过用户确认自动写入知识。当前还没有独立的知识�
 Reflow 当前采用显式、可测试的 Pipeline，而不是通用 Agent：
 
 ```text
+External Input
+├─ Manual Text
+└─ USTC Email（本地 Gateway，只读、按需加入）
+       ↓
 Capture → ProposalService → AIProposal → UserDecision
-→ Task / Knowledge Outcome → Execution Logs → Deterministic Review
+→ Task / Knowledge → Planning → Execution → Deterministic Review
 ```
 
 每一层都有清晰的写入边界：
@@ -94,6 +98,8 @@ Capture → ProposalService → AIProposal → UserDecision
 - `CloudProposalService`：通过本地 Gateway 调用真实云端模型，并把严格校验后的 Draft 映射为同一种 `AIProposal`。
 
 Cloud 模式仍然复用相同的 Inbox、UserDecision、Reducer 和任务执行逻辑，不会让模型越过用户确认边界。
+
+本地 Gateway 当前承担两个彼此受限的职责：转发 Cloud Proposal 请求，以及通过只读 IMAP 按用户操作读取中科大邮箱。邮件只有在用户点击“加入 Reflow”后才会成为 Capture；Gateway 不做后台监听、自动同步、回复、移动或删除邮件。
 
 Gateway 的 tracked 默认配置仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high` 推理强度；同时保留 `OPENAI_*` 兼容配置。当前合同使用 Prompt `reflow-proposal-conservative-v7`、Schema `reflow-cloud-proposal-draft-v4` 和后处理 `reflow-proposal-conservative-normalizer-v3`。2026-08-09 使用当时的 v6/v4/v2 合同和被 Git 忽略的本地配置完成了 ChatAnywhere / `gpt-5.6-terra` / `high` 六条 Web Smoke，结果为 6/6 成功、0 timeout；这不会改变公开 Demo 默认使用 Mock，也不会把本地 Provider 配置写入仓库。
 
@@ -125,7 +131,7 @@ Gateway 的 tracked 默认配置仍是 DeepSeek 官方 Responses API、`deepseek
 - 顺延或移到稍后的结果；
 - 实际投入时间和打断次数。
 
-这些事实继续作为日 / 周 / 月回顾的可靠来源，但 Review 一级页不再展开完整 KPI、时间流向、原计划或顺延任务列表，也不承担重新规划。当前“每晚复盘”只展示完成数、未完成数、实际记录时间和打断次数等简要事实；每周 / 每月详细复盘尚未实现。
+这些事实直接支持当前 Review 的今天 / 本周 / 本月视图；周期回顾展示计划任务、按计划完成、完成率、实际投入、中断次数和主要投入分类。Review 不承担重新规划，也尚未实现长期 AI Pattern 或 Personalized Review。
 
 任务被顺延后，原日期仍会在确定性事实中保留历史结果。任务以后完成，也不会反向改写原日期的计划完成率。跨午夜的 `TimeEntry` 会按照与两个自然日的实际重叠时间分别统计。
 
@@ -151,7 +157,7 @@ src/
   features/  今天、收件箱、进行中、日历、回顾及共享 UI
 docs/        实施清单和领域约束
 e2e/         Web 核心流程验收
-gateway/     本地开发用云端 Proposal Gateway
+gateway/     本地 Cloud Proposal 与中科大邮箱只读 Gateway
 tools/       云端 Proposal 模型评测工具
 ```
 
@@ -214,6 +220,10 @@ npm run web
 
 详细配置、错误语义和安全边界见 [Gateway 本地运行说明](gateway/README.md)。
 
+### 本地使用中科大邮箱
+
+邮箱能力同样依赖本地 Gateway。在被 Git 忽略的 `gateway/.dev.vars` 中填写 `USTC_EMAIL` 和 `USTC_EMAIL_APP_PASSWORD`，启动 `npm run gateway` 后，从“收件箱”的“学校邮箱”入口查看最近 10 封邮件。列表只读取 metadata，正文只在用户打开单封邮件时读取；只有点击“加入 Reflow”才会创建 Capture。该能力不是自动同步或完整邮件客户端。
+
 ### 重置 Demo 数据
 
 点击页面左上角的 Reflow 品牌入口，可以：
@@ -234,7 +244,7 @@ npm run web
 5. 回到“今天”，直接完成简单任务；复杂任务点击 Task Detail 后安排日期、开始时间和时长。
 6. 如有冲突，确认系统不会自动修改其他任务，再选择取消或“仍然安排”。
 7. 开始任务，在“进行中”记录进展并通过暂停 / 继续推进执行，然后完成任务。
-8. 在“日历”中确认计划与完成状态同步，再到“回顾”查看每晚事实摘要和知识卡数量。
+8. 在“日历”中确认计划与完成状态同步，再到“回顾”切换今天 / 本周 / 本月，查看确定性计划与执行事实及知识卡数量。
 9. 刷新页面，确认任务、计划事件和执行记录仍然保留。
 
 ## 检查与测试
@@ -273,6 +283,7 @@ npm run export:web
 - 内部数据结构 schema v1–v4 迁移；
 - 备份结构、ID、引用和时间字段校验；
 - 捕捉、排期、执行、完成、顺延、回顾、刷新和备份恢复的 Web 流程。
+- 中科大邮箱 metadata 列表、按需详情读取和显式加入 Capture 的边界。
 
 首次运行 Playwright 时，如果本机没有 Chromium：
 
@@ -316,9 +327,10 @@ python -m http.server 4173 -d dist
 - Cloud 模式不会上传现有任务、任务状态、计划日期、计划事件、执行日志、知识卡片、UserDecision、回顾或备份；
 - Gateway 从服务端环境读取模型 API Key，前端 Bundle、浏览器存储和仓库都不包含 Key；
 - Gateway 不记录 Capture 原文，不保存会话、任务或模型原始响应；
+- 中科大邮箱账号与客户端专用密码只由本地 Gateway 读取；列表不读取正文，详情使用只读 IMAP，邮件不会被标记已读、移动、回复或删除；
 - 任务、Capture、Proposal、UserDecision、计划事件、耗时、进展和知识卡片保存在当前浏览器；
 - 弹窗、loading、toast 和当前 Tab 等瞬时 UI 状态不会持久化；
-- 主数据损坏时会优先尝试最后一个合法恢复副本，再回退到种子数据；
+- 没有本地数据时以空白状态启动，Demo 数据只能由用户显式重置；主数据损坏时会尝试最后一个合法恢复副本，两份数据均无效时显示恢复失败且不覆盖原存储；
 - 备份导入会验证版本、集合结构、ID 唯一性、引用完整性和时间字段；
 - 验证失败不会修改主数据、恢复副本或 React Store；
 - 浏览器存储和导出的 JSON 备份目前不加密，需要用户自行妥善保管。
@@ -336,7 +348,6 @@ python -m http.server 4173 -d dist
 - 通知、语音识别和移动端快捷入口；
 - 项目、标签和周期任务；
 - 独立知识库及知识搜索；
-- 每周 / 每月详细复盘；
 - 真实 AI Observation、Memory 和 Personal Pattern；
 - Web 拖拽排期；
 - 多人协作；

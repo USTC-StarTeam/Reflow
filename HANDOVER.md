@@ -1,8 +1,41 @@
 # Reflow 项目交接文档
 
-更新时间：2026-08-09
+更新时间：2026-08-27
 
-> 本文后续的 `v1`、Prompt v5 / Schema v3 和早期 Provider 试验均保留为历史交接记录。当前实现、模型合同和最终验证结论以本文顶部、当前分支说明和实际 Git 状态为准。
+> 本文保留了较长的产品与工程演化记录。当前实现以最新 `main`、下面的 Current Main State 和实际代码为准；后续带日期的旧分支、Trial、Prompt / Schema 与“下一步计划”内容均应按历史记录阅读。
+
+## Current Main State / 当前状态
+
+- 当前 `main`：`3d8bfcc7afb1b329f42ea099f85010e0c4d23f4c`（PR #25，2026-08-27）。
+- Personal Execution Core 已形成可持久化闭环：文本或显式加入的邮件进入 Capture，经过 Proposal、UserDecision 创建 Task / Knowledge，再进入 Planning、Execution 和 deterministic Review。
+- Daily-use Hardening 的 P0 / P1 已完成；durable-first Capture、持久化失败可见性、计划与执行显示语义以及最小 Product Surface 已进入 `main`。
+- Review / Execution correction 已通过 PR #24 进入 `main`：Review 支持今天 / 本周 / 本月的确定性事实，并提供 Needs Attention、异常执行记录核对与修正；忘记停止的执行记录不会被静默当作可信时长。
+- USTC Email 已通过 PR #25 进入 `main`：收件箱按需读取最近邮件 metadata，用户打开单封邮件后才读取正文，点击“加入 Reflow”后才创建 Capture。
+- 公开 GitHub Pages 仍默认使用 Mock Proposal，也不会访问用户学校邮箱；真实 Cloud Proposal 与邮箱都需要本地 Gateway 和本机密钥 / 邮箱客户端专用密码。
+
+当前真实 Pipeline：
+
+```text
+External Input
+├─ Manual Text
+└─ USTC Email（read-only，用户显式加入）
+       ↓
+Capture
+→ ProposalService
+→ AIProposal
+→ UserDecision
+→ Task / Knowledge
+→ Planning
+→ Execution
+→ Deterministic Review
+```
+
+当前本地 Gateway 只有两个产品职责：
+
+1. Cloud Proposal：代理一次严格结构化的模型请求；
+2. USTC Email：通过只读 IMAP 提供最近邮件列表和按需详情。
+
+Connected Reflow 已开始，但目前只有 `USTC Email → Capture → Proposal` 这一条真实 vertical slice。Gmail / Outlook、外部日历、飞书、Share Extension、Voice、Generic Connector Registry、Multi-provider ExternalItem Foundation 和自动同步均未实现。旧 PR #21 保留为历史架构探索，不代表当前准备合入的产品路径。
 
 Gateway 的 tracked 默认仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`，并保留 `OPENAI_*` 兼容路径；当前本地 Trial 使用被 Git 忽略的 ChatAnywhere / `gpt-5.6-terra` / `high` 配置。当前 Prompt 为 `reflow-proposal-conservative-v7`、Schema 为 `reflow-cloud-proposal-draft-v4`、后处理为 `reflow-proposal-conservative-normalizer-v3`；2026-08-09 的六条 ChatAnywhere Trial 使用此前的 v6/v4/v2 合同。当前回归规模以实际最终门禁为准；公开 Demo 仍默认 Mock。
 
@@ -121,11 +154,11 @@ Action 有写入权”这一分工。
 
 | 路由 | 页面 | 当前能力 |
 | --- | --- | --- |
-| `/` | 今天 | 捕捉事项，展示今日已排期、未排期和已完成任务，处理旧日未完成和稍后任务。 |
-| `/inbox` | 收件箱 | 展示原始输入、整理标题、分类、耗时、下一步、建议去向和理由，支持编辑、确认、忽略和撤销。 |
-| `/active` | 进行中 | 保证同一时间只有一个执行任务，支持开始、暂停、完成、进展、耗时和打断。 |
-| `/calendar` | 日历 | 月视图、日期选择、日/周时间网格、点击排期、调整计划和冲突确认。 |
-| `/review` | 回顾 | 根据计划事件和执行事实计算计划数、完成数、额外完成、未完成、顺延、耗时和打断。 |
+| `/` | 今天 | 快速捕捉和扫描今日重点；按时间安排、当天事项和已完成分区，简单任务可一键完成，复杂任务从 Detail 继续。 |
+| `/inbox` | 收件箱 | 快速确认整理建议，必要时补充日期或修改；可按需查看中科大邮箱并显式加入 Capture，最近决定可撤销。 |
+| `/active` | 进行中 | 围绕唯一当前任务记录进展、暂停 / 继续、打断或完成，并显示轻量执行摘要。 |
+| `/calendar` | 日历 | Month 查看整体分布，Week 查看一周负载，Day 安排具体时间；区分 date-only 事项与 exact-time 时间块。 |
+| `/review` | 回顾 | 查看今天 / 本周 / 本月的确定性事实、Needs Attention、异常执行记录核对与知识卡片。 |
 
 ### 时间规划
 
@@ -347,7 +380,9 @@ docs/                    实施约束、AI 接入记录和评测报告
 - 公网认证、Turnstile、限流和硬额度；
 - 登录、账号和跨设备同步；
 - 课程表和教务系统；
-- 外部日历、邮件、飞书和分享扩展；
+- 中科大邮箱以外的邮件服务、外部日历、飞书和分享扩展；
+- 邮箱后台监听、自动同步、回复、移动或删除；
+- Generic Connector Registry 和 Multi-provider ExternalItem Foundation；
 - 通知、语音和移动端快捷入口；
 - 独立知识库和搜索；
 - 项目、标签和周期任务；
@@ -361,7 +396,9 @@ docs/                    实施约束、AI 接入记录和评测报告
 公网真实 AI 方案已经讨论过，但当前决定是暂停部署，先进行本地真实 AI 试用。后续
 Agent 不得自行恢复公网部署工作。
 
-## 10. 下一步计划
+## 10. 历史下一步计划（截至 2026-08-09）
+
+> 本节记录 Cloud Proposal 收口阶段当时的执行计划，已经不是当前 `main` 的待办列表。当前比赛阶段以维护主线稳定和审查独立 feature PR 为主；没有真实 regression 时不主动扩展功能。
 
 后续工作必须拆成小步骤，每一步完成后停止等待审查。
 
@@ -461,7 +498,7 @@ Gateway 运行时均已恢复为 `diagnostics=false`。
 - 严重编造为 0，所有 Draft 通过严格 Schema 与领域组合校验。确认前正式数据零增量；只有用户明确确认后才创建 Task、Decision 和 TaskPlanEvent，刷新后保留。
 - Gateway 45/45 和离线 Proposal self-test 通过；本地 API Key、Provider 配置和 DeepSeek 本地备份均被 Git 忽略，诊断最终关闭，测试服务与端口已清理。
 
-### 当前下一步：PR Review
+### 历史下一步：PR Review
 
 当前阶段只允许整理最终 diff、运行完整门禁、提交并推送当前功能分支，然后进入 PR Review。合并前以 CI 结果和 reviewer 对完整 diff 的审查为准；不要自动开始长期真实试用或新的产品方向。
 
