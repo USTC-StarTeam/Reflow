@@ -134,7 +134,7 @@ describe('TaskDetailModal', () => {
 
     expect(screen.queryByTestId('confirm-task-date-change')).toBeNull();
     expect(screen.queryByTestId('today-task-detail')).toBeNull();
-    expect(screen.getByTestId('schedule-date')).toHaveProp('value', '2026-07-18');
+    expect(screen.getByTestId('schedule-date')).toHaveTextContent(/7月18日/);
     expect(screen.getByTestId('schedule-time')).toHaveProp('value', '16:00');
     expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '30');
 
@@ -175,6 +175,45 @@ describe('TaskDetailModal', () => {
     await fireEvent.press(screen.getByLabelText('关闭排期'));
     expect(screen.getByTestId('today-task-detail')).toBeTruthy();
     expect(screen.queryByText('安排任务时间')).toBeNull();
+  });
+
+  it('keeps scheduling drafts through calendar cancellation and selection, saving only on confirmation', async () => {
+    const store = storeValue();
+    const task = store.data.tasks.find((item) => item.id === 'task-client-quote')!;
+    mockedUseReflowStore.mockReturnValue(store);
+    const screen = await render(<TaskDetailModal task={task} visible onClose={jest.fn()} />);
+
+    await fireEvent.press(screen.getByTestId('open-task-schedule'));
+    await fireEvent.changeText(screen.getByTestId('schedule-time'), '14:15');
+    await fireEvent.changeText(screen.getByTestId('schedule-duration'), '45');
+    await fireEvent.press(screen.getByTestId('schedule-date'));
+    expect(screen.queryByTestId('confirm-schedule')).toBeNull();
+    await fireEvent.press(screen.getByTestId('proposal-date-next-month'));
+    await fireEvent.press(screen.getByLabelText('关闭'));
+
+    expect(screen.getByTestId('schedule-date')).toHaveTextContent(/7月17日/);
+    expect(screen.getByTestId('schedule-time')).toHaveProp('value', '14:15');
+    expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '45');
+    expect(store.scheduleTask).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('schedule-date'));
+    await fireEvent.press(screen.getByTestId('proposal-date-next-month'));
+    await fireEvent.press(screen.getByTestId('proposal-date-option-2026-08-03'));
+    expect(screen.queryByTestId('proposal-date-picker')).toBeNull();
+    expect(screen.getByTestId('schedule-date')).toHaveTextContent(/8月3日/);
+    expect(screen.getByTestId('schedule-time')).toHaveProp('value', '14:15');
+    expect(screen.getByTestId('schedule-duration')).toHaveProp('value', '45');
+    expect(store.scheduleTask).not.toHaveBeenCalled();
+    expect(store.planTaskForDate).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('confirm-schedule'));
+    expect(store.scheduleTask).toHaveBeenCalledTimes(1);
+    expect(store.scheduleTask).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining('2026-08-03T14:15:00'),
+      expect.stringContaining('2026-08-03T15:00:00'),
+    );
+    expect(screen.getByTestId('task-detail-date')).toHaveTextContent(/8月3日/);
   });
 
   it('adopts a canonical cross-date schedule without making the returned date dirty', async () => {

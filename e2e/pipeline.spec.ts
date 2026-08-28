@@ -202,7 +202,8 @@ test('Today 跨日期排期返回详情后保存日期不会清除具体时间',
 
   await page.getByTestId('open-today-task-task-client-quote').click();
   await page.getByTestId('open-task-schedule').click();
-  await page.getByTestId('schedule-date').fill(tomorrow);
+  await page.getByTestId('schedule-date').click();
+  await page.getByTestId(`proposal-date-option-${tomorrow}`).click();
   await page.getByTestId('schedule-time').fill('14:00');
   await page.getByTestId('schedule-duration').fill('45');
   await page.getByTestId('confirm-schedule').click();
@@ -238,7 +239,7 @@ test('Today exact-time 跨日修改必须显式选择清除或重新排期', asy
   await expect(page.getByTestId('task-detail-time')).toContainText('16:00–16:30');
   await page.getByTestId('save-task-date').click();
   await page.getByTestId('reschedule-task-date').click();
-  await expect(page.getByTestId('schedule-date')).toHaveValue(tomorrow);
+  await expect(page.getByTestId('schedule-date')).toContainText(formatShortDate(tomorrow));
   await expect(page.getByTestId('schedule-time')).toHaveValue('16:00');
   await expect(page.getByTestId('schedule-duration')).toHaveValue('30');
   await page.getByTestId('confirm-schedule').click();

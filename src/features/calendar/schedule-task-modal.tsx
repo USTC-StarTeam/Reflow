@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatTime, isLocalDate, localDateOf, localDateToDate, toZonedISOString } from '@/core/date-utils';
+import { formatShortDate, formatTime, isLocalDate, localDateOf, localDateToDate, toZonedISOString } from '@/core/date-utils';
 import { selectScheduleConflicts } from '@/core/selectors';
 import { useReflowStore } from '@/core/store';
 import type { LocalDate, TaskItem } from '@/core/types';
+import { LocalDatePicker } from '../shared/local-date-picker';
 import { colors, radius, shadow } from '../shared/theme';
 import { ActionButton, textStyles } from '../shared/ui';
 
@@ -28,6 +29,7 @@ type ScheduleTaskModalProps = {
 export function ScheduleTaskModal({ task, initialDate, initialDateOverride, initialDurationMinutes, visible, onClose, onScheduled }: ScheduleTaskModalProps) {
   const store = useReflowStore();
   const [date, setDate] = useState(initialDateOverride ?? task.plannedDate ?? initialDate);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [time, setTime] = useState(defaultTime(task));
   const [duration, setDuration] = useState(String(initialDurationMinutes ?? Math.max(15, task.estimatedMinutes)));
   const [error, setError] = useState('');
@@ -36,7 +38,7 @@ export function ScheduleTaskModal({ task, initialDate, initialDateOverride, init
   const validDuration = useMemo(() => Number(duration), [duration]);
 
   function buildRange() {
-    if (!isLocalDate(date)) return { error: '请输入 YYYY-MM-DD 格式的有效日期。' } as const;
+    if (!isLocalDate(date)) return { error: '请先选择计划日期。' } as const;
     const match = /^(\d{2}):(\d{2})$/.exec(time);
     const hours = match ? Number(match[1]) : -1;
     const minutes = match ? Number(match[2]) : -1;
@@ -73,6 +75,20 @@ export function ScheduleTaskModal({ task, initialDate, initialDateOverride, init
     onClose();
   }
 
+  if (datePickerOpen && visible) {
+    return (
+      <LocalDatePicker
+        value={date || undefined}
+        onClose={() => setDatePickerOpen(false)}
+        onSelect={(selectedDate) => {
+          setDate(selectedDate);
+          setError('');
+          setDatePickerOpen(false);
+        }}
+      />
+    );
+  }
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
@@ -87,7 +103,22 @@ export function ScheduleTaskModal({ task, initialDate, initialDateOverride, init
             </View>
           ) : (
             <>
-              <View style={styles.row}><View style={styles.field}><Text style={styles.label}>日期</Text><TextInput testID="schedule-date" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" style={styles.input} /></View><View style={styles.field}><Text style={styles.label}>开始时间</Text><TextInput testID="schedule-time" value={time} onChangeText={setTime} placeholder="09:00" style={styles.input} /></View></View>
+              <View style={styles.row}>
+                <View style={styles.field}>
+                  <Text style={styles.label}>日期</Text>
+                  <Pressable
+                    testID="schedule-date"
+                    accessibilityRole="button"
+                    accessibilityLabel={date ? `计划日期 ${formatShortDate(date)}，点击修改` : '计划日期尚未选择，点击选择'}
+                    onPress={() => setDatePickerOpen(true)}
+                    style={({ pressed }) => [styles.input, styles.dateButton, pressed && styles.dateButtonPressed]}
+                  >
+                    <Text style={textStyles.body}>{date ? formatShortDate(date) : '选择日期'}</Text>
+                    <Text style={styles.dateDisclosure}>选择</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.field}><Text style={styles.label}>开始时间</Text><TextInput testID="schedule-time" value={time} onChangeText={setTime} placeholder="09:00" style={styles.input} /></View>
+              </View>
               <Text style={styles.label}>预计时长</Text>
               <View style={styles.options}>{durationOptions.map((minutes) => <ActionButton key={minutes} label={`${minutes} 分钟`} variant={duration === String(minutes) ? 'primary' : 'secondary'} onPress={() => setDuration(String(minutes))} />)}</View>
               <TextInput testID="schedule-duration" value={duration} onChangeText={setDuration} keyboardType="number-pad" placeholder="自定义分钟" style={styles.input} />
@@ -108,6 +139,9 @@ const styles = StyleSheet.create({
   close: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line },
   row: { flexDirection: 'row', gap: 8 }, field: { flex: 1, gap: 5 }, label: { color: colors.muted, fontSize: 11, fontWeight: '800' },
   input: { minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radius.small, paddingHorizontal: 11, color: colors.ink, backgroundColor: colors.surface },
+  dateButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  dateButtonPressed: { opacity: 0.72 },
+  dateDisclosure: { color: colors.primary, fontSize: 11, fontWeight: '800' },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   error: { color: colors.danger, fontSize: 12, fontWeight: '700' }, conflict: { gap: 10, padding: 12, borderRadius: radius.medium, backgroundColor: colors.dangerSoft }, conflictTitle: { color: colors.danger, fontSize: 15, fontWeight: '900' },
 });
