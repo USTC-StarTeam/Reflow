@@ -194,7 +194,7 @@ function ProposalCard({ proposal }: { proposal: AIProposal }) {
           {formError ? <Text testID={`proposal-form-error-${proposal.id}`} style={styles.inputError}>{formError}</Text> : null}
           <View style={styles.editorActions}>
             <ActionButton label="保存修改" variant="primary" onPress={() => setEditing(false)} />
-            <ActionButton label="忽略这条建议" variant="danger" onPress={ignoreProposal} />
+            <ActionButton label="移出收件箱" variant="danger" onPress={ignoreProposal} />
           </View>
         </ScrollView>
       </Sheet>
@@ -245,7 +245,7 @@ function RecentDecisionCard({ decisionId, undoable }: { decisionId: string; undo
   const result = decision.status === 'reverted'
     ? '已撤销'
     : decision.outcome === 'ignored'
-      ? '已忽略'
+      ? '已移出收件箱'
       : decision.outcome === 'knowledge'
         ? '已保存为知识'
         : decision.bucket === 'waiting'

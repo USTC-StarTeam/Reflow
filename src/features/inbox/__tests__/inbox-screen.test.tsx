@@ -78,7 +78,8 @@ describe('InboxScreen first-level presentation', () => {
   });
 
   it('opens the existing edit fields in a secondary sheet', async () => {
-    const screen = await renderInbox(storeValue());
+    const store = storeValue();
+    const screen = await renderInbox(store);
     const proposal = screen.getByTestId('proposal-proposal-contract');
 
     await fireEvent.press(within(proposal).getByLabelText('修改'));
@@ -86,6 +87,10 @@ describe('InboxScreen first-level presentation', () => {
     expect(screen.getByTestId('proposal-title-proposal-contract')).toHaveProp('value', '审阅合同付款条款');
     expect(screen.getByTestId('proposal-next-action-proposal-contract')).toHaveProp('value', '先标出付款周期风险点');
     expect(screen.getByTestId('proposal-classification-proposal-contract')).toBeTruthy();
+    await fireEvent.press(screen.getByText('移出收件箱'));
+    expect(store.submitUserDecision).toHaveBeenCalledTimes(1);
+    expect(store.submitUserDecision).toHaveBeenCalledWith({ kind: 'ignore', proposalId: 'proposal-contract' });
+    expect(store.deleteTask).not.toHaveBeenCalled();
   });
 
   it('returns to the edit sheet after changing its date and stays pending until confirmation', async () => {
@@ -159,8 +164,12 @@ describe('InboxScreen first-level presentation', () => {
       status: 'applied' as const,
       effect: { type: 'ignored' as const },
     }));
-    const screen = await renderInbox(storeValue({ ...seed, decisions }));
+    const store = storeValue({ ...seed, decisions });
+    const screen = await renderInbox(store);
     expect(screen.getAllByTestId(/^recent-decision-/)).toHaveLength(1);
     expect(screen.getByTestId('recent-decision-decision-4')).toBeTruthy();
+    expect(screen.getByText(/已移出收件箱/)).toBeTruthy();
+    await fireEvent.press(screen.getByText('撤销'));
+    expect(store.undoLastDecision).toHaveBeenCalledTimes(1);
   });
 });
