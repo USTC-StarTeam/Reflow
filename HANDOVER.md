@@ -1,24 +1,33 @@
 # Reflow 项目交接文档
 
-更新时间：2026-08-27
+更新时间：2026-08-29
 
-> 本文保留了较长的产品与工程演化记录。当前实现以最新 `main`、下面的 Current Main State 和实际代码为准；后续带日期的旧分支、Trial、Prompt / Schema 与“下一步计划”内容均应按历史记录阅读。
+> 当前阶段：Competition Stabilization / 比赛作品提交准备。产品功能暂时冻结，以最新 `main` 为比赛版本；没有真实回归时不再新增功能或主动扩大审计范围。
 
-## Current Main State / 当前状态
+## 1. 当前仓库状态
 
-- 当前 `main`：`3d8bfcc7afb1b329f42ea099f85010e0c4d23f4c`（PR #25，2026-08-27）。
-- Personal Execution Core 已形成可持久化闭环：文本或显式加入的邮件进入 Capture，经过 Proposal、UserDecision 创建 Task / Knowledge，再进入 Planning、Execution 和 deterministic Review。
-- Daily-use Hardening 的 P0 / P1 已完成；durable-first Capture、持久化失败可见性、计划与执行显示语义以及最小 Product Surface 已进入 `main`。
-- Review / Execution correction 已通过 PR #24 进入 `main`：Review 支持今天 / 本周 / 本月的确定性事实，并提供 Needs Attention、异常执行记录核对与修正；忘记停止的执行记录不会被静默当作可信时长。
-- USTC Email 已通过 PR #25 进入 `main`：收件箱按需读取最近邮件 metadata，用户打开单封邮件后才读取正文，点击“加入 Reflow”后才创建 Capture。
-- 公开 GitHub Pages 仍默认使用 Mock Proposal，也不会访问用户学校邮箱；真实 Cloud Proposal 与邮箱都需要本地 Gateway 和本机密钥 / 邮箱客户端专用密码。
+- 稳定分支：`main`
+- 本文更新时的 `main`：`83d7773`（PR #28 已合并）
+- 当前没有未合并的 GitHub PR。
+- 最近进入 `main` 的关键改动：
+  - PR #24：Review / Execution correction；
+  - PR #25：只读中科大邮箱按需加入 Capture；
+  - PR #26：仓库状态与文档同步；
+  - PR #27：收件箱“移出收件箱”语义；
+  - PR #28：Task Detail 和排期弹窗统一使用可视化日期选择器。
+- GitHub CI 面向 `main` 和 PR 执行 typecheck、lint、Jest、Gateway tests、Playwright E2E 与 Web 静态导出。
+- GitHub Pages 从 `main` 构建，公开 Demo 默认使用 Mock Proposal，不调用真实模型，也不连接学校邮箱。
 
-当前真实 Pipeline：
+仓库协作必须遵守 `AGENTS.md` 与 `CONTRIBUTING.md`：小步修改、分支 + PR、禁止直接 push `main`，CI 通过后再由 PR 作者决定合并。
+
+## 2. 产品是什么
+
+Reflow 是一个 local-first、mobile-first 的 Personal Execution Web MVP。它不以聊天或通用 Agent 为中心，而是把零散输入稳定地变成可确认、可规划、可执行、可回顾的个人行动。
 
 ```text
 External Input
 ├─ Manual Text
-└─ USTC Email（read-only，用户显式加入）
+└─ USTC Email（只读、按需读取、用户显式加入）
        ↓
 Capture
 → ProposalService
@@ -30,634 +39,271 @@ Capture
 → Deterministic Review
 ```
 
-当前本地 Gateway 只有两个产品职责：
+核心价值不是“AI 自动替用户做决定”，而是：
 
-1. Cloud Proposal：代理一次严格结构化的模型请求；
-2. USTC Email：通过只读 IMAP 提供最近邮件列表和按需详情。
+1. AI 帮用户把混乱输入整理为结构化建议；
+2. 用户查看、修改并确认；
+3. 正式数据只由领域 Action / Reducer 写入；
+4. 计划、执行与回顾都可追踪；
+5. AI 失败时不会破坏正式任务。
 
-Connected Reflow 已开始，但目前只有 `USTC Email → Capture → Proposal` 这一条真实 vertical slice。Gmail / Outlook、外部日历、飞书、Share Extension、Voice、Generic Connector Registry、Multi-provider ExternalItem Foundation 和自动同步均未实现。旧 PR #21 保留为历史架构探索，不代表当前准备合入的产品路径。
+## 3. 不可突破的架构边界
 
-Gateway 的 tracked 默认仍是 DeepSeek 官方 Responses API、`deepseek-v4-flash`、`high`，并保留 `OPENAI_*` 兼容路径；当前本地 Trial 使用被 Git 忽略的 ChatAnywhere / `gpt-5.6-terra` / `high` 配置。当前 Prompt 为 `reflow-proposal-conservative-v7`、Schema 为 `reflow-cloud-proposal-draft-v4`、后处理为 `reflow-proposal-conservative-normalizer-v3`；2026-08-09 的六条 ChatAnywhere Trial 使用此前的 v6/v4/v2 合同。当前回归规模以实际最终门禁为准；公开 Demo 仍默认 Mock。
+- AI / Mock 只能生成 pending Proposal。
+- 用户确认前不能创建正式 Task、Knowledge、UserDecision 或 TaskPlanEvent。
+- 只有现有 Store API → Domain Action → Reducer 可以修改正式数据。
+- AI 不能自动排期、开始、完成、顺延或删除任务。
+- `TaskItem.plannedDate` 是任务当前日期归属的唯一事实源。
+- 具体时间必须同时具有 `plannedStartAt` 和 `plannedEndAt`，且属于同一自然日。
+- 每次正式规划变化必须按现有语义追加 `TaskPlanEvent`。
+- TimeEntry、ProgressLog 和 interruption 是执行事实，不得为了 UI 效果伪造或静默改写。
+- Review 的任务数、完成情况、投入时间和打断次数必须由确定性 Selector 派生。
+- Cloud Provider 不得访问 Store、Reducer、AsyncStorage 或备份。
+- Cloud 失败不得静默切换 Mock；回退必须由用户明确选择。
+- 不引入 ReAct、自动工具调用、多 Agent loop、长期自主运行或长期记忆来替代现有 Pipeline。
 
-2026-08-10 对 v7/v3 发起的 8 条限量语义 Smoke 因 PowerShell→Node 标准输入中文编码损坏而无效，不能计为模型通过或失败；达到请求上限后未重试。详细记录见当前分支说明。
+## 4. 当前已经实现的产品能力
 
-> 历史 `tools/proposal-eval/cases.json` 保持归档不改写，但有两项已确认与当前 Day 1 语义冲突：H01 将“月底前完成暑期项目中期汇报”期望为月末具体日；S29 将“下周再整理以前的项目归档”期望为 `someday`。当前 v7/v4/v3 按较新的原则将这两种范围词处理为 `bucket/date = null`。`validateSuite` / `buildJobs` 只校验这份历史 Suite 的结构和作业集合，不证明其旧预期符合当前语义。
+### Today `/`
 
-## 1. 这是什么项目
+- 快速文本 Capture；
+- 需要处理、今日提示、时间安排、今天要做、已完成和稍后入口；
+- 简单任务可以直接完成；
+- 点击复杂任务进入中央 Task Detail；
+- Detail 可以修改标题、计划日期、预计时长和下一步行动；
+- Task Detail 与“安排任务时间”都使用可视化月历选择日期；
+- date-only Task 可以安排具体时间，exact-time Task 可以调整或取消具体时间；
+- 跨日期修改已有具体时间时需要用户明确确认。
 
-Reflow 是一个本地优先、移动优先的个人执行与时间规划 MVP。
+### Inbox `/inbox`
 
-项目希望解决的问题不是“再做一个聊天机器人”，而是把用户随手记下的零散输入，
-稳定地转换为可以确认、规划、执行和回顾的行动：
+- 展示 AI / Mock 整理后的待确认 Proposal；
+- 一级页面只突出标题、日期、类型、预计耗时等决策信息；
+- 支持修改、可视化选择计划日期、确认、移出收件箱与撤销最近决定；
+- 失败 Capture 可以重试 Cloud 或由用户明确改用本地规则；
+- 学校邮箱入口按需读取最近邮件，用户点击“加入 Reflow”后才创建 Capture。
+
+### Active `/active`
+
+- 一次只保持一个当前任务；
+- 支持开始、暂停 / 继续、完成；
+- 支持记录进展和记录中断；
+- 显示当前执行段、任务累计时间与最近进展；
+- 没有当前任务时优先展示最近暂停任务，并补充少量今天候选；
+- 暂停、完成或切换超长 / 跨日执行段时，使用现有 ExecutionCorrectionModal 要求用户核对实际时长。
+
+### Calendar `/calendar`
+
+- 默认 Month，查看整月事项分布；
+- Week 查看一周负载与日期分布；
+- Day 用于具体时间规划；
+- 明确区分 date-only 当天事项与 exact-time 时间块；
+- 安排、重新排期、取消具体时间与冲突确认均复用现有 planning Action；
+- 冲突不会自动挪动其他任务，只有用户明确确认后才能保留冲突。
+
+### Review `/review`
+
+- 支持今天 / 本周 / 本月三个确定性周期；
+- 根据 Task、TaskPlanEvent、completedAt、TimeEntry 和 interruption 派生计划与执行事实；
+- 展示 Needs Attention；
+- 已经关闭但可能异常的跨日 / 超长 TimeEntry 可以人工核对修正；
+- 知识沉淀入口可以查看已保存 KnowledgeCard；
+- Review 不负责重新规划，也没有真实 AI Personal Pattern 或 Memory。
+
+### Persistence / Backup
+
+- 业务数据保存在当前浏览器 AsyncStorage；
+- 没有本地数据时以空白状态启动，Demo 数据只能由用户显式重置；
+- 主数据损坏时尝试最后一个合法恢复副本，两份数据都无效时显示恢复失败；
+- 写入失败会对用户可见并可以重试；
+- 备份导入验证版本、集合结构、ID、引用与时间字段，失败时不覆盖现有数据；
+- Modal、Toast、loading、当前 Tab 和临时表单不持久化。
+
+## 5. AI Proposal 当前状态
+
+`ProposalService` 有两个实现：
+
+- `MockProposalService`：确定性本地规则，是公开 Demo 和普通启动的默认实现；
+- `CloudProposalService`：通过本地 Gateway 调用一次真实模型请求，并把严格校验后的 Draft 映射为同一种 `AIProposal`。
+
+Cloud 请求只发送当前 Capture 文本、source、referenceDate、timeZone 和 locale，不上传任务库、计划、执行日志、知识、UserDecision、Review 或备份。
+
+Gateway 当前 tracked 默认配置：
 
 ```text
-捕捉事项
-→ 生成结构化整理建议
-→ 用户查看、修改和确认
-→ 创建正式任务或知识卡片
-→ 选择计划日期
-→ 点击安排时间
-→ 执行并记录
-→ 完成或顺延
-→ 日历与回顾更新
+DeepSeek Responses API
+model = deepseek-v4-flash
+reasoning effort = high
+upstream timeout = 15s
 ```
 
-产品参考了 Akiflow 的 Universal Inbox、Daily Planning、Time Blocking 和
-Daily Shutdown，但不追求高度自动化。当前优先级依次是：
+同时保留 `OPENAI_*` 兼容配置。真实运行使用哪个 Provider，以本机被 Git 忽略的 `gateway/.dev.vars` 或进程环境为准；编写比赛材料前必须核对演示时的真实配置，不能把兼容 Provider、底层模型和历史 Trial 混写。
 
-1. 工作流稳定；
-2. 用户确认权；
-3. 操作可追踪、可撤销；
-4. 本地数据和隐私；
-5. AI 出错时不破坏正式数据；
-6. 后续针对学生和校园场景做定向优化。
+Gateway 还承担只读 USTC IMAP 接口：列表只取 metadata，正文只在用户打开单封邮件时按需读取，使用 `BODY.PEEK`，不标记已读、不下载附件，也不能发送、回复、移动或删除邮件。
 
-未来可能探索课程表、学校教务系统、外部日历、移动端快捷入口、本地小模型和个性化，
-但这些都没有进入当前 V1 的实现范围。
+模型 API Key、学校邮箱和客户端专用密码只能放在本地 Gateway 环境或被忽略的 `gateway/.dev.vars`，禁止进入前端、Git、浏览器存储、日志、演示视频或提交材料。
 
-## 2. 不可突破的架构原则
+## 6. 当前部署与运行方式
 
-Reflow V1 使用显式、可测试的 Pipeline，不是通用 Agent：
+普通本地 Web：
+
+```powershell
+npm ci
+npm run web
+```
+
+真实 Cloud Proposal：
+
+```powershell
+# 终端一：先在 gateway/.dev.vars 配置本机 Secret
+npm run gateway
+
+# 终端二
+$env:EXPO_PUBLIC_PROPOSAL_MODE = 'cloud'
+$env:EXPO_PUBLIC_AI_GATEWAY_URL = 'http://127.0.0.1:8787'
+npm run web
+```
+
+公开 GitHub Pages 是静态 Web，只能安全使用默认 Mock。P1 Gateway 仍是本地开发服务，没有生产认证、账号、数据库、严格配额或公网部署，不得把它描述成已上线的公网 AI 服务。
+
+## 7. 已知问题和真实边界
+
+### 当前待处理：Active 超长未结束执行段的展示
+
+真实使用已发现：如果任务开始后长时间没有暂停或完成，Active 会用“当前时间 − 最后一次 start”直接展示当前执行段和任务累计时间，可能出现数万分钟。
+
+现有保护只在用户点击暂停、完成或切换任务时弹出执行时间核对；Active 一级页面本身仍把待核实的开放执行段显示为普通数字。该问题尚未修复。
+
+比赛演示前的安全做法：
+
+- 不使用包含超长开放执行段的旧 Demo 状态录制；
+- 先通过暂停 / 完成入口的“调整实际时长”完成核对；
+- 不点击“按原记录保存”来接受明显错误的超长时间；
+- 如需代码修复，只允许做一个 smallest sufficient regression fix：把超长 / 跨日开放段标为“待核对”，复用现有校正语义，不自动清零、不自动截断、不改 Review Kernel。
+
+### 其他边界
+
+- Web 是当前主要运行与验收环境，尚未发布原生安装包；
+- Cloud AI 与 USTC Email 依赖本地 Gateway；
+- USTC Email 不是后台同步或完整邮件客户端；
+- 没有账号、跨设备同步、课程表、外部日历、通知、语音、周期任务或多人协作；
+- 没有独立知识库搜索、真实 AI Observation、Memory 或 Personal Pattern；
+- 没有公开 Cloud Gateway 和面向公网的防滥用体系；
+- 浏览器存储与导出的 JSON 备份未加密；
+- 真实 Cloud Proposal 尚不能表述为长期、大样本生产验证完成。
+
+## 8. 比赛提交阶段
+
+作品提交截止：通知写明为 **9 月 6 日 23:59**。
+
+当前开发原则：
 
 ```text
-Capture
-→ ProposalService
-→ AIProposal
-→ UserDecision
-→ Task / Knowledge Outcome
-→ Execution Logs
-→ Deterministic Review
+功能冻结
+→ 只修阻塞演示或破坏真实数据的回归
+→ 准备提交材料
+→ 演示排练
+→ 生成最终压缩包
+→ 上传并分享
 ```
 
-必须长期保持以下边界：
+必须准备四项材料：
 
-- AI 或 Mock 只能生成结构化 Proposal；
-- AI 不能直接创建、修改或删除正式任务；
-- 用户确认后，只有领域 Action 和 Reducer 可以写入正式数据；
-- AI 不能自动排期、完成、顺延或删除任务；
-- 回顾中的任务数、完成率、耗时和分类分布必须由程序确定性计算；
-- Cloud Provider 不能访问 Store、Reducer、AsyncStorage 或备份；
-- 失败不能静默回退，用户必须明确选择使用本地规则；
-- 不把当前 Pipeline 扩展成 ReAct、多 Agent、工具自主选择或长期自主运行。
+1. 设计文档：设计思路、技术架构、功能模块和技术难度；
+2. 约 5 分钟演示视频：真实校园 / 学习生活场景、实用性和主要功能；
+3. 智能体 / 可部署程序文件：提交前测试通过；
+4. 作品简介：PDF 或 Word，说明背景、问题、核心功能、实际模型和 API 调用方式、创新点。
 
-未来即使增加个性化或本地模型，也应继续遵守“AI 有建议权、用户有确认权、领域
-Action 有写入权”这一分工。
-
-## 3. 用户可见分类与内部模型
-
-界面统一向用户展示九种“AI 归类结果”：
-
-1. 工作推进
-2. 沟通跟进
-3. 学习研究
-4. 生活事务
-5. 健康
-6. 等待他人
-7. 稍后处理
-8. 知识沉淀
-9. 未识别
-
-底层不能为了迎合这九个标签而混合不同维度：
-
-- `TaskCategory`：内容属于工作、沟通、学习、生活、健康或未识别；
-- `TaskStatus`：未开始、进行中、已完成；
-- `WorkflowBucket`：收件箱、今天、等待他人、稍后处理、归档；
-- `CaptureOutcome`：任务、知识沉淀、忽略。
-
-“等待他人”和“稍后处理”是接受 Proposal 后的工作流去向；“知识沉淀”是产物类型；
-只有“忽略”属于拒绝 Proposal。
-
-### 等待他人
-
-表示当前无需用户行动，需要等其他人回复或处理后再继续。Proposal 可以包含：
-
-- 等待对象；
-- 等待内容；
-- 建议跟进日期。
-
-主动“回复老师”不能被误判成“等待老师回复”。
-
-### 知识沉淀
-
-用于保存不需要执行、但以后可能复用的信息。确认后生成本地 `KnowledgeCard`：
-
-- 不进入今天和日历；
-- 没有开始、完成或排期状态；
-- 当前显示在回顾页面；
-- 随本地数据和备份保存。
-
-目前没有独立知识库、搜索、标签或引用能力。
-
-## 4. 已完成的产品能力
-
-### 五个页面
-
-| 路由 | 页面 | 当前能力 |
-| --- | --- | --- |
-| `/` | 今天 | 快速捕捉和扫描今日重点；按时间安排、当天事项和已完成分区，简单任务可一键完成，复杂任务从 Detail 继续。 |
-| `/inbox` | 收件箱 | 快速确认整理建议，必要时补充日期或修改；可按需查看中科大邮箱并显式加入 Capture，最近决定可撤销。 |
-| `/active` | 进行中 | 围绕唯一当前任务记录进展、暂停 / 继续、打断或完成，并显示轻量执行摘要。 |
-| `/calendar` | 日历 | Month 查看整体分布，Week 查看一周负载，Day 安排具体时间；区分 date-only 事项与 exact-time 时间块。 |
-| `/review` | 回顾 | 查看今天 / 本周 / 本月的确定性事实、Needs Attention、异常执行记录核对与知识卡片。 |
-
-### 时间规划
-
-- `TaskItem.plannedDate` 是当前日期归属的唯一事实源；
-- `bucket=today` 只用于旧数据兼容，新业务和 Selector 不得读取它判断日期；
-- 计划开始、结束时间使用带时区偏移的 ISO 时间；
-- 计划开始和结束必须同时存在或同时为空；
-- 单个计划时间块不能跨自然日；
-- 07:00–23:00 只是默认可视范围，不是数据有效范围；
-- 冲突使用半开区间 `[startAt, endAt)`，首尾相接不冲突；
-- 冲突默认拒绝，只有用户明确点击“仍然安排”才能覆盖；
-- `planTaskForDate` 跨日期移动任务时会清除原有具体时间；
-- Web 已实现点击排期；日历拖拽排期仍未实现。
-
-### 计划历史
-
-当前计划保存在 `TaskItem`，历史通过不可变的 `TaskPlanEvent` 追加保存：
-
-- `planned`
-- `scheduled`
-- `rescheduled`
-- `deferred`
-- `unscheduled`
-- `movedToSomeday`
-- `cancelled`
-
-所有计划 Action 必须原子完成“更新当前任务 + 追加事件”。任务删除采用逻辑删除，
-避免破坏计划事件、耗时和回顾引用。
-
-### Today、Calendar 和 Review
-
-Today 使用互不重复的三个区域：
-
-- 已排期：今天、有完整时间、未完成；
-- 未排期：今天、无完整时间、未完成；
-- 已完成：`completedAt` 落在今天。
-
-Calendar 同时展示计划事项、未排期事项和实际完成。计划日与完成日相同时按任务 ID
-合并；日期不同时，两天分别保留“原计划”和“实际完成”。
-
-Review 从 `TaskItem`、`TaskPlanEvent`、`completedAt`、`TimeEntry`、`ProgressLog`
-和打断记录派生，不保存可重新计算的统计。任务被顺延后，原日期永久保留未按原计划
-完成的事实。跨午夜的 TimeEntry 按与两个自然日的实际重叠时间分别计入。
-
-## 5. 数据、持久化和备份
-
-业务数据保存在浏览器 AsyncStorage：
-
-- InboxCapture
-- AIProposal
-- UserDecision
-- TaskItem
-- KnowledgeCard
-- TaskPlanEvent
-- TimeEntry
-- ProgressLog
-
-不持久化 Modal、Loading、Toast、当前 Tab 和临时表单状态。
-
-当前内部数据 schema 为 v4；产品版本名称为 V1，两者不是同一个版本概念。
-
-备份导入会验证：
-
-- Envelope 和数据版本；
-- 集合结构；
-- 每个集合内 ID 唯一性；
-- Proposal、Decision、TimeEntry、ProgressLog 和 TaskPlanEvent 的引用；
-- 本地日期和带偏移时间；
-- 时间顺序、计划同日性和 `plannedDate` 一致性。
-
-验证成功后先保存当前合法状态为恢复副本，再替换主数据。验证失败时不得修改主数据、
-恢复副本或 React Store。浏览器数据和导出的 JSON 目前没有加密。
-
-## 6. Mock Proposal 已完成情况
-
-`MockProposalService` 是确定性的本地规则：
-
-- 相同输入产生相同结果；
-- 不使用随机数；
-- 不声称是真实 AI；
-- 覆盖九种用户可见分类；
-- 支持等待对象、内容和跟进日期提取；
-- 支持本地拆分和重复任务合并建议；
-- 无法识别时返回“未识别”；
-- 公开在线 Demo 默认使用 Mock，不产生第三方模型请求。
-
-## 7. 真实 AI 已完成情况
-
-### P0 模型评测（历史记录）
-
-P0 已完成，最终结论为“通过”。
-
-固定配置：
-
-- Provider：ChatAnywhere OpenAI-compatible Responses API；
-- 模型：`gpt-5.6-terra`；
-- reasoning effort：`high`；
-- Prompt：`reflow-proposal-final-v5`；
-- Schema：`reflow-cloud-proposal-draft-v3`；
-- 日期后处理：`reflow-proposal-date-normalizer-v1`。
-
-评测包含 48 条唯一合成输入、80 次请求，覆盖常规、困难、相对日期、等待歧义、
-知识/任务边界和 Prompt 注入。最终记录：
-
-- 请求成功 80/80；
-- Schema 和领域组合合法率 100%；
-- Category、Outcome、Bucket 100%；
-- 日期归一化后 100%；
-- 严重编造 0；
-- Prompt 注入突破 0；
-- 93.8% 结果可直接使用或只需一次修改；
-- 平均延迟 3.27 秒，P95 7.02 秒。
-
-这些是合成评测结果，不代表真实用户试用已经完成。
-
-### P1 本地 Cloud 链路（历史架构记录）
-
-本地真实 AI 技术链路已经实现：
+四项材料放进单个压缩文件，由队长提交。压缩包名称按通知要求使用：
 
 ```text
-QuickComposer
-→ CloudProposalService
-→ 本机 Gateway
-→ ChatAnywhere Responses API
-→ CloudProposalDraft
-→ Gateway 与客户端双重校验
-→ AIProposal
-→ Inbox
-→ UserDecision
-→ 现有 Reducer
+队长学号+队长手机号+智能体赛道+本科生队伍/研究生队伍
 ```
 
-Cloud 只发送：
+在瀚海教学网“我的资源 → 文件”上传后，将文件分享给个人账号 `P0581`，勾选允许复制与允许下载。后续可能另行要求源代码，因此必须保留最终提交对应的 Git commit、依赖锁文件和源代码快照。
 
-- 当前输入文本；
-- Capture 来源；
-- 基准日期；
-- 时区；
-- `zh-CN` 语言。
+### 比赛材料应突出
 
-Cloud 不发送已有任务、任务状态、计划、执行日志、知识卡片、UserDecision、回顾或备份。
-Cloud 第一版固定返回一个 `create` Proposal，不生成 split、merge 或
-`duplicateTaskId`。
+- 学生面对零散事项、邮件和计划执行脱节的真实问题；
+- 从 Capture 到 Review 的完整可运行闭环；
+- AI Proposal 与正式领域数据之间的用户确认边界；
+- local-first、隐私最小化和只读邮箱接入；
+- 结构化输出、Schema 校验、安全错误、显式回退和确定性 Review；
+- 五个 Product Surface 的移动优先体验；
+- GitHub CI、测试和可部署性证据。
 
-Cloud 失败后 Capture 保持 `proposalFailed`，用户可以重试或明确选择本地规则；
-系统不静默回退。
+不要为了评分表声称已经实现 RAG、多智能体、长期记忆、自动排期、公网上线 Cloud AI 或原生 App。材料只能描述当前代码和现场实际演示的能力。
 
-### 截至 2026-07-28 的历史外部 Provider 阻塞
-
-截至 2026-07-28，最近一次诊断已经确认：
-
-- 本机 Gateway 正常监听；
-- `/health` 正常；
-- Key 能通过认证并访问 `/models`；
-- `gpt-5.6-terra` 存在于模型列表；
-- `POST /responses` 返回 HTTP 403；
-- ChatAnywhere 的明确原因是当前账户余额不足。
-
-这项历史阻塞当时是外部账户余额，不是 Reflow 前端、Gateway、Base URL、Key 读取或模型名
-错误；它不描述当前 DeepSeek 本地 Gateway 状态，也不应据此执行充值或改 Key。
-
-当前 Gateway 会把多数上游 403/5xx 映射为通用“云端模型暂时不可用”，因此页面看不到
-额度不足的具体原因。这是一个可改善的错误映射问题，但不能把上游原始响应或 Key 片段
-直接返回浏览器。
-
-## 8. 截至 2026-07-28 的历史工程快照
-
-以下分支、提交、同步和工作区描述仅记录当时状态；开始工作时必须用 `git status`、
-`git branch --show-current` 和 `git rev-parse HEAD` 确认实际状态，不得将其作为当前工程事实。
-
-- 当时分支：`v1`
-- 当时提交：`96ce33b`
-- 本地与 `origin/v1` 同步
-- 创建本文档前的工作区是干净的
-- 官方 Pages 已启用并监听 `v1`
-- 官方 Demo 当前对应最新 `v1`
-- 官方 Demo 默认 Mock
-
-当时记录的完整验证规模：
-
-- 61 个 Jest 单元测试；
-- 8 个 Gateway 单元测试；
-- 10 条 Playwright E2E；
-- TypeScript、ESLint 和 Expo Web 静态导出通过；
-- GitHub Actions Verify 和 Pages 部署通过。
-
-当前回归规模以本文顶部和实际命令输出为准：Gateway 45、Jest 72、Playwright E2E 17。
-
-主要目录：
+### 建议的 5 分钟演示主线
 
 ```text
-src/app/                 Expo Router 五页路由
-src/core/                类型、Pipeline、Reducer、Selector、日期、计划和持久化
-src/features/            五页与共享 UI
-gateway/                 本地 Cloud Proposal Gateway
-tools/proposal-eval/     模型评测集、Prompt、Schema、运行器和评分器
-e2e/                     Web 核心流程验收
-docs/                    实施约束、AI 接入记录和评测报告
-.github/workflows/       Verify 与 Pages 部署
+问题与定位
+→ 手动 Capture / 邮件显式加入
+→ AI 或 Mock 生成结构化 Proposal
+→ Inbox 修改并确认
+→ Today 查看与 Task Detail 规划
+→ Calendar 安排具体时间
+→ Active 记录进展 / 中断并完成
+→ Review 查看确定性结果
+→ 强调用户确认、隐私和正式写入边界
 ```
 
-开始工作前应优先阅读：
-
-- [README.md](README.md)
-- [docs/implementation-plan.md](docs/implementation-plan.md)
-- [docs/cloud-proposal-plan.md](docs/cloud-proposal-plan.md)
-- [docs/cloud-proposal-evaluation.md](docs/cloud-proposal-evaluation.md)
-- [src/core/types.ts](src/core/types.ts)
-- [src/core/reducer.ts](src/core/reducer.ts)
-- [src/core/selectors.ts](src/core/selectors.ts)
-- [src/core/store.tsx](src/core/store.tsx)
-- [gateway/app.mjs](gateway/app.mjs)
-
-## 9. 当前没有完成的内容
-
-- 真实 AI 的 20～30 条、3～7 天真实使用验证；
-- 公网 AI Gateway；
-- 在线 Demo 真实 AI；
-- 公网认证、Turnstile、限流和硬额度；
-- 登录、账号和跨设备同步；
-- 课程表和教务系统；
-- 中科大邮箱以外的邮件服务、外部日历、飞书和分享扩展；
-- 邮箱后台监听、自动同步、回复、移动或删除；
-- Generic Connector Registry 和 Multi-provider ExternalItem Foundation；
-- 通知、语音和移动端快捷入口；
-- 独立知识库和搜索；
-- 项目、标签和周期任务；
-- 日历拖拽排期；
-- 原生安装包；
-- 多人协作；
-- 本地小模型；
-- 个性化学习和自进化；
-- 通用 Agent Runtime。
-
-公网真实 AI 方案已经讨论过，但当前决定是暂停部署，先进行本地真实 AI 试用。后续
-Agent 不得自行恢复公网部署工作。
-
-## 10. 历史下一步计划（截至 2026-08-09）
-
-> 本节记录 Cloud Proposal 收口阶段当时的执行计划，已经不是当前 `main` 的待办列表。当前比赛阶段以维护主线稳定和审查独立 feature PR 为主；没有真实 regression 时不主动扩展功能。
-
-后续工作必须拆成小步骤，每一步完成后停止等待审查。
-
-### 当前阶段结论（2026-08-09）
-
-- Cloud Proposal 产品范围已经冻结；AI 仍只生成一个 pending Proposal，正式数据只能由 UserDecision → Reducer 写入。
-- Windows E2E 生命周期 blocker 已由 PID-owned runner 解决；Playwright 17/17 可以自然返回 exit code 0，服务和端口能够清理。
-- DeepSeek 在固定 15 秒预算下的限定窗口为 3/6 成功、3/6 timeout；该结果保留为上游长尾延迟证据，不驱动 Prompt、Schema、模型 fallback、retry 或 timeout 变更。
-- 随后通过既有 `OPENAI_*` 兼容路径，以本地忽略配置运行 ChatAnywhere / `gpt-5.6-terra` / `high`。固定六条 Web Smoke 为 6/6 成功、0 timeout，Gateway 延迟约 2.7～5.1 秒，覆盖 unknown、范围日期、someday、多意图和明确日期；严重编造为 0。
-- 正式写入边界已再次验证：确认前 Task 5、Knowledge 2、TaskPlanEvent 5、Decision 0；确认一条明确日期 Proposal 后分别为 6、2、6、1，刷新后 Proposal、Decision 和 Task 保留。
-- ChatAnywhere Trial 只改变 `gateway/.dev.vars` 等被 Git 忽略的本地配置，没有新增 tracked Provider 架构；DeepSeek 支持和 tracked 默认没有删除，公开 Demo 仍默认 Mock。
-- 当前只进行最终工程收口、PR Review 和 CI；不得自动开始 20～30 条真实试用、公网 AI 部署或新的产品功能。
-
-### 历史 Step 1：DeepSeek 本地 Gateway 的 Day 1 定向复验
-
-这是本地验证任务，不扩展到公网、完整长期试用或新的产品能力：
-
-1. 使用已有本地安全配置启动 DeepSeek Gateway，不读取或输出 Key；
-2. 以不含隐私的合成输入做 Day 1 定向 Smoke，覆盖模糊输入、范围日期、明确延期、多意图和明确日期；
-3. 检查 Proposal 的 nullable 字段、日期归一化与确认前零正式写入；
-4. 运行对应 Gateway、离线和 Web 回归，记录命令输出与安全失败分类。
-
-验收后立即停止，不顺手修改 Prompt、Provider、超时或产品代码。
-
-#### 2026-08-07 Day 1 合成 Smoke（脱敏历史记录）
-
-本轮仅使用合成输入和本地 Gateway；未记录 Key、原始上游响应或真实用户数据。所有成功结果
-只停留在 pending Proposal，未经过 UserDecision / Reducer，正式数据写入为零。
-
-- “参赛材料”：经批准外网路径 HTTP 200，约 5.76 秒；`unknown`，bucket/date 为 null，耗时和下一步均为空。
-- “周末 Agent 资料”：HTTP 200，约 7.79 秒；`learning/task`，bucket/date 为 null，60 分钟，标题与下一步语义正确。
-- “下个月主页”：HTTP 504，约 15.04 秒；安全分类 `upstream_response` / `api_adapter` / `upstream_timeout`。失败未静默回退，正式数据仍为零。
-- Smoke 4–6 因失败即停止，未执行；首次受沙箱限制出现的 `network_error` 属执行环境限制，不计为模型失败。
-
-当时结论为 FIX REQUIRED：不得依据单次上游超时提高 15 秒 timeout 或改写 Prompt；后续当前下一步以本节下方的 teardown Gate 复验和限定六类 Smoke 计划为准。
-
-#### 2026-08-08 当前分支交接状态（`fix/cloud-proposal-conservative-semantics`，teardown Gate 前的历史记录）
-
-- 核心真实 AI Pipeline 已接通；AI 仍只生成 pending Proposal，只有 UserDecision → Reducer 可以写入正式数据，其他产品不变量不变。
-- 已通过：offline self-test、Gateway 45、Jest 72、typecheck、lint、`export:web` 与 `git diff --check`。
-- 历史上，完整 `npm run test:e2e` 曾出现 17/17 断言显示 `ok`、但 Windows 在 Playwright `webServer` teardown 后卡住并由 480 秒外层以退出码 124 结束的 blocker；该结论已由下方当前 teardown Gate 复验取代。
-- 真实合成 Smoke 1、2 成功，Smoke 3 在 15 秒安全超时，4–6 未执行；不得据此调整 Prompt、模型、timeout 或 retry。
-- 当时的唯一推荐下一步是独立解决 Playwright/Expo 的 Windows 进程退出问题；当前状态见下方 teardown Gate 复验。
-- 当前工作区未提交、未 push、未部署；分支范围与验证状态见 [分支说明](docs/branches/fix-cloud-proposal-conservative-semantics.md)。
-
-#### 2026-08-09 Windows E2E 生命周期 Gate（已修复）
-
-历史 480 秒 / 124 是 Playwright `webServer` 承担 Expo 与 mock Gateway 生命周期时的 Windows
-blocker；它不再是当前未解决问题。当前工作树移除了 Playwright `webServer`，改由
-PID-owned Node runner 启动、健康检查并只清理自己记录的 Expo / mock Gateway 子树。
-
-- 改动仅限 `package.json`、`playwright.config.ts`、`e2e/lifecycle-runner.mjs`、`e2e/run-e2e.mjs`、`e2e/lifecycle-runner-self-test.mjs`；未改产品、领域、AI 或 Gateway 业务语义。
-- 生命周期 Node 自测 5/5 通过：端口占用会在启动服务前失败；成功路径清理自有服务；子命令失败码原样传播；清理只针对记录 PID；重复清理幂等。
-- 受控 8081 端口污染会快速非零失败，不会静默复用 Cloud / Mock 服务，也不会启动 8082 或 8788。
-- 执行线程在端口干净条件下连续两轮完整 `npm run test:e2e` 均为 17/17，Playwright 与 runner 均自然返回 code 0；每轮后 8081、8082、8788 及本轮相关进程均已清理。监督也独立复跑 17/17、exit 0，并确认无端口或进程残留。
-- 该 runner 使用记录 PID 的受限清理，不依赖 `process.exit(0)`、忽略退出码、全局按进程名终止或复用既有服务；Windows 原问题由移除 `webServer` 生命周期责任得到规避。Node 子进程与记录 PID 的设计保持跨平台；CI/Linux 未被人为跳过或放宽。
-
-#### 2026-08-09 DeepSeek 六类 Web Smoke（早期外部阻塞记录）
-
-该历史窗口的合同为：DeepSeek 官方 API、`deepseek-v4-flash`、`high`、Prompt
-`reflow-proposal-conservative-v6`、Schema `reflow-cloud-proposal-draft-v4`、后处理
-`reflow-proposal-conservative-normalizer-v2` 与 15 秒上游生命周期 deadline。
-
-- 六条合成 Web Smoke 分两个受控窗口执行，共实际发出四条且均无重试。第一窗口的第 1、2 条分别约 3.6 秒和 3.5 秒后安全 unavailable；第二窗口的第 3、4 条分别约 0.44 秒和 3.74 秒后安全 unavailable。每个窗口都在连续两条 unavailable 后停止，因此第 5、6 条未发送，且从未切换 Mock。
-- 因没有返回 Proposal，当时不能验收分类、日期、nullable 字段或人工语义；该窗口的语义 Gate 为 **FAIL / blocked by external generation availability**，当时不可声称 PR-ready。
-- 两个窗口的 UI 都明确提供“重新使用云端整理”和“使用本地规则整理”入口，未发生静默回退。客户端安全失败码为 `proposal_unavailable`；在 diagnostics=false 条件下不能把它进一步断言为某个具体上游 HTTP 状态。Key、Prompt 与上游响应均未泄露。
-- 第二窗口的产品级备份计数再次证明确认前正式数据未写入：Task 5→5、Knowledge 2→2、TaskPlanEvent 5→5、Decision 0→0；仅增加两条失败 Capture，未产生 Proposal，也未经过 UserDecision / Reducer。
-- 监督后续只读验证 `/models` 与 `/user/balance` 均为 HTTP 200，目标模型可见且 `is_available=true`。这排除了持续性的 Key、余额或模型不可见问题，但不证明生成请求可用，也不能精确反推前两次上游状态。
-- 两个窗口的临时 UI 备份均已删除；8081 与 8787 已释放，相关本轮进程为零，诊断开关已恢复并保持关闭。
-
-#### 2026-08-09 DeepSeek 限量脱敏诊断与继续验收（历史记录）
-
-用户随后授权最多三条真实 Web UI 诊断请求。Gateway 仅临时记录白名单字段，未记录 Capture
-原文、Proposal 字段值、Prompt、Schema、Key、认证头或上游正文；诊断结束后本地文件和新启动的
-Gateway 运行时均已恢复为 `diagnostics=false`。
-
-- D1 成功：Gateway 约 12.5 秒、UI 约 12.8 秒；没有诊断事件。返回普通任务建议，范围日期保持 `suggestedDate=null`、去向待用户选择，没有回退到 today。
-- D2 失败：Gateway 约 15.0 秒、UI 约 15.4 秒；诊断为 `failureStage=upstream_response`、`classification=api_adapter`、`code=upstream_timeout`。按本轮分类属于 `other`，不是 local/network，也没有证据表明是 upstream 5xx。
-- D3 成功：Gateway 约 6.8 秒。测试动作因上一条失败后输入框保留文本而把两段合成输入拼接；模型保守返回未识别、日期/耗时/下一步为空，没有静默丢掉其中一项或创建多个 Proposal。该结果可作为多意图保守性的补充证据，但不能替代独立明确日期案例。
-- 本轮没有复现 `proposal_unavailable`，因此不能用这次结果追溯早期四次 unavailable 的唯一来源；早期状态仍只能归入 network 或 upstream 5xx 的安全合集。
-
-关闭诊断并重启 Gateway 后继续最小语义验收：
-
-- 独立明确日期案例约 4.0 秒成功，云端 Proposal 正确给出工作推进、次日本地日期、约 60 分钟和非空下一步。确认前该标题在 Today/Calendar 均为 0；点击确认后才出现一条最近决定和次日日历任务，刷新后二者仍保留。
-- 明确 someday 的一次显式重试约 15.0 秒安全超时；精确多意图案例约 15.0 秒安全超时。两条均未切 Mock、未增加自动 retry、未修改 15 秒 deadline。
-- 本窗口共 6 次请求：3 次成功、3 次上游响应超时。成功草案中严重编造为 0；正式写入只发生在独立明确日期案例的显式 UserDecision 之后。
-- 结束后 8081/8787 无监听，浏览器标签与本轮服务均已关闭，`diagnostics=false`，`CONTRIBUTING.md` 无差异，`git diff --check` 通过。
-- 窗口结束后的完整本地门禁再次通过：typecheck、lint、Jest 72/72、Gateway 45/45、离线 proposal self-test、Playwright 17/17 自然 exit 0、静态导出 7 条路由；E2E runner 完成自有进程清理。
-
-该 DeepSeek 窗口当时的结论为 **FAIL / external latency blocks semantic completion**：Pipeline、安全失败、明确日期、范围日期和确认后持久化已有真实证据；someday 与精确多意图案例仍未在该窗口返回可验收 Proposal。该历史结果不支持修改 Prompt、Schema、retry 或 15 秒 deadline，之后由下方 ChatAnywhere 兼容路径 Trial 补齐语义证据。
-
-#### 2026-08-09 ChatAnywhere 兼容路径 Trial（当前最终模型验证）
-
-- 沿用现有 Responses API、Prompt v6、Schema v4、Normalizer v2、`high` 和 15 秒 deadline，仅通过被 Git 忽略的本地 `OPENAI_*` 配置切换到 ChatAnywhere / `gpt-5.6-terra`；没有修改 tracked Provider 架构，也没有删除 DeepSeek 支持。
-- 固定六条真实 Web Smoke 每条请求一次，结果为 6/6 success、0 timeout。Gateway 平均约 3.49 秒，范围约 2.71～5.15 秒，没有超过 12 秒的边缘请求。
-- “参赛材料”保持 unknown 和 nullable 执行字段；“这周末”“下个月”不猜具体日期且不回退 today；“以后有空”进入 someday；多意图保留全部行动并提示拆开；明确次日加一小时正确返回本地次日和 60 分钟。
-- 严重编造为 0，所有 Draft 通过严格 Schema 与领域组合校验。确认前正式数据零增量；只有用户明确确认后才创建 Task、Decision 和 TaskPlanEvent，刷新后保留。
-- Gateway 45/45 和离线 Proposal self-test 通过；本地 API Key、Provider 配置和 DeepSeek 本地备份均被 Git 忽略，诊断最终关闭，测试服务与端口已清理。
-
-### 历史下一步：PR Review
-
-当前阶段只允许整理最终 diff、运行完整门禁、提交并推送当前功能分支，然后进入 PR Review。合并前以 CI 结果和 reviewer 对完整 diff 的审查为准；不要自动开始长期真实试用或新的产品方向。
-
-### Step 3：改善安全错误分类
-
-单独设计并实现安全映射：
-
-- 认证失败；
-- 账户额度不足；
-- 模型不可访问；
-- 上游限流；
-- 上游超时；
-- 非法模型输出。
-
-前端只显示安全、可操作的信息。禁止返回上游原始错误、Key 片段或第三方内部响应。
-该步骤只修改错误语义和测试，不改业务 Pipeline。
-
-### Step 4：建立真实试用记录模板
-
-模板只记录：
-
-- 请求是否成功；
-- 分类、日期和去向是否正确；
-- 修改了哪些字段；
-- 是否发生编造；
-- 是否改用本地规则；
-- 延迟是否可接受。
-
-不记录真实 Capture 原文、人物姓名或隐私内容。
-
-### Step 5：进行 3～7 天真实试用
-
-- 至少 20 条，目标 20～30 条；
-- 只输入参与者主动提供、非敏感的事项；
-- 严重编造必须为 0；
-- 请求成功率目标不低于 95%；
-- 至少 80% 结果可直接使用或只需一次修改；
-- 用户确认前不能出现正式数据写入。
-
-试用期间先积累数据，不要看到一次错误就立即修改 Prompt。
-
-### Step 6：一次只修复一个高频问题
-
-每次按以下顺序：
-
-1. 把真实问题抽象成不含隐私的回归案例；
-2. 判断问题属于 Prompt、Schema、日期后处理、UI 还是输入信息不足；
-3. 只修改一个层次；
-4. Prompt、Schema 或后处理变化必须增加版本号；
-5. 运行目标案例；
-6. 运行完整回归；
-7. 对比修改前后结果；
-8. 停止等待审查。
-
-### Step 7：试用通过后再选择下一条主线
-
-只能选择一个方向进入下一轮：
-
-- 公网真实 AI；
-- 课程表/教务系统；
-- 独立知识库；
-- 原生移动端；
-- 个性化偏好；
-- 本地小模型可行性研究。
-
-不要同时推进多条主线。
-
-## 11. 必须避开的坑
-
-### 架构坑
-
-- 不要让 ProposalService dispatch Action；
-- 不要让模型直接访问 Store 或持久化；
-- 不要把 `WorkflowBucket`、`TaskCategory` 和 `CaptureOutcome` 合成一个底层枚举；
-- 不要让 AI 计算或覆盖 ReviewFacts；
-- 不要为了“智能”引入 Agent Loop；
-- 不要把用户确认做成形式上的确认，正式数据必须在确认之后才产生。
-
-### 日期与统计坑
-
-- 不要用 `bucket=today` 判断今天任务；
-- 不要用字符串 `startsWith` 或随处 `new Date()` 判断日期；
-- 不要允许计划时间块跨自然日；
-- 不要把首尾相接的时间块判为冲突；
-- 重排任务时必须排除任务自身；
-- 不要把整条跨午夜 TimeEntry 归入开始日；
-- 不要用任务当前状态反向改写旧日期的历史回顾。
-
-### 持久化坑
-
-- 不要保存 Loading、Modal、Toast 或当前 Tab；
-- 不要直接相信导入的 JSON；
-- 不要在验证失败时覆盖主数据或恢复副本；
-- 不要删除被计划事件、耗时和进展引用的任务；
-- 修改 AIProposal nullable 字段时必须回归旧 v4 和新旧混合数据。
-
-### AI 与隐私坑
-
-- 不要把 API Key 放入 `EXPO_PUBLIC_*`、前端源码或浏览器存储；
-- 不要把现有任务、日历、日志、知识和备份默认上传；
-- 不要记录真实 Capture 原文；
-- 不要把第三方响应声明当成底层模型真实性证明；
-- 不要声称 `store:false` 等同于第三方绝不留存；
-- 不要静默回退到 Mock，让用户误以为结果来自真实 AI；
-- 不要把上游原始错误直接展示给用户。
-
-### 工程协作坑
-
-- 不要 force push；
-- 不要重写 `main`；
-- 不要删除已有参考文件；
-- 不要覆盖用户未提交的修改；
-- 不要一次实现多个里程碑；
-- 不要只跑单个测试就宣称完成；
-- 不要修改代码后自动提交或推送，除非用户明确要求；
-- 不要因为部署能成功就跳过产品回归。
-
-## 12. 值得保留的经验
-
-1. **先打通闭环，再做增强。** 拖拽、动画和完整日周视图都不能阻塞捕捉到回顾的主流程。
-2. **Proposal 与正式数据分离非常有效。** 模型可以替换，Inbox、Reducer、任务执行和 Review 不需要重写。
-3. **用户可见模型可以简单，底层模型必须严谨。** 九种标签适合用户，但内部维度必须分离。
-4. **历史事实应追加保存。** `TaskPlanEvent` 让顺延、撤销和旧日期回顾保持可解释。
-5. **统计必须从事实派生。** 这样刷新、迁移和模型替换都不会改变关键数字。
-6. **日期逻辑必须集中。** 之前测试曾因写死日期在第二天失败，E2E 已改为动态计算浏览器本地日期。
-7. **真实模型先评测再接入。** P0 的重复困难案例、Prompt 注入和版本记录避免了凭少量成功样本做判断。
-8. **Nullable 字段要诚实展示。** “未估计”和“待补充”优于用默认文案伪装成 AI 结果。
-9. **错误信息既要安全，也要可行动。** 当前额度不足被折叠成通用错误，说明安全映射仍需保留足够的用户可操作性。
-10. **部署分支必须与稳定分支一致。** Pages 曾先后监听 `lsc` 和 `v1`；当前 CI 与 Pages 均以 `main` 为稳定分支，功能分支通过 PR 合入后才发布。
-11. **真实使用问题应先累计再修。** 单个样本不能证明 Prompt 有系统性缺陷。
-12. **每次只改变一个变量。** Prompt、Schema、后处理和 UI 同时变化会让评测结果无法归因。
-
-## 13. 后续 Agent 的工作方式
-
-每次任务遵守：
+正式录制前使用专门的干净演示数据，不展示 API Key、邮箱密码、真实邮件正文、真实个人事项、浏览器开发者工具中的认证头或被忽略的本地配置。
+
+## 9. 比赛提交前检查清单
+
+- [ ] 冻结并记录最终 `main` commit SHA；
+- [ ] GitHub CI 全绿；
+- [ ] 普通 Mock 闭环从 Capture 到 Review 可完整演示；
+- [ ] 如演示 Cloud，使用非敏感合成输入并提前验证本机 Gateway；
+- [ ] 如演示邮箱，使用适合公开展示的测试邮件，不暴露凭据或私人正文；
+- [ ] 清理或修正超长开放执行段，避免错误时长进入录屏；
+- [ ] 刷新后任务、决定、计划、执行和 Review 仍保留；
+- [ ] 设计文档中的模型 / API 描述与现场配置一致；
+- [ ] 演示视频约 5 分钟且能独立看懂；
+- [ ] 可部署程序包含 README、依赖锁文件、启动说明和 `.dev.vars.example`，不含 `.dev.vars`；
+- [ ] 压缩包中没有 API Key、邮箱凭据、真实备份、真实 Capture、调试日志或 `node_modules`；
+- [ ] 压缩包命名、队长提交账号、P0581 分享和权限勾选正确；
+- [ ] 本地保留最终压缩包、源代码快照和上传成功证据。
+
+## 10. 后续维护方式
+
+比赛提交前默认行为：
 
 ```text
-阅读当前代码
-→ 陈述事实和影响范围
-→ 输出小步计划
-→ 等待确认
-→ 只实现一个步骤
-→ 运行定向测试
-→ 运行必要回归
-→ 汇报 diff、测试和风险
-→ 停止等待审查
+没有真实问题 → 不修改代码
+发现非阻塞问题 → 记录，不顺手修复
+发现演示阻塞或数据正确性回归 → 单独小分支，smallest sufficient fix
+新功能想法 → 比赛提交后再讨论
 ```
 
-每次交付必须说明：
+每次修复都必须：
 
-- 修改了什么；
-- 为什么这样修改；
-- 修改了哪些文件；
-- 哪些模块明确没有修改；
-- 运行了哪些测试；
-- 测试是否全部通过；
-- 已知限制；
-- 是否提交、是否推送；
-- 推荐的下一个最小步骤。
+1. 从最新 `main` 创建聚焦分支；
+2. 不覆盖用户本地配置和未提交改动；
+3. 只修改解决当前问题所必需的文件；
+4. 运行最小相关验证，完整仓库验证交给 GitHub CI；
+5. review diff，确认没有 Secret 和无关改动；
+6. push 并创建 PR，不自动 merge；
+7. CI 绿且人工确认后由 PR 作者合并；
+8. 合并后清理对应分支。
 
-在没有明确授权时，只做审计和计划，不提交、不推送、不部署、不扩大任务范围。
+## 11. 关键文件
 
+```text
+AGENTS.md                          Agent 默认开发规范
+CONTRIBUTING.md                    两人协作和 Git / PR 规则
+README.md                          当前产品、架构、运行和测试说明
+HANDOVER.md                        当前交接与比赛提交状态
+src/core/                          Domain、Reducer、Selectors、Persistence、Store
+src/features/                      Today / Inbox / Active / Calendar / Review
+gateway/README.md                  本地 AI 与 USTC Email Gateway
+gateway/.dev.vars.example          无 Secret 的配置模板
+docs/cloud-proposal-plan.md        Cloud Proposal 实施记录
+docs/cloud-proposal-evaluation.md  模型评测记录
+e2e/                               Web 核心闭环验收
+.github/workflows/ci.yml           PR / main 完整验证
+.github/workflows/deploy-pages.yml GitHub Pages 发布
+```
+
+以后发生状态变化时，只更新本文件的当前状态、已知问题、比赛检查清单和最终 commit；不要再把废弃分支的逐日过程记录追加成新的长篇历史。
