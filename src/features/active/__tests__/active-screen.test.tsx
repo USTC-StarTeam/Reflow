@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 import { createSeedData } from '@/core/demo-data';
 import { addDays, addLocalDays, dateKey, toZonedISOString } from '@/core/date-utils';
@@ -62,6 +62,15 @@ async function renderActive(store: ReflowStoreValue) {
   );
 }
 
+function dataWithOpenExecution(startedAt: string): DomainData {
+  const data = createSeedData();
+  data.progressLogs = [
+    ...data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo' || !['start', 'pause', 'complete'].includes(log.kind)),
+    { id: 'test-start', taskId: 'task-reflow-demo', kind: 'start', text: '开始', createdAt: startedAt },
+  ];
+  return data;
+}
+
 describe('ActiveScreen presentation', () => {
   beforeEach(() => { jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00')); });
   afterEach(() => { jest.useRealTimers(); });
@@ -102,6 +111,60 @@ describe('ActiveScreen presentation', () => {
     expect(store.recordTime).not.toHaveBeenCalled();
     expect(store.recordInterruption).not.toHaveBeenCalled();
     expect(store.deleteTask).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, string, string, boolean, number]>([
+    ['normal execution', '2026-07-17T12:00:00+08:00', '2026-07-17T11:00:00+08:00', false, 60],
+    ['exactly six hours', '2026-07-17T12:00:00+08:00', '2026-07-17T06:00:00+08:00', false, 360],
+    ['one second over six hours', '2026-07-17T12:00:01+08:00', '2026-07-17T06:00:00+08:00', true, 360],
+    ['two minutes across midnight', '2026-07-17T00:01:00+08:00', '2026-07-16T23:59:00+08:00', true, 2],
+  ])('shows consistent execution durations for %s without writing data', async (_name, now, startedAt, pending, minutes) => {
+    jest.setSystemTime(new Date(now));
+    const store = storeValue(dataWithOpenExecution(startedAt));
+    const originalData = JSON.stringify(store.data);
+    const screen = await renderActive(store);
+    const label = pending ? '当前执行段待核对 · 任务累计待核对' : `当前执行段 ${minutes} 分 · 任务累计 ${minutes + 45} 分`;
+
+    expect(screen.getByTestId('current-task-card')).toHaveTextContent(new RegExp(`${label} · 预计 90 分钟`));
+    expect(screen.getByTestId('execution-summary')).toHaveTextContent(new RegExp(`${label} · 暂停 0 次 · 被打断 1 次`));
+    expect(Boolean(screen.queryByTestId('execution-progress'))).toBe(!pending);
+    expect(Boolean(screen.queryByText('暂停或完成时可核对实际投入'))).toBe(pending);
+    expect(screen.queryByTestId('execution-correction')).toBeNull();
+    expect(JSON.stringify(store.data)).toBe(originalData);
+    Object.values(store).filter(jest.isMockFunction).forEach((action) => expect(action).not.toHaveBeenCalled());
+  });
+
+  it.each([
+    ['six hours', '2026-07-17T12:00:00+08:00', '2026-07-17T06:00:00+08:00'],
+    ['midnight', '2026-07-17T23:59:45+08:00', '2026-07-17T23:58:00+08:00'],
+  ])('marks the open execution as pending when the page stays open across %s', async (_name, now, startedAt) => {
+    jest.setSystemTime(new Date(now));
+    const store = storeValue(dataWithOpenExecution(startedAt));
+    const screen = await renderActive(store);
+    expect(screen.getByTestId('execution-progress')).toBeTruthy();
+
+    await act(async () => { jest.advanceTimersByTime(30_000); });
+
+    expect(screen.getByTestId('current-task-card')).toHaveTextContent(/当前执行段待核对 · 任务累计待核对/);
+    expect(screen.getByTestId('execution-summary')).toHaveTextContent(/当前执行段待核对 · 任务累计待核对/);
+    expect(screen.queryByTestId('execution-progress')).toBeNull();
+    expect(screen.queryByTestId('execution-correction')).toBeNull();
+    Object.values(store).filter(jest.isMockFunction).forEach((action) => expect(action).not.toHaveBeenCalled());
+  });
+
+  it.each(['pause-task', 'complete-task'])('does not write data when cancelling confirmation from %s', async (action) => {
+    const store = storeValue(dataWithOpenExecution('2026-07-17T05:00:00+08:00'));
+    const originalData = JSON.stringify(store.data);
+    const screen = await renderActive(store);
+
+    await fireEvent.press(screen.getByTestId(action));
+    expect(screen.getByTestId('execution-correction')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('关闭'));
+
+    expect(screen.queryByTestId('execution-correction')).toBeNull();
+    expect(screen.getByTestId('current-task-card')).toHaveTextContent(/当前执行段待核对 · 任务累计待核对/);
+    expect(JSON.stringify(store.data)).toBe(originalData);
+    Object.values(store).filter(jest.isMockFunction).forEach((method) => expect(method).not.toHaveBeenCalled());
   });
 
   it('requires confirmation for a cross-day execution before pausing and can keep the original duration', async () => {
