@@ -11,10 +11,10 @@ import { ExecutionCorrectionModal } from '../shared/execution-correction-modal';
 import { ActionButton, Card, Chip, EmptyState, Page, PageHeader, textStyles } from '../shared/ui';
 import { useCurrentTime } from '../shared/use-current-time';
 
-function executionSummary(logs: ProgressLog[], currentMinutes: number, totalMinutes: number): string {
+function executionSummary(logs: ProgressLog[], timeLabel: string): string {
   const pauses = logs.filter((log) => log.kind === 'pause').length;
   const interruptions = logs.filter((log) => log.kind === 'interrupt').length;
-  return `当前执行段 ${currentMinutes} 分 · 任务累计 ${totalMinutes} 分 · 暂停 ${pauses} 次 · 被打断 ${interruptions} 次`;
+  return `${timeLabel} · 暂停 ${pauses} 次 · 被打断 ${interruptions} 次`;
 }
 
 function CandidateRow({ task, onStart, pausedAt, today }: { task: TaskItem; onStart: () => void; pausedAt?: string; today: string }) {
@@ -51,6 +51,10 @@ export function ActiveScreen() {
   const currentExecution = active ? selectCurrentExecutionSession(data, active.id) : undefined;
   const recentProgress = [...activeLogs].filter((log) => log.kind === 'progress').sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 2);
   const executionMinutes = active ? selectTaskExecutionMinutes(data, active.id, clock) : { currentSegmentMinutes: 0, totalMinutes: 0 };
+  const needsExecutionConfirmation = Boolean(currentExecution && executionNeedsConfirmation(currentExecution.startedAt, toZonedISOString(clock)));
+  const executionTimeLabel = needsExecutionConfirmation
+    ? '当前执行段待核对 · 任务累计待核对'
+    : `当前执行段 ${executionMinutes.currentSegmentMinutes} 分 · 任务累计 ${executionMinutes.totalMinutes} 分`;
   const todayCandidates = data.tasks
     .filter((task) => !task.deletedAt && task.plannedDate === today && task.status === 'notStarted')
     .sort((left, right) => left.sortIndex - right.sortIndex);
@@ -101,8 +105,9 @@ export function ActiveScreen() {
       {active ? (
         <>
           <Card testID="current-task-card" style={styles.currentCard}>
-            <View style={styles.titleRow}><View style={styles.statusDot} /><View style={styles.titleCopy}><Text style={styles.activeTitle}>{active.title}</Text><Text style={textStyles.meta}>当前执行段 {executionMinutes.currentSegmentMinutes} 分 · 任务累计 {executionMinutes.totalMinutes} 分{active.estimatedMinutes ? ` · 预计 ${active.estimatedMinutes} 分钟` : ''}</Text></View></View>
-            {active.estimatedMinutes ? <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, Math.round((executionMinutes.totalMinutes / active.estimatedMinutes) * 100))}%` }]} /></View> : null}
+            <View style={styles.titleRow}><View style={styles.statusDot} /><View style={styles.titleCopy}><Text style={styles.activeTitle}>{active.title}</Text><Text style={textStyles.meta}>{executionTimeLabel}{active.estimatedMinutes ? ` · 预计 ${active.estimatedMinutes} 分钟` : ''}</Text></View></View>
+            {needsExecutionConfirmation ? <Text style={textStyles.meta}>暂停或完成时可核对实际投入</Text> : null}
+            {active.estimatedMinutes && !needsExecutionConfirmation ? <View testID="execution-progress" style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, Math.round((executionMinutes.totalMinutes / active.estimatedMinutes) * 100))}%` }]} /></View> : null}
           </Card>
 
           {active.nextAction ? <Card style={styles.nextCard}><Text style={styles.nextLabel}>下一步</Text><Text style={styles.nextText}>{active.nextAction}</Text></Card> : null}
@@ -142,7 +147,7 @@ export function ActiveScreen() {
 
           <Card testID="execution-summary" style={styles.summaryCard}>
             <Text style={textStyles.cardTitle}>执行概况</Text>
-            <Text style={styles.summaryText}>{executionSummary(activeLogs, executionMinutes.currentSegmentMinutes, executionMinutes.totalMinutes)}</Text>
+            <Text style={styles.summaryText}>{executionSummary(activeLogs, executionTimeLabel)}</Text>
             {recentProgress.length ? <View style={styles.recentProgress}><Text style={styles.recentTitle}>最近进展</Text>{recentProgress.map((log) => <View key={log.id} style={styles.progressRow}><View style={styles.progressDot} /><Text style={styles.progressTime}>{formatTime(log.createdAt)}</Text><Text style={styles.progressText}>{log.text}</Text></View>)}</View> : null}
           </Card>
         </>
