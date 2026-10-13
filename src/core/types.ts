@@ -227,8 +227,29 @@ export interface ReviewSummary extends ReviewFacts {
   suggestion: string;
 }
 
-export interface ReviewExplanationService {
-  explain(facts: Readonly<ReviewFacts>): Promise<{ narrative: string }>;
+// 复盘建议只能引用这里列出的事实，数字一律由程序从快照渲染，模型不得提供替换指标。
+export const REVIEW_FACT_IDS = [
+  'plannedCount',
+  'completedAsPlannedCount',
+  'completedTotalCount',
+  'recordedMinutes',
+  'interruptions',
+  'categoryMinutes',
+  'recordsComplete',
+] as const;
+
+export type ReviewFactId = typeof REVIEW_FACT_IDS[number];
+
+export interface DailyReviewSnapshot {
+  date: LocalDate;
+  timeZone: string;
+  plannedCount: number;
+  completedAsPlannedCount: number;
+  completedTotalCount: number;
+  recordedMinutes: number;
+  interruptions: number;
+  categoryMinutes: { category: TaskCategory; minutes: number }[];
+  recordsComplete: boolean;
 }
 
 export type ProposalServiceKind = 'mock' | 'cloud';

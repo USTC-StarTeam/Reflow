@@ -121,4 +121,21 @@ describe('ReviewScreen presentation', () => {
     expect(screen.getByTestId('knowledge-list')).toHaveTextContent(/报价沟通检查单/);
     expect(screen.queryByText('AI 观察')).toBeNull();
   });
+
+  it('offers the tomorrow suggestion only on Today and only in Cloud mode', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const seed = createSeedData(new Date('2026-07-17T12:00:00+08:00'));
+
+    const mockScreen = await renderReview(storeValue(seed));
+    expect(mockScreen.queryByTestId('review-tomorrow-suggestion')).toBeNull();
+    expect(mockScreen.queryByTestId('review-tomorrow-suggestion-gate')).toBeNull();
+
+    const cloudScreen = await renderReview({ ...storeValue(seed), proposalServiceKind: 'cloud' });
+    expect(cloudScreen.getByTestId('review-tomorrow-suggestion')).toHaveTextContent(/明天试一件事/);
+    expect(cloudScreen.getByTestId('review-tomorrow-suggestion')).toHaveTextContent(/仅发送统计事实，不含任务内容/);
+
+    await fireEvent.press(cloudScreen.getByLabelText('本周'));
+    expect(cloudScreen.queryByTestId('review-tomorrow-suggestion')).toBeNull();
+    expect(cloudScreen.getByTestId('review-weekly')).toBeTruthy();
+  });
 });

@@ -9,6 +9,7 @@ import { categoryLabels, type ReviewPeriod, type TimeEntry } from '@/core/types'
 import { colors, radius, spacing } from '../shared/theme';
 import { ActionButton, Card, EmptyState, ModalSurface, Page, PageHeader, SegmentedControl, textStyles } from '../shared/ui';
 import { useCurrentTime } from '../shared/use-current-time';
+import { TomorrowSuggestion } from './tomorrow-suggestion';
 
 const reviewPeriods: { value: ReviewPeriod; label: string }[] = [
   { value: 'daily', label: '今天' },
@@ -75,6 +76,8 @@ export function ReviewScreen() {
           <ActionButton testID="open-time-correction" label="核对记录" variant="orange" onPress={() => setTimeCorrectionOpen(true)} />
         </Card>
       ) : null}
+
+      {period === 'daily' ? <TomorrowSuggestion today={today} /> : null}
 
       <ReviewEntry
         testID="review-knowledge"

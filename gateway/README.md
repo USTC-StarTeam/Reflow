@@ -6,6 +6,9 @@
 Web Capture → CloudProposalService → POST /v1/proposals
 → DeepSeek 官方 Responses API → CloudProposalDraft
 
+Review → ReviewSuggestionService → POST /v1/review-proposals
+→ DeepSeek 官方 Responses API → 最多两条 ReviewProposal
+
 Inbox → GET /messages → USTC IMAP metadata
 Inbox → GET /messages/:uid → 单封邮件文本
 ```
@@ -102,6 +105,24 @@ npm run web
 - `locale = zh-CN`。
 
 前端不会发送任务列表、状态、计划日期、时间块、执行日志、知识卡片、决策历史、回顾或备份。
+
+### POST /v1/review-proposals
+
+「回顾 · 今天」的「明天试一件事」入口只在用户主动点击时调用一次该接口，且只在 Cloud 模式出现；Mock Demo 不展示伪装成真实 AI 的复盘。没有后台请求、自动弹窗或自动日终任务。
+
+前端只发送当天的聚合统计快照：
+
+- `date` 与 IANA `timeZone`；
+- `plannedCount`、`completedAsPlannedCount`、`completedTotalCount`；
+- `recordedMinutes`、`interruptions`；
+- `categoryMinutes`（只含类别枚举与分钟数）；
+- `recordsComplete`。
+
+Gateway 按精确字段集合校验，出现任何额外字段一律返回 `400` 且不调用模型，因此任务标题、任务 ID、邮件、执行日志原文、知识内容和备份在协议层就无法被发送。当天没有已结束的执行记录、存在未核对的异常 TimeEntry 或存在跨日开放执行段时，前端不会发起请求，而是引导用户先使用既有核对入口。
+
+返回最多两条临时建议，每条含 `title`、`factIds` 和一项 `action`。`factIds` 只能引用上面列出的统计字段；所有数字由前端从快照渲染，模型给出的文本里出现阿拉伯数字、全角数字或百分号会被 Gateway 直接判为 `502`。中文数词（例如「提前十分钟」）无法由机器可靠判定，只由 Prompt 约束。建议不进入领域持久化，只存在于当前页面内存中，跨日或事实变化后失效，必须重新生成才能采用。
+
+用户采用建议时走现有 `store.capture()`：草稿文本内嵌 ISO 日期，由 `POST /v1/proposals` 既有的确定性日期归一化带入 Inbox，正式任务仍然只能由用户在收件箱确认后创建。
 
 Gateway 使用服务器控制的 Prompt 和 JSON Schema，执行一次非流式 Responses API 请求，经过确定性日期归一化、Schema 校验和领域组合校验后才返回 Draft。模型拒绝、超时、限流、网络失败和非法输出都映射成安全错误，不返回上游原始错误。
 

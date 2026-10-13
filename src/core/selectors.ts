@@ -2,7 +2,7 @@ import { addDays, addLocalDays, compareLocalDates, dateKey, durationMilliseconds
 import { resolveProposalVisibleClassification } from './classification';
 import { findScheduleConflicts } from './planning';
 import { findOpenExecutionSegment, timeEntryNeedsCorrection } from './execution';
-import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type TimeEntry, type ZonedDateTime } from './types';
+import { categoryLabels, type CalendarTaskEntry, type DailyReviewFacts, type DailyReviewSnapshot, type DailyTaskOutcome, type DomainData, type LocalDate, type ReviewFacts, type ReviewPeriod, type ReviewSummary, type TaskCategory, type TaskItem, type TimeEntry, type ZonedDateTime } from './types';
 
 export interface CurrentExecutionSession {
   startedAt: string;
@@ -218,6 +218,55 @@ export function deriveDailyReviewFacts(data: DomainData, date: LocalDate): Daily
     taskOutcomes,
     actualMinutes: Math.round(overlapMilliseconds / 60_000),
     interruptions: data.progressLogs.filter((log) => log.kind === 'interrupt' && localDateOf(log.createdAt) === date).length,
+  };
+}
+
+export type DailyReviewRecordIssue = 'unconfirmedTimeEntry' | 'pendingOpenSegment' | 'noClosedExecution';
+
+function overlapsDay(startedAt: string, endedAt: string, start: Date, end: Date): boolean {
+  return intervalOverlapMilliseconds(startedAt, endedAt, start, end) > 0;
+}
+
+// 跨日开放执行段只按开始日期判断，不引入 now，否则快照会随时钟刷新持续失效。
+function hasPendingOpenSegmentBefore(data: DomainData, date: LocalDate): boolean {
+  return data.tasks.some((task) => {
+    if (task.deletedAt || task.status !== 'inProgress') return false;
+    const segment = findOpenExecutionSegment(data, task.id);
+    return segment ? compareLocalDates(localDateOf(segment.startedAt), date) < 0 : false;
+  });
+}
+
+export function selectDailyReviewRecordIssue(data: DomainData, date: LocalDate): DailyReviewRecordIssue | null {
+  const { start, end } = localDayInterval(date);
+  if (data.timeEntries.some((entry) => timeEntryNeedsCorrection(entry) && overlapsDay(entry.startedAt, entry.endedAt, start, end))) return 'unconfirmedTimeEntry';
+  if (hasPendingOpenSegmentBefore(data, date)) return 'pendingOpenSegment';
+  if (!data.timeEntries.some((entry) => overlapsDay(entry.startedAt, entry.endedAt, start, end))) return 'noClosedExecution';
+  return null;
+}
+
+export function deriveDailyReviewSnapshot(data: DomainData, date: LocalDate, timeZone: string): DailyReviewSnapshot {
+  const facts = deriveDailyReviewFacts(data, date);
+  const { start, end } = localDayInterval(date);
+  const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
+  const categories = new Map<TaskCategory, number>();
+  data.timeEntries.forEach((entry) => {
+    const overlap = intervalOverlapMilliseconds(entry.startedAt, entry.endedAt, start, end);
+    if (overlap <= 0) return;
+    const category = tasksById.get(entry.taskId)?.category ?? 'unknown';
+    categories.set(category, (categories.get(category) ?? 0) + overlap);
+  });
+  return {
+    date,
+    timeZone,
+    plannedCount: facts.plannedCount,
+    completedAsPlannedCount: facts.completedAsPlannedCount,
+    completedTotalCount: facts.completedTotalCount,
+    recordedMinutes: facts.actualMinutes,
+    interruptions: facts.interruptions,
+    categoryMinutes: [...categories.entries()]
+      .map(([category, milliseconds]) => ({ category, minutes: Math.round(milliseconds / 60_000) }))
+      .sort((left, right) => right.minutes - left.minutes),
+    recordsComplete: selectDailyReviewRecordIssue(data, date) === null,
   };
 }
 

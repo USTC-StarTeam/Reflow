@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 
 let proposalRequests = 0;
 let preflightRequests = 0;
+let reviewRequests = 0;
+let reviewMode = 'ok';
 
 function json(res, status, body) {
   res.statusCode = status;
@@ -144,19 +146,47 @@ function draftFor(request) {
   };
 }
 
+// 这些复盘建议只由快照里的确定性统计触发，文案不含任何数字，
+// 与 Gateway 对模型输出的硬性约束保持一致。
+function reviewSuggestionsFor(snapshot) {
+  const suggestions = [];
+  if (snapshot.interruptions > 0) {
+    suggestions.push({
+      title: '给一段执行留出完整时间',
+      factIds: ['interruptions', 'recordedMinutes'],
+      action: '明天挑一件已经记录过投入的事，开始时把手机放到视线外，直到这一段自然结束再取回。',
+    });
+  }
+  if (snapshot.plannedCount > snapshot.completedAsPlannedCount) {
+    suggestions.push({
+      title: '少排一项看看',
+      factIds: ['plannedCount', 'completedAsPlannedCount'],
+      action: '明天只把最要紧的几件事排进当天，其余先留在稍后，看看按计划完成的情况有什么变化。',
+    });
+  }
+  return suggestions.slice(0, 2);
+}
+
 const server = createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     json(res, 200, { status: 'ok' });
     return;
   }
   if (req.method === 'GET' && req.url === '/__count') {
-    json(res, 200, { proposalRequests, preflightRequests });
+    json(res, 200, { proposalRequests, preflightRequests, reviewRequests });
     return;
   }
   if (req.method === 'POST' && req.url === '/__reset') {
     proposalRequests = 0;
     preflightRequests = 0;
+    reviewRequests = 0;
+    reviewMode = 'ok';
     json(res, 200, { status: 'ok' });
+    return;
+  }
+  if (req.method === 'POST' && req.url.startsWith('/__review-mode')) {
+    reviewMode = new URL(req.url, 'http://localhost').searchParams.get('value') ?? 'ok';
+    json(res, 200, { status: 'ok', reviewMode });
     return;
   }
   if (req.method === 'OPTIONS') {
@@ -167,6 +197,27 @@ const server = createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.end();
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/v1/review-proposals') {
+    const reviewChunks = [];
+    req.on('data', (chunk) => reviewChunks.push(chunk));
+    req.on('end', () => {
+      reviewRequests += 1;
+      const request = JSON.parse(Buffer.concat(reviewChunks).toString('utf8'));
+      if (reviewMode === 'failure') {
+        json(res, 503, {
+          status: 'failure',
+          error: { code: 'proposal_unavailable', message: '模拟云端复盘暂时不可用。', retryable: true },
+        });
+        return;
+      }
+      json(res, 200, {
+        status: 'success',
+        schemaVersion: 1,
+        suggestions: reviewMode === 'empty' ? [] : reviewSuggestionsFor(request.snapshot),
+      });
+    });
     return;
   }
   if (req.method !== 'POST' || req.url !== '/v1/proposals') {
