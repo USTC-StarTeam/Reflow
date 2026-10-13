@@ -9,7 +9,7 @@ function invalidProposalFailure(): PipelineFailure {
   return { code: 'invalid_proposal', message: '建议结果格式无效，请重试。', retryable: true };
 }
 
-function deviceTimeZone(): string {
+export function deviceTimeZone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   } catch {

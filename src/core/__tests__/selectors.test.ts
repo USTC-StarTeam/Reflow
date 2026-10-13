@@ -1,9 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { createSeedData } from '../demo-data';
+import { createEmptyData, createSeedData } from '../demo-data';
 import { domainReducer } from '../reducer';
-import { deriveDailyReviewFacts, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectFirstAvailableSlot, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTimeEntriesNeedingCorrection, selectTodaySections } from '../selectors';
-import type { TaskItem } from '../types';
+import { deriveDailyReviewFacts, deriveDailyReviewSnapshot, deriveReview, deriveReviewFacts, isTaskDelayed, selectCalendarEntriesForDate, selectCurrentExecutionSession, selectCurrentTask, selectDailyReviewRecordIssue, selectFirstAvailableSlot, selectInboxAttentionCount, selectNeedsAttention, selectProposalVisibleClassification, selectRecentDecisions, selectTaskMinutes, selectTimeEntriesNeedingCorrection, selectTodaySections } from '../selectors';
+import type { DomainData, TaskItem, TaskPlanEvent } from '../types';
 
 const at = '2026-07-17T12:00:00+08:00';
 
@@ -183,5 +183,134 @@ describe('selectors', () => {
     const legacyWithoutSegment = { ...data, progressLogs: data.progressLogs.filter((log) => log.taskId !== 'task-reflow-demo') };
     expect(selectNeedsAttention(legacyWithoutSegment, '2026-07-17')[0]).toMatchObject({ kind: 'crossDayActive', task: { id: 'task-reflow-demo' } });
     expect(selectNeedsAttention(data, '2026-07-16')).toEqual([]);
+  });
+});
+
+function snapshotTask(overrides: Partial<TaskItem> = {}): TaskItem {
+  return {
+    id: 'task-snapshot', title: '整理实验数据', status: 'notStarted', category: 'learning', bucket: 'today',
+    estimatedMinutes: 60, nextAction: '导出原始数据', sourceSummary: 'Web 文本', sortIndex: 0,
+    createdAt: '2026-07-17T08:00:00+08:00', plannedDate: '2026-07-17',
+    ...overrides,
+  };
+}
+
+function plannedEvent(taskId: string, date: string, occurredAt = '2026-07-17T08:30:00+08:00'): TaskPlanEvent {
+  return { id: `plan-${taskId}`, taskId, kind: 'planned', occurredAt, before: {}, after: { plannedDate: date }, source: 'user' };
+}
+
+describe('deriveDailyReviewSnapshot', () => {
+  const readableDay: DomainData = {
+    ...createEmptyData(),
+    tasks: [
+      snapshotTask({ id: 'task-a', category: 'learning', status: 'completed', completedAt: '2026-07-17T11:00:00+08:00' }),
+      snapshotTask({ id: 'task-b', category: 'work', title: '整理周报' }),
+      snapshotTask({ id: 'task-c', category: 'work', title: '临时沟通', status: 'completed', plannedDate: undefined, completedAt: '2026-07-17T15:00:00+08:00' }),
+    ],
+    taskPlanEvents: [plannedEvent('task-a', '2026-07-17'), plannedEvent('task-b', '2026-07-17')],
+    timeEntries: [
+      { id: 'te-a', taskId: 'task-a', startedAt: '2026-07-17T09:00:00+08:00', endedAt: '2026-07-17T10:30:00+08:00', minutes: 90 },
+      { id: 'te-b', taskId: 'task-b', startedAt: '2026-07-17T14:00:00+08:00', endedAt: '2026-07-17T14:20:00+08:00', minutes: 20 },
+    ],
+    progressLogs: [{ id: 'log-interrupt', taskId: 'task-a', createdAt: '2026-07-17T09:30:00+08:00', text: '被打断', kind: 'interrupt' }],
+  };
+
+  it('exposes only whitelisted aggregate facts and agrees with the existing review kernels', () => {
+    const snapshot = deriveDailyReviewSnapshot(readableDay, '2026-07-17', 'Asia/Shanghai');
+    expect(snapshot).toEqual({
+      date: '2026-07-17',
+      timeZone: 'Asia/Shanghai',
+      plannedCount: 2,
+      completedAsPlannedCount: 1,
+      completedTotalCount: 2,
+      recordedMinutes: 110,
+      interruptions: 1,
+      categoryMinutes: [{ category: 'learning', minutes: 90 }, { category: 'work', minutes: 20 }],
+      recordsComplete: true,
+    });
+    expect(Object.keys(snapshot).sort()).toEqual([
+      'categoryMinutes', 'completedAsPlannedCount', 'completedTotalCount', 'date', 'interruptions',
+      'plannedCount', 'recordedMinutes', 'recordsComplete', 'timeZone',
+    ]);
+
+    const daily = deriveDailyReviewFacts(readableDay, '2026-07-17');
+    expect(snapshot.plannedCount).toBe(daily.plannedCount);
+    expect(snapshot.completedAsPlannedCount).toBe(daily.completedAsPlannedCount);
+    expect(snapshot.completedTotalCount).toBe(daily.completedTotalCount);
+    expect(snapshot.recordedMinutes).toBe(daily.actualMinutes);
+    expect(snapshot.interruptions).toBe(daily.interruptions);
+
+    const period = deriveReviewFacts(readableDay, 'daily', new Date('2026-07-17T18:00:00+08:00'));
+    expect(snapshot.categoryMinutes).toEqual(period.categoryMinutes);
+    expect(snapshot.recordedMinutes).toBe(period.actualMinutes);
+  });
+
+  it('keeps completed-that-day separate from completed-as-planned and never counts a deferred item twice', () => {
+    const deferred: DomainData = {
+      ...createEmptyData(),
+      tasks: [snapshotTask({ id: 'task-deferred', status: 'completed', completedAt: '2026-07-18T10:00:00+08:00', plannedDate: '2026-07-18' })],
+      taskPlanEvents: [
+        plannedEvent('task-deferred', '2026-07-17'),
+        { id: 'defer-event', taskId: 'task-deferred', kind: 'deferred', occurredAt: '2026-07-17T20:00:00+08:00', before: { plannedDate: '2026-07-17' }, after: { plannedDate: '2026-07-18' }, source: 'user' },
+      ],
+      timeEntries: [{ id: 'te-deferred', taskId: 'task-deferred', startedAt: '2026-07-18T09:00:00+08:00', endedAt: '2026-07-18T09:40:00+08:00', minutes: 40 }],
+    };
+
+    const originalDay = deriveDailyReviewSnapshot(deferred, '2026-07-17', 'Asia/Shanghai');
+    expect(originalDay).toMatchObject({ plannedCount: 1, completedAsPlannedCount: 0, completedTotalCount: 0, recordedMinutes: 0 });
+    expect(deriveDailyReviewFacts(deferred, '2026-07-17').taskOutcomes).toEqual([{ taskId: 'task-deferred', outcome: 'deferred', deferredTo: '2026-07-18' }]);
+
+    const movedDay = deriveDailyReviewSnapshot(deferred, '2026-07-18', 'Asia/Shanghai');
+    expect(movedDay).toMatchObject({ completedTotalCount: 1, recordedMinutes: 40 });
+  });
+
+  it('splits a confirmed cross-midnight TimeEntry by its overlap with each local day', () => {
+    const crossMidnight: DomainData = {
+      ...createEmptyData(),
+      tasks: [snapshotTask({ id: 'task-night', category: 'life' })],
+      timeEntries: [{
+        id: 'te-night', taskId: 'task-night', startedAt: '2026-07-16T23:00:00+08:00',
+        endedAt: '2026-07-17T01:00:00+08:00', minutes: 120, confirmedAt: '2026-07-17T01:05:00+08:00',
+      }],
+    };
+    expect(deriveDailyReviewSnapshot(crossMidnight, '2026-07-17', 'Asia/Shanghai')).toMatchObject({ recordedMinutes: 60, recordsComplete: true });
+    expect(deriveDailyReviewSnapshot(crossMidnight, '2026-07-16', 'Asia/Shanghai')).toMatchObject({ recordedMinutes: 60, recordsComplete: true });
+  });
+
+  it('excludes an in-progress segment from recorded minutes without blocking the snapshot', () => {
+    const running: DomainData = {
+      ...readableDay,
+      tasks: [...readableDay.tasks, snapshotTask({ id: 'task-running', status: 'inProgress', plannedDate: '2026-07-17' })],
+      progressLogs: [...readableDay.progressLogs, { id: 'log-open', taskId: 'task-running', kind: 'start', text: '开始', createdAt: '2026-07-17T16:00:00+08:00' }],
+    };
+    expect(selectDailyReviewRecordIssue(running, '2026-07-17')).toBeNull();
+    expect(deriveDailyReviewSnapshot(running, '2026-07-17', 'Asia/Shanghai')).toMatchObject({ recordedMinutes: 110, recordsComplete: true });
+  });
+
+  it('reports each blocking record issue so the entry can point at the existing correction flows', () => {
+    expect(selectDailyReviewRecordIssue(createEmptyData(), '2026-07-17')).toBe('noClosedExecution');
+    expect(deriveDailyReviewSnapshot(createEmptyData(), '2026-07-17', 'Asia/Shanghai').recordsComplete).toBe(false);
+
+    const unconfirmed: DomainData = {
+      ...createEmptyData(),
+      tasks: [snapshotTask({ id: 'task-forgotten' })],
+      timeEntries: [{ id: 'te-forgotten', taskId: 'task-forgotten', startedAt: '2026-07-16T23:30:00+08:00', endedAt: '2026-07-17T11:53:00+08:00', minutes: 743 }],
+    };
+    expect(selectDailyReviewRecordIssue(unconfirmed, '2026-07-17')).toBe('unconfirmedTimeEntry');
+    expect(deriveDailyReviewSnapshot(unconfirmed, '2026-07-17', 'Asia/Shanghai').recordsComplete).toBe(false);
+
+    const openCrossDay: DomainData = {
+      ...readableDay,
+      tasks: [...readableDay.tasks, snapshotTask({ id: 'task-open', status: 'inProgress' })],
+      progressLogs: [...readableDay.progressLogs, { id: 'log-cross', taskId: 'task-open', kind: 'start', text: '昨日开始', createdAt: '2026-07-16T23:30:00+08:00' }],
+    };
+    expect(selectDailyReviewRecordIssue(openCrossDay, '2026-07-17')).toBe('pendingOpenSegment');
+    expect(selectDailyReviewRecordIssue(openCrossDay, '2026-07-16')).toBe('noClosedExecution');
+  });
+
+  it('is a pure function of stored facts so it cannot drift while the clock ticks', () => {
+    const first = deriveDailyReviewSnapshot(readableDay, '2026-07-17', 'Asia/Shanghai');
+    const second = deriveDailyReviewSnapshot(readableDay, '2026-07-17', 'Asia/Shanghai');
+    expect(JSON.stringify(first)).toEqual(JSON.stringify(second));
   });
 });

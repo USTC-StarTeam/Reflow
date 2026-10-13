@@ -17,7 +17,7 @@ const [prompt, schema] = await Promise.all([
 
 const captureSources = new Set(['webText', 'voice', 'email', 'feishu', 'calendar', 'shareExtension', 'mobileShortcut']);
 
-function safeJson(res, status, body, origin) {
+export function safeJson(res, status, body, origin) {
   if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
@@ -25,7 +25,7 @@ function safeJson(res, status, body, origin) {
   res.end(JSON.stringify(body));
 }
 
-function failure(code, message, retryable) {
+export function failure(code, message, retryable) {
   return { status: 'failure', error: { code, message, retryable } };
 }
 
@@ -39,7 +39,7 @@ function logDiagnostic(logger, enabled, diagnostic) {
   });
 }
 
-function validTimeZone(value) {
+export function validTimeZone(value) {
   if (typeof value !== 'string' || !value || value.length > 80) return false;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
@@ -84,7 +84,7 @@ export function validateGatewayRequest(value) {
   };
 }
 
-async function readBody(req, maxBytes) {
+export async function readBody(req, maxBytes) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
@@ -99,7 +99,7 @@ async function readBody(req, maxBytes) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function safeUpstreamFailure(status) {
+export function safeUpstreamFailure(status) {
   if (status === 400) return { status: 400, body: failure('invalid_proposal', '云端模型请求格式无效，请检查本地模型配置。', false) };
   if (status === 401) return { status: 401, body: failure('proposal_unavailable', '云端模型认证失败，请检查本地 API Key。', false) };
   if (status === 402) return { status: 402, body: failure('proposal_unavailable', '云端模型账户余额不足，请充值或更换 API Key。', false) };
